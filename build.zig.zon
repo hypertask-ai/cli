@@ -1,0 +1,13 @@
+.{
+    .name = .htz,
+    .version = "0.1.0",
+    .fingerprint = 0x4206675a1c686e6a,
+    .minimum_zig_version = "0.15.0",
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "README.md",
+    },
+}
