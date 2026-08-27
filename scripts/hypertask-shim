@@ -1,127 +1,13 @@
 #!/usr/bin/env bash
-# hypertask shim — hot agent paths → native htz; everything else → Node CLI.
+# Prefer the native CLI. Keep the Node binary as an emergency fallback when htz
+# has not been installed on a machine yet.
 set -euo pipefail
 
 HTZ="${HTZ_BIN:-$HOME/.local/bin/htz}"
 NODE_CLI="${HYPERTASK_NODE_BIN:-$HOME/.npm-global/bin/hypertask-node}"
 
-fall_back() {
-  exec "$NODE_CLI" "$@"
-}
-
-if [[ ! -x "$HTZ" ]]; then
-  fall_back "$@"
+if [[ -x "$HTZ" ]]; then
+  exec "$HTZ" "$@"
 fi
 
-if [[ $# -eq 0 ]]; then
-  exec "$HTZ" --help
-fi
-
-# Keep originals for Node fallback (including --json).
-orig=("$@")
-
-# Build htz argv: drop --json (htz already emits JSON).
-htz_args=()
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --json) shift ;;
-    *) htz_args+=("$1"); shift ;;
-  esac
-done
-
-if [[ ${#htz_args[@]} -eq 0 ]]; then
-  fall_back "${orig[@]}"
-fi
-
-cmd="${htz_args[0]}"
-rest=("${htz_args[@]:1}")
-
-case "$cmd" in
-  task) cmd=tasks ;;
-  comments) cmd=comment ;;
-  projects) cmd=project ;;
-  sections) cmd=section ;;
-esac
-
-sub="${rest[0]:-}"
-
-case "$cmd" in
-  status)
-    exec "$HTZ" status
-    ;;
-  raw)
-    exec "$HTZ" raw "${rest[@]}"
-    ;;
-  tasks)
-    case "$sub" in
-      get|list|create|move|update)
-        exec "$HTZ" tasks "${rest[@]}"
-        ;;
-      assign)
-        # tasks assign TICKET --assignee N  →  tasks update TICKET --assignee N
-        ticket=""
-        assignee=""
-        project=""
-        i=1
-        while [[ $i -lt ${#rest[@]} ]]; do
-          a="${rest[$i]}"
-          case "$a" in
-            --assignee)
-              i=$((i + 1))
-              assignee="${rest[$i]:-}"
-              ;;
-            --assignee=*)
-              assignee="${a#--assignee=}"
-              ;;
-            --project)
-              i=$((i + 1))
-              project="${rest[$i]:-}"
-              ;;
-            --project=*)
-              project="${a#--project=}"
-              ;;
-            -*)
-              fall_back "${orig[@]}"
-              ;;
-            *)
-              if [[ -z "$ticket" ]]; then ticket="$a"; fi
-              ;;
-          esac
-          i=$((i + 1))
-        done
-        if [[ -z "$ticket" || -z "$assignee" ]]; then
-          fall_back "${orig[@]}"
-        fi
-        if [[ -n "$project" ]]; then
-          exec "$HTZ" tasks update "$ticket" --assignee "$assignee" --project "$project"
-        else
-          exec "$HTZ" tasks update "$ticket" --assignee "$assignee"
-        fi
-        ;;
-      *)
-        fall_back "${orig[@]}"
-        ;;
-    esac
-    ;;
-  comment)
-    case "$sub" in
-      list|add) exec "$HTZ" comment "${rest[@]}" ;;
-      *) fall_back "${orig[@]}" ;;
-    esac
-    ;;
-  project)
-    case "$sub" in
-      list) exec "$HTZ" project list ;;
-      *) fall_back "${orig[@]}" ;;
-    esac
-    ;;
-  section)
-    case "$sub" in
-      list) exec "$HTZ" section "${rest[@]}" ;;
-      *) fall_back "${orig[@]}" ;;
-    esac
-    ;;
-  *)
-    fall_back "${orig[@]}"
-    ;;
-esac
+exec "$NODE_CLI" "$@"

@@ -1,66 +1,58 @@
-# htz — native Hypertask CLI (Zig)
+# htz, the native Hypertask CLI
 
-Drop-in fast path for agent-heavy Hypertask CLI usage.
+`htz` implements the current Hypertask command catalog in Zig. It uses the same API routes and `~/.hypertask/config.json` as the Node CLI, while avoiding a Node startup for every command.
+
 Ticket: https://app.hypertask.ai/detail/project-15/5726
 
-## Why
+## Command coverage
 
-Every Node `hypertask` invocation boots V8 (~0.7–1.0s CPU, ~100MB RSS).
-With several agents polling, that burns real VPS cores. `htz` is a ~7MB
-statically linked Zig binary using `std.http` against the same `/api/mcp/*`
-endpoints and the same `~/.hypertask/config.json` token file.
-
-### Measured on Contabo (2026-08-26)
-
-| workload | wall | user CPU | peak RSS |
-|---|---:|---:|---:|
-| `htz --help` | 0.000s | 0.000s | 0.3 MB |
-| `hypertask --help` (Node) | 0.91s | 0.81s | 102 MB |
-| `htz tasks get` | 0.27s | 0.006s | 1.3 MB |
-| `hypertask tasks get` (Node) | 1.10s | 0.96s | 108 MB |
-| 5× parallel `htz get` | 0.35s | 0.04s | 4 MB |
-| 5× parallel Node get | 2.0s | **5.9s** | 116 MB |
-
-## Install (this VPS)
+The embedded catalog contains **132 leaf commands** — full parity with `@hypertask/hypertask_cli` v1.13.25.
 
 ```bash
-cd ~/projects/hypertask-cli-zig
-zig build -Doptimize=ReleaseFast
-cp -f zig-out/bin/htz ~/.local/bin/htz
-
-# Route hot `hypertask` subcommands through htz; fall back to Node for the rest
-ln -sfn ~/.npm-global/lib/node_modules/@hypertask/hypertask_cli/dist/hypertask_cli.js \
-  ~/.npm-global/bin/hypertask-node
-install -m 755 scripts/hypertask-shim ~/.npm-global/bin/hypertask
+htz capabilities --json
 ```
 
-After install, `hypertask tasks get …` / `comment …` / `status` hit `htz`
-automatically (≈0 user CPU). Unsupported commands still use Node.
+JSON is the default output. Pass `--human` for the minimal human-readable mode.
 
-## Commands (MVP)
+## Authentication
 
 ```bash
+htz login --token '<jwt>'
 htz status
-htz tasks get HTPR-5726 --project 15
-htz tasks list --project 15
-htz tasks create --project 15 --title "..." --section Triage
-htz tasks move HTPR-5726 --section "In Progress"
-htz tasks update HTPR-5726 --assignee 6
-htz comment list HTPR-5726 --project 15
-htz comment add HTPR-5726 --text "<p>hi</p>" --project 15
-htz project list
-htz section list --project 15
-htz raw GET '/mcp/tasks?ticket_number=HTPR-5726&project_id=15'
+htz logout
 ```
 
-Auth overrides: `--token`, `HT_TOKEN`, `HYPERTASKS_JWT_TOKEN`.
+Browser login is not available in the native CLI. Obtain a JWT through the Hypertask web app, then pass it to `login --token`.
 
-## Not yet (falls through to Node via shim)
+Token lookup supports `--token`, `HT_TOKEN`, `HYPERTASKS_JWT_TOKEN`, and `~/.hypertask/config.json`. API URL lookup supports `--api-url`, `HYPERTASKS_API_URL`, and the saved config.
 
-Login, pages, attachments, agents, webhooks, inbox, AI write, pretty tables.
+## Build and install
 
-## Next
+```bash
+zig build -Doptimize=ReleaseFast
+install -m 755 zig-out/bin/htz ~/.local/bin/htz
+```
 
-- Grow command parity for remaining agent workflows
-- Optional musl/libcurl static build if needed
-- GitHub release binaries
+## Agent usage
+
+Use `htz` directly instead of the Node `hypertask` binary for board operations:
+
+```bash
+htz tasks get HTPR-5726 --project 15
+htz tasks move HTPR-5726 --section "In Progress"
+htz comment add HTPR-5726 --text "<p>...</p>"
+htz search "query" --project 15
+```
+
+Browser login still requires the Node CLI once (`hypertask login`); after that `htz` reads the same token file.
+
+## Verification
+
+```bash
+zig build test
+python3 scripts/parity_test.py --capabilities-only
+python3 scripts/parity_test.py --architecture-only
+python3 scripts/parity_test.py
+```
+
+The final command runs a read-only subset against both CLIs and compares exit codes.
