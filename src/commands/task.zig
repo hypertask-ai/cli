@@ -73,7 +73,17 @@ fn get(context: *const Context) !void {
     var path = try query.Builder.init(context.allocator, "/mcp/tasks");
     defer path.deinit();
     try addIdentifierQuery(&path, context, identifier);
-    try context.call(.GET, path.path(), null);
+    var response = try context.fetch(.GET, path.path(), null);
+    defer response.deinit();
+    const code = @intFromEnum(response.status);
+    if (code >= 200 and code < 300) {
+        if (try numericIdentifierWarning(context.allocator, identifier, response.body)) |warning| {
+            defer context.allocator.free(warning);
+            try std.fs.File.stderr().writeAll(warning);
+            try std.fs.File.stderr().writeAll("\n");
+        }
+    }
+    try output.finish(&response);
 }
 
 fn descriptionHistory(context: *const Context) !void {
@@ -357,4 +367,56 @@ fn resolveLabelIds(context: *const Context, inputs: []const []const u8, project_
 fn isLabelId(value: []const u8) bool {
     if (resolve.isNumeric(value)) return true;
     return value.len == 36 and value[8] == '-' and value[13] == '-' and value[18] == '-' and value[23] == '-';
+}
+
+fn numericIdentifierWarning(allocator: std.mem.Allocator, identifier: []const u8, body: []const u8) !?[]u8 {
+    if (!resolve.isNumeric(identifier)) return null;
+    const requested = std.fmt.parseInt(i64, identifier, 10) catch return null;
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch return null;
+    defer parsed.deinit();
+    if (parsed.value != .object) return null;
+
+    var task_value: ?std.json.Value = parsed.value.object.get("task");
+    if (parsed.value.object.get("tasks")) |tasks| {
+        if (tasks == .array and tasks.array.items.len != 0) task_value = tasks.array.items[0];
+    }
+    const task = task_value orelse return null;
+    if (task != .object) return null;
+    const unique_index_value = task.object.get("uniqueIndex") orelse return null;
+    const unique_index = switch (unique_index_value) {
+        .integer => |number| number,
+        .string => |text| std.fmt.parseInt(i64, text, 10) catch return null,
+        else => return null,
+    };
+    if (unique_index == requested) return null;
+    const ticket_value = task.object.get("ticketNumber") orelse return null;
+    if (ticket_value != .string) return null;
+
+    const warning = try std.fmt.allocPrint(
+        allocator,
+        "Note: {s} was read as an internal task id and resolved to {s}. If you meant the ticket numbered {s}, pass the full ticket reference instead.",
+        .{ identifier, ticket_value.string, identifier },
+    );
+    return warning;
+}
+
+test "numeric task lookup warns when the internal id resolves to another ticket" {
+    const body =
+        \\{"success":true,"tasks":[{"id":5731,"uniqueIndex":1743,"ticketNumber":"HTPR-1743"}]}
+    ;
+    const warning = (try numericIdentifierWarning(std.testing.allocator, "5731", body)).?;
+    defer std.testing.allocator.free(warning);
+
+    try std.testing.expectEqualStrings(
+        "Note: 5731 was read as an internal task id and resolved to HTPR-1743. If you meant the ticket numbered 5731, pass the full ticket reference instead.",
+        warning,
+    );
+}
+
+test "numeric task lookup stays quiet when the visible ticket number matches" {
+    const body =
+        \\{"success":true,"tasks":[{"id":9999,"uniqueIndex":5731,"ticketNumber":"HTPR-5731"}]}
+    ;
+
+    try std.testing.expectEqual(@as(?[]u8, null), try numericIdentifierWarning(std.testing.allocator, "5731", body));
 }
