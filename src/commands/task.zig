@@ -83,7 +83,7 @@ fn get(context: *const Context) !void {
             try std.fs.File.stderr().writeAll("\n");
         }
     }
-    try output.finish(&response);
+    try context.finish(&response);
 }
 
 fn descriptionHistory(context: *const Context) !void {
@@ -178,7 +178,7 @@ fn create(context: *const Context) !void {
     if (code < 200 or code >= 300) return output.finish(&response);
     const ticket = try responseTicket(context, response.body);
     const uploaded = try attachments.upload(context, ticket, null, attach_inputs);
-    try output.print(try json.mergeRawField(context.allocator, response.body, "attachments_uploaded", uploaded));
+    try context.print(try json.mergeRawField(context.allocator, response.body, "attachments_uploaded", uploaded));
 }
 
 fn update(context: *const Context) !void {
@@ -223,7 +223,7 @@ fn update(context: *const Context) !void {
     const code = @intFromEnum(response.status);
     if (code < 200 or code >= 300) return output.finish(&response);
     const uploaded = try attachments.upload(context, ticket, null, attach_inputs);
-    try output.print(try json.mergeRawField(context.allocator, response.body, "attachments_uploaded", uploaded));
+    try context.print(try json.mergeRawField(context.allocator, response.body, "attachments_uploaded", uploaded));
 }
 
 fn assign(context: *const Context, intent: []const u8) !void {

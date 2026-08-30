@@ -95,7 +95,7 @@ fn write(context: *const Context) !void {
     defer applied.deinit();
     const applied_code = @intFromEnum(applied.status);
     if (applied_code < 200 or applied_code >= 300) return output.finish(&applied);
-    try output.print(try json.mergeRawField(context.allocator, generated.body, "applied", "true"));
+    try context.print(try json.mergeRawField(context.allocator, generated.body, "applied", "true"));
 }
 
 fn improveCommand(value: []const u8) []const u8 {

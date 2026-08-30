@@ -10,12 +10,12 @@ pub fn login(context: *const Context) !void {
         output.fail("browser login is unavailable in hypertask; use `hypertask login --token <jwt>`");
     };
     try config.saveToken(context.allocator, login_token, context.args.get("api-url") orelse context.cfg.api_url);
-    try output.print("{\"success\":true,\"saved\":true,\"configPath\":\"~/.hypertask/config.json\"}");
+    try context.print("{\"success\":true,\"saved\":true,\"configPath\":\"~/.hypertask/config.json\"}");
 }
 
 pub fn logout(context: *const Context) !void {
     if (context.args.get("token") != null) {
-        try output.print("{\"success\":true,\"message\":\"Saved authentication unchanged\"}");
+        try context.print("{\"success\":true,\"message\":\"Saved authentication unchanged\"}");
         return;
     }
     if (context.cfg.token.len != 0) {
@@ -23,7 +23,7 @@ pub fn logout(context: *const Context) !void {
         if (response) |*value| value.deinit();
     }
     try config.clear(context.allocator);
-    try output.print("{\"success\":true,\"message\":\"Logged out\"}");
+    try context.print("{\"success\":true,\"message\":\"Logged out\"}");
 }
 
 pub fn status(context: *const Context) !void {
@@ -34,7 +34,7 @@ pub fn status(context: *const Context) !void {
     try object.string("apiUrl", context.cfg.api_url);
     const path = try config.configPath(context.allocator);
     try object.string("configPath", path);
-    try output.print(try object.finish());
+    try context.print(try object.finish());
 }
 
 pub fn token(context: *const Context, subcommand: []const u8) !void {
@@ -42,7 +42,7 @@ pub fn token(context: *const Context, subcommand: []const u8) !void {
         const key = try context.args.requirePositional(2, "key");
         if (!std.mem.startsWith(u8, key, "htmk_")) output.fail("management key must start with htmk_");
         try config.saveManagementKey(context.allocator, key);
-        try output.print("{\"success\":true,\"saved\":true,\"configPath\":\"~/.hypertask/config.json\"}");
+        try context.print("{\"success\":true,\"saved\":true,\"configPath\":\"~/.hypertask/config.json\"}");
         return;
     }
     if (!std.mem.eql(u8, subcommand, "refresh")) output.fail("unknown token command");
@@ -61,7 +61,7 @@ pub fn token(context: *const Context, subcommand: []const u8) !void {
             saved = true;
         };
     }
-    if (!saved) return output.print(response.body);
+    if (!saved) return context.print(response.body);
 
     const parsed = try std.json.parseFromSlice(std.json.Value, context.allocator, response.body, .{});
     defer parsed.deinit();
@@ -71,5 +71,5 @@ pub fn token(context: *const Context, subcommand: []const u8) !void {
     if (parsed.value.object.get("token")) |value| if (value == .string) try object.string("token", value.string);
     if (parsed.value.object.get("expiresAt")) |value| if (value == .string) try object.string("expiresAt", value.string);
     try object.boolean("saved", true);
-    try output.print(try object.finish());
+    try context.print(try object.finish());
 }

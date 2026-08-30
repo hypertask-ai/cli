@@ -14,10 +14,18 @@ pub const Context = struct {
         try self.cfg.requireToken();
     }
 
+    pub fn print(self: *const Context, body: []const u8) !void {
+        try output.printResponse(self.allocator, body, self.json);
+    }
+
+    pub fn finish(self: *const Context, response: *http.Response) !void {
+        try output.finishResponse(self.allocator, response, self.json);
+    }
+
     pub fn call(self: *const Context, method: std.http.Method, path: []const u8, body: ?[]const u8) !void {
         var response = try self.fetch(method, path, body);
         defer response.deinit();
-        try output.finish(&response);
+        try self.finish(&response);
     }
 
     pub fn fetch(self: *const Context, method: std.http.Method, path: []const u8, body: ?[]const u8) !http.Response {
@@ -29,7 +37,7 @@ pub const Context = struct {
         if (token.len == 0) return error.NoToken;
         var response = try http.requestWithToken(self.allocator, self.cfg.api_url, token, method, path, body);
         defer response.deinit();
-        try output.finish(&response);
+        try self.finish(&response);
     }
 };
 

@@ -63,7 +63,7 @@ fn show(context: *const Context) !void {
                     defer result.deinit();
                     try result.boolean("success", true);
                     try result.raw("project", try std.json.Stringify.valueAlloc(context.allocator, candidate, .{}));
-                    return output.print(try result.finish());
+                    return context.print(try result.finish());
                 }
             }
             const has_more = document.value.object.get("has_more") orelse break;
