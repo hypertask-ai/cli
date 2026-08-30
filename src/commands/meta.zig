@@ -4,12 +4,12 @@ const query = @import("../query.zig");
 const output = @import("../output.zig");
 const json = @import("../json_util.zig");
 
-pub fn capabilities(_: *const Context) !void {
-    try output.print(@embedFile("../capabilities.json"));
+pub fn capabilities(context_value: *const Context) !void {
+    try context_value.print(@embedFile("../capabilities.json"));
 }
 
-pub fn update(_: *const Context) !void {
-    try output.print("{\"current\":\"0.2.0-zig\",\"latest\":null,\"available\":false,\"message\":\"Automatic npm updates are not available for hypertask\"}");
+pub fn update(context_value: *const Context) !void {
+    try context_value.print("{\"current\":\"0.2.0-zig\",\"latest\":null,\"available\":false,\"message\":\"Automatic npm updates are not available for hypertask\"}");
 }
 
 pub fn context(context_value: *const Context) !void {
@@ -22,7 +22,7 @@ pub fn context(context_value: *const Context) !void {
     defer project_document.deinit();
     const project_rows = project_document.value.object.get("projects") orelse return error.InvalidResponse;
     const project_json = try std.json.Stringify.valueAlloc(context_value.allocator, project_rows, .{});
-    try output.print(try json.mergeRawField(context_value.allocator, user_context.body, "projects", project_json));
+    try context_value.print(try json.mergeRawField(context_value.allocator, user_context.body, "projects", project_json));
 }
 
 pub fn teams(context_value: *const Context) !void {
@@ -34,7 +34,7 @@ pub fn teams(context_value: *const Context) !void {
     const document = try std.json.parseFromSlice(std.json.Value, context_value.allocator, user_context.body, .{});
     defer document.deinit();
     const teams_value = document.value.object.get("teams") orelse return error.InvalidResponse;
-    try output.print(try std.json.Stringify.valueAlloc(context_value.allocator, teams_value, .{}));
+    try context_value.print(try std.json.Stringify.valueAlloc(context_value.allocator, teams_value, .{}));
 }
 
 pub fn presence(context_value: *const Context) !void {

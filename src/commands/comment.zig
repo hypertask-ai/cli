@@ -39,7 +39,7 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
             else => return error.InvalidResponse,
         };
         const uploaded = try attachments.upload(context, ticket, comment_id, attach_inputs);
-        try output.print(try json.mergeRawField(context.allocator, response.body, "attachments_uploaded", uploaded));
+        try context.print(try json.mergeRawField(context.allocator, response.body, "attachments_uploaded", uploaded));
         return;
     }
     const id = try context.args.requirePositional(2, "id");
