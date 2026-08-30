@@ -182,10 +182,9 @@ fn create(context: *const Context) !void {
 }
 
 fn update(context: *const Context) !void {
-    const ticket = try context.args.requirePositional(2, "ticket");
-    var body = try json.Object.init(context.allocator);
+    const ticket = try context.args.requirePositional(2, "ticket-or-task-id");
+    var body = try identifierBody(context, ticket);
     defer body.deinit();
-    try body.string("ticket_number", try resolve.normalizedTicket(context.allocator, ticket));
     if (context.args.get("title")) |value| try body.string("title", value);
     if (context.args.get("description")) |value| {
         try body.string("description", value);
@@ -216,7 +215,7 @@ fn update(context: *const Context) !void {
     else blk: {
         var path = try query.Builder.init(context.allocator, "/mcp/tasks");
         defer path.deinit();
-        try path.add("ticket_number", ticket);
+        try addIdentifierQuery(&path, context, ticket);
         break :blk try context.fetch(.GET, path.path(), null);
     };
     defer response.deinit();
@@ -228,18 +227,16 @@ fn update(context: *const Context) !void {
 
 fn assign(context: *const Context, intent: []const u8) !void {
     const assignee = try context.args.require("assignee");
-    var body = try json.Object.init(context.allocator);
+    var body = try identifierBody(context, try context.args.requirePositional(2, "ticket-or-task-id"));
     defer body.deinit();
-    try body.string("ticket_number", try resolve.normalizedTicket(context.allocator, try context.args.requirePositional(2, "ticket")));
     if (resolve.isNumeric(assignee)) try body.integer("user_id", try common.positiveInt(assignee, "assignee")) else try body.string("agent_id", assignee);
     try body.string("intent", intent);
     try context.call(.POST, "/mcp/assignees/assign", try body.finish());
 }
 
 fn moveToInbox(context: *const Context) !void {
-    var body = try json.Object.init(context.allocator);
+    var body = try identifierBody(context, try context.args.requirePositional(2, "ticket-or-task-id"));
     defer body.deinit();
-    try body.string("ticket_number", try resolve.normalizedTicket(context.allocator, try context.args.requirePositional(2, "ticket")));
     if (context.args.get("user")) |value| try body.integer("user_id", try common.positiveInt(value, "user"));
     try context.call(.POST, "/mcp/inbox/move", try body.finish());
 }
@@ -313,12 +310,12 @@ fn searchValue(context: *const Context, value: []const u8) !void {
 }
 
 fn addIdentifierQuery(path: *query.Builder, context: *const Context, identifier: []const u8) !void {
-    if (resolve.isNumeric(identifier)) try path.add("task_id", identifier) else try path.add("ticket_number", try resolve.normalizedTicket(context.allocator, identifier));
+    try resolve.addTaskIdentifierQuery(path, context.allocator, identifier);
 }
 
 fn identifierBody(context: *const Context, identifier: []const u8) !json.Object {
     var body = try json.Object.init(context.allocator);
-    if (resolve.isNumeric(identifier)) try body.integer("task_id", try common.positiveInt(identifier, "task-id")) else try body.string("ticket_number", try resolve.normalizedTicket(context.allocator, identifier));
+    try resolve.addTaskIdentifierBody(&body, context.allocator, identifier);
     return body;
 }
 

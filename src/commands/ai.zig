@@ -37,7 +37,7 @@ fn write(context: *const Context) !void {
     if (context.args.get("task")) |ticket| {
         var path = try query.Builder.init(context.allocator, "/mcp/tasks");
         defer path.deinit();
-        try path.add("ticket_number", ticket);
+        try resolve.addTaskIdentifierQuery(&path, context.allocator, ticket);
         if (context.args.get("project")) |value| try path.add("project_id", value);
         var task_response = try context.fetch(.GET, path.path(), null);
         defer task_response.deinit();

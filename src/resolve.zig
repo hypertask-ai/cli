@@ -1,6 +1,8 @@
 const std = @import("std");
-const Context = @import("command_context.zig").Context;
+const common = @import("command_context.zig");
+const Context = common.Context;
 const http = @import("http.zig");
+const json = @import("json_util.zig");
 const query_mod = @import("query.zig");
 
 pub const Task = struct {
@@ -19,6 +21,20 @@ pub fn normalizedTicket(allocator: std.mem.Allocator, value: []const u8) ![]u8 {
     const result = try allocator.alloc(u8, trimmed.len);
     for (trimmed, 0..) |byte, index| result[index] = std.ascii.toUpper(byte);
     return result;
+}
+
+pub fn addTaskIdentifierQuery(path: *query_mod.Builder, allocator: std.mem.Allocator, identifier: []const u8) !void {
+    if (isNumeric(identifier)) return path.add("task_id", identifier);
+    const ticket = try normalizedTicket(allocator, identifier);
+    defer allocator.free(ticket);
+    try path.add("ticket_number", ticket);
+}
+
+pub fn addTaskIdentifierBody(body: *json.Object, allocator: std.mem.Allocator, identifier: []const u8) !void {
+    if (isNumeric(identifier)) return body.integer("task_id", try common.positiveInt(identifier, "task-id"));
+    const ticket = try normalizedTicket(allocator, identifier);
+    defer allocator.free(ticket);
+    try body.string("ticket_number", ticket);
 }
 
 pub fn task(context: *const Context, identifier: []const u8) !Task {
@@ -74,4 +90,21 @@ pub fn sectionId(context: *const Context, project_id: i64, value: []const u8) !i
         return jsonInteger(row, "id") orelse return error.InvalidResponse;
     }
     return error.SectionNotFound;
+}
+
+test "task identifier helpers distinguish numeric IDs from ticket keys" {
+    var path = try query_mod.Builder.init(std.testing.allocator, "/mcp/drafts");
+    defer path.deinit();
+    try addTaskIdentifierQuery(&path, std.testing.allocator, "35341");
+    try std.testing.expectEqualStrings("/mcp/drafts?task_id=35341", path.path());
+
+    var numeric_body = try json.Object.init(std.testing.allocator);
+    defer numeric_body.deinit();
+    try addTaskIdentifierBody(&numeric_body, std.testing.allocator, "35341");
+    try std.testing.expectEqualStrings("{\"task_id\":35341}", try numeric_body.finish());
+
+    var ticket_body = try json.Object.init(std.testing.allocator);
+    defer ticket_body.deinit();
+    try addTaskIdentifierBody(&ticket_body, std.testing.allocator, "qaro2-8");
+    try std.testing.expectEqualStrings("{\"ticket_number\":\"QARO2-8\"}", try ticket_body.finish());
 }
