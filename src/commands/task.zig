@@ -315,6 +315,7 @@ fn addIdentifierQuery(path: *query.Builder, context: *const Context, identifier:
 
 fn identifierBody(context: *const Context, identifier: []const u8) !json.Object {
     var body = try json.Object.init(context.allocator);
+    errdefer body.deinit();
     try resolve.addTaskIdentifierBody(&body, context.allocator, identifier);
     return body;
 }
