@@ -1,7 +1,9 @@
 const std = @import("std");
-const Context = @import("command_context.zig").Context;
+const common = @import("command_context.zig");
+const Context = common.Context;
 const json = @import("json_util.zig");
 const output = @import("output.zig");
+const resolve = @import("resolve.zig");
 
 const max_file_size = 15 * 1024 * 1024;
 
@@ -31,7 +33,7 @@ pub fn upload(context: *const Context, ticket: []const u8, comment_id: ?i64, inp
 
     var body = try json.Object.init(context.allocator);
     defer body.deinit();
-    try body.string("ticket_number", ticket);
+    try addIdentifierBody(&body, ticket);
     if (comment_id) |id| try body.integer("comment_id", id);
     try body.raw("files", files.items);
     var response = try context.fetch(.POST, "/mcp/tasks/attachments", try body.finish());
@@ -42,6 +44,14 @@ pub fn upload(context: *const Context, ticket: []const u8, comment_id: ?i64, inp
         return error.CommandFailed;
     }
     return context.allocator.dupe(u8, response.body);
+}
+
+fn addIdentifierBody(body: *json.Object, identifier: []const u8) !void {
+    if (resolve.isNumeric(identifier)) {
+        try body.integer("task_id", try common.positiveInt(identifier, "task-id"));
+    } else {
+        try body.string("ticket_number", identifier);
+    }
 }
 
 fn isUrl(value: []const u8) bool {
@@ -75,4 +85,20 @@ fn sniffMime(data: []const u8) ?[]const u8 {
     if (data.len >= 6 and (std.mem.eql(u8, data[0..6], "GIF87a") or std.mem.eql(u8, data[0..6], "GIF89a"))) return "image/gif";
     if (data.len >= 4 and std.mem.eql(u8, data[0..4], "%PDF")) return "application/pdf";
     return null;
+}
+
+test "numeric comment attachment identifiers use task_id" {
+    var body = try json.Object.init(std.testing.allocator);
+    defer body.deinit();
+    try addIdentifierBody(&body, "34874");
+    try body.integer("comment_id", 7);
+    try std.testing.expectEqualStrings("{\"task_id\":34874,\"comment_id\":7}", try body.finish());
+}
+
+test "comment attachment ticket identifiers keep ticket_number" {
+    var body = try json.Object.init(std.testing.allocator);
+    defer body.deinit();
+    try addIdentifierBody(&body, "AEXP-1");
+    try body.integer("comment_id", 7);
+    try std.testing.expectEqualStrings("{\"ticket_number\":\"AEXP-1\",\"comment_id\":7}", try body.finish());
 }

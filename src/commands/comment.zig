@@ -11,7 +11,7 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
     if (std.mem.eql(u8, subcommand, "list")) {
         var path = try query.Builder.init(context.allocator, "/mcp/comments");
         defer path.deinit();
-        try path.add("ticket_number", try context.args.requirePositional(2, "ticket"));
+        try addIdentifierQuery(&path, try context.args.requirePositional(2, "ticket"));
         return context.call(.GET, path.path(), null);
     }
     if (std.mem.eql(u8, subcommand, "add")) {
@@ -21,7 +21,7 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
         if (context.args.has("improve")) text = try improve(context, ticket, text);
         var body = try json.Object.init(context.allocator);
         defer body.deinit();
-        try body.string("ticket_number", ticket);
+        try addIdentifierBody(&body, ticket);
         try body.string("text", text);
         if (context.args.has("markdown")) try body.string("content_type", "markdown");
         const attach_inputs = try common.optionList(context, "attach");
@@ -54,6 +54,22 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
     return error.UnknownCommand;
 }
 
+fn addIdentifierQuery(path: *query.Builder, identifier: []const u8) !void {
+    if (resolve.isNumeric(identifier)) {
+        try path.add("task_id", identifier);
+    } else {
+        try path.add("ticket_number", identifier);
+    }
+}
+
+fn addIdentifierBody(body: *json.Object, identifier: []const u8) !void {
+    if (resolve.isNumeric(identifier)) {
+        try body.integer("task_id", try common.positiveInt(identifier, "task-id"));
+    } else {
+        try body.string("ticket_number", identifier);
+    }
+}
+
 fn improve(context: *const Context, ticket: []const u8, text: []const u8) ![]const u8 {
     const task = try resolve.task(context, ticket);
     var body = try json.Object.init(context.allocator);
@@ -77,4 +93,30 @@ fn improveCommand(value: []const u8) []const u8 {
     if (std.mem.eql(u8, value, "summarize")) return "Summarize";
     if (std.mem.eql(u8, value, "make-shorter")) return "MakeShorter";
     return "ImproveReadability";
+}
+
+test "numeric comment identifiers use task_id" {
+    var path = try query.Builder.init(std.testing.allocator, "/mcp/comments");
+    defer path.deinit();
+    try addIdentifierQuery(&path, "34874");
+    try std.testing.expectEqualStrings("/mcp/comments?task_id=34874", path.path());
+
+    var body = try json.Object.init(std.testing.allocator);
+    defer body.deinit();
+    try addIdentifierBody(&body, "34874");
+    try body.string("text", "x");
+    try std.testing.expectEqualStrings("{\"task_id\":34874,\"text\":\"x\"}", try body.finish());
+}
+
+test "comment ticket identifiers keep ticket_number" {
+    var path = try query.Builder.init(std.testing.allocator, "/mcp/comments");
+    defer path.deinit();
+    try addIdentifierQuery(&path, "AEXP-1");
+    try std.testing.expectEqualStrings("/mcp/comments?ticket_number=AEXP-1", path.path());
+
+    var body = try json.Object.init(std.testing.allocator);
+    defer body.deinit();
+    try addIdentifierBody(&body, "AEXP-1");
+    try body.string("text", "x");
+    try std.testing.expectEqualStrings("{\"ticket_number\":\"AEXP-1\",\"text\":\"x\"}", try body.finish());
 }
