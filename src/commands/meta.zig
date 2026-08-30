@@ -4,8 +4,71 @@ const query = @import("../query.zig");
 const output = @import("../output.zig");
 const json = @import("../json_util.zig");
 
+const Capability = struct {
+    const Self = @This();
+
+    name: []const u8,
+    description: []const u8 = "",
+    commands: []const Self = &.{},
+};
+
 pub fn capabilities(context_value: *const Context) !void {
-    try context_value.print(@embedFile("../capabilities.json"));
+    const catalog = @embedFile("../capabilities.json");
+    if (context_value.args.has("json")) return output.print(catalog);
+    try output.print(try capabilitiesMarkdown(context_value.allocator, catalog));
+}
+
+fn capabilitiesMarkdown(allocator: std.mem.Allocator, source: []const u8) ![]u8 {
+    const parsed = try std.json.parseFromSlice(Capability, allocator, source, .{ .ignore_unknown_fields = true });
+    defer parsed.deinit();
+
+    var result: std.ArrayListUnmanaged(u8) = .{};
+    errdefer result.deinit(allocator);
+    const writer = result.writer(allocator);
+    try writer.print("# Hypertask CLI capabilities\n\n{s}\n\n## Commands\n\n", .{parsed.value.description});
+
+    var path: std.ArrayListUnmanaged(u8) = .{};
+    defer path.deinit(allocator);
+    try appendCommands(&result, &path, allocator, parsed.value.commands);
+    try result.appendSlice(allocator, "\nRun `hypertask capabilities --json` for arguments, options, and aliases.\n");
+    return result.toOwnedSlice(allocator);
+}
+
+fn appendCommands(result: *std.ArrayListUnmanaged(u8), path: *std.ArrayListUnmanaged(u8), allocator: std.mem.Allocator, commands: []const Capability) !void {
+    for (commands) |command| {
+        const previous_len = path.items.len;
+        if (previous_len != 0) try path.append(allocator, ' ');
+        try path.appendSlice(allocator, command.name);
+
+        if (command.commands.len == 0) {
+            try result.writer(allocator).print("- `{s}`: {s}\n", .{ path.items, command.description });
+        } else {
+            try appendCommands(result, path, allocator, command.commands);
+        }
+        path.shrinkRetainingCapacity(previous_len);
+    }
+}
+
+test "capabilities markdown lists leaf command paths" {
+    const source =
+        \\{"name":"hypertask","description":"Manage tasks","commands":[{"name":"login","description":"Sign in"},{"name":"task","description":"Task commands","commands":[{"name":"get","description":"Get one task"}]}]}
+    ;
+    const rendered = try capabilitiesMarkdown(std.testing.allocator, source);
+    defer std.testing.allocator.free(rendered);
+
+    try std.testing.expectEqualStrings(
+        \\# Hypertask CLI capabilities
+        \\
+        \\Manage tasks
+        \\
+        \\## Commands
+        \\
+        \\- `login`: Sign in
+        \\- `task get`: Get one task
+        \\
+        \\Run `hypertask capabilities --json` for arguments, options, and aliases.
+        \\
+    , rendered);
 }
 
 pub fn update(context_value: *const Context) !void {
