@@ -12,7 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 NODE_CLI = "hypertask"
-ZIG_CLI = str(ROOT / "zig-out" / "bin" / "htz")
+ZIG_CLI = str(ROOT / "zig-out" / "bin" / "hypertask")
 
 
 def run(command: list[str]) -> subprocess.CompletedProcess[str]:

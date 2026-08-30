@@ -9,7 +9,7 @@ pub fn capabilities(_: *const Context) !void {
 }
 
 pub fn update(_: *const Context) !void {
-    try output.print("{\"current\":\"0.2.0-zig\",\"latest\":null,\"available\":false,\"message\":\"Automatic npm updates are not available for htz\"}");
+    try output.print("{\"current\":\"0.2.0-zig\",\"latest\":null,\"available\":false,\"message\":\"Automatic npm updates are not available for hypertask\"}");
 }
 
 pub fn context(context_value: *const Context) !void {
