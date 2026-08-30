@@ -20,6 +20,10 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
         defer body.deinit();
         try body.string("agent_id", try context.args.require("id"));
         try context.callWithToken(token, .DELETE, "/mcp/admin/agents", try body.finish());
+    } else if (std.mem.eql(u8, subcommand, "delete")) {
+        try requireDeleteConfirmation(context.args.has("confirm"));
+        const path = try deletePath(context.allocator, try context.args.require("id"));
+        try context.callWithToken(token, .DELETE, path, null);
     } else if (std.mem.eql(u8, subcommand, "rotate-token")) {
         const id = try context.args.require("id");
         const path = try std.fmt.allocPrint(context.allocator, "/mcp/admin/agents/{s}/token", .{id});
@@ -32,4 +36,21 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
         const path = try std.fmt.allocPrint(context.allocator, "/mcp/agents/{s}", .{id});
         try context.callWithToken(token, .PATCH, path, try body.finish());
     } else return error.UnknownCommand;
+}
+
+fn requireDeleteConfirmation(confirmed: bool) !void {
+    if (!confirmed) return error.ConfirmationRequired;
+}
+
+fn deletePath(allocator: std.mem.Allocator, id: []const u8) ![]u8 {
+    return std.fmt.allocPrint(allocator, "/mcp/agents/{s}", .{id});
+}
+
+test "agent deletion requires confirmation and uses the owned-agent endpoint" {
+    try std.testing.expectError(error.ConfirmationRequired, requireDeleteConfirmation(false));
+    try requireDeleteConfirmation(true);
+
+    const path = try deletePath(std.testing.allocator, "agent-id");
+    defer std.testing.allocator.free(path);
+    try std.testing.expectEqualStrings("/mcp/agents/agent-id", path);
 }
