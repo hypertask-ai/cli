@@ -22,7 +22,7 @@ pub const Config = struct {
 
     pub fn requireToken(self: *const Config) !void {
         if (self.token.len == 0) {
-            std.debug.print("no token: run `htz login --token <jwt>` or pass --token / HT_TOKEN\n", .{});
+            std.debug.print("no token: run `hypertask login --token <jwt>` or pass --token / HT_TOKEN\n", .{});
             return error.NoToken;
         }
     }

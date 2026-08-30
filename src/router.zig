@@ -68,10 +68,10 @@ pub fn dispatch(context: *const Context) !void {
 
 pub fn printHelp() !void {
     try output.print(
-        \\htz 0.2.0-zig, native Hypertask CLI
+        \\hypertask 0.2.0 (zig), native Hypertask CLI
         \\
-        \\Usage: htz [--json] [--token <jwt>] [--api-url <url>] <command> ...
+        \\Usage: hypertask [--json] [--token <jwt>] [--api-url <url>] <command> ...
         \\
-        \\Run `htz capabilities --json` for the complete command and option catalog.
+        \\Run `hypertask capabilities --json` for the complete command and option catalog.
     );
 }

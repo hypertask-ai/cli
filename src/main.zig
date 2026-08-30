@@ -4,11 +4,11 @@ const config = @import("config.zig");
 const Context = @import("command_context.zig").Context;
 const router = @import("router.zig");
 
-const version = "0.2.0-zig";
+const version = "0.2.0 (zig)";
 
 pub fn main() void {
     run() catch |err| {
-        std.debug.print("htz: {s}\n", .{@errorName(err)});
+        std.debug.print("hypertask: {s}\n", .{@errorName(err)});
         std.process.exit(1);
     };
 }
@@ -28,7 +28,7 @@ fn run() !void {
     var parsed = try args_mod.parse(allocator, raw.items);
     defer parsed.deinit();
     if (parsed.has("version")) {
-        try std.fs.File.stdout().writeAll("htz " ++ version ++ "\n");
+        try std.fs.File.stdout().writeAll("hypertask " ++ version ++ "\n");
         return;
     }
     if (parsed.has("help")) return router.printHelp();

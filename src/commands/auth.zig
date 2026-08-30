@@ -7,7 +7,7 @@ const output = @import("../output.zig");
 
 pub fn login(context: *const Context) !void {
     const login_token = context.args.get("token") orelse {
-        output.fail("browser login is unavailable in htz; use `htz login --token <jwt>`");
+        output.fail("browser login is unavailable in hypertask; use `hypertask login --token <jwt>`");
     };
     try config.saveToken(context.allocator, login_token, context.args.get("api-url") orelse context.cfg.api_url);
     try output.print("{\"success\":true,\"saved\":true,\"configPath\":\"~/.hypertask/config.json\"}");
