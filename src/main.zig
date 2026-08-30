@@ -57,4 +57,5 @@ test {
     _ = @import("query.zig");
     _ = @import("token_refresh.zig");
     _ = @import("commands/project.zig");
+    _ = @import("commands/task.zig");
 }
