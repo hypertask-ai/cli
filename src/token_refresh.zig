@@ -118,20 +118,32 @@ test "a saved token within seven days is refreshed and replaced before dispatch"
 
 test "newer and non-saved tokens are not refreshed" {
     const now: i64 = 1_800_000_000;
-    const token = try testToken(std.testing.allocator, now + refresh_window_seconds + 1);
-    defer std.testing.allocator.free(token);
+    const newer_token = try testToken(std.testing.allocator, now + refresh_window_seconds + 1);
+    defer std.testing.allocator.free(newer_token);
+    var saved_cfg = config.Config{
+        .allocator = std.testing.allocator,
+        .token = newer_token,
+        .token_source = .saved,
+    };
+    var saved_dependencies = FakeDependencies{ .allocator = std.testing.allocator };
+    defer saved_dependencies.deinit();
 
-    for ([_]config.TokenSource{ .saved, .environment, .argument }) |source| {
-        var cfg = config.Config{
+    try maybeRefreshWith(std.testing.allocator, &saved_cfg, &saved_dependencies, now);
+    try std.testing.expectEqual(@as(usize, 0), saved_dependencies.request_count);
+
+    const expiring_token = try testToken(std.testing.allocator, now + refresh_window_seconds);
+    defer std.testing.allocator.free(expiring_token);
+    for ([_]config.TokenSource{ .environment, .argument }) |source| {
+        var explicit_cfg = config.Config{
             .allocator = std.testing.allocator,
-            .token = token,
+            .token = expiring_token,
             .token_source = source,
         };
-        var dependencies = FakeDependencies{ .allocator = std.testing.allocator };
-        defer dependencies.deinit();
+        var explicit_dependencies = FakeDependencies{ .allocator = std.testing.allocator };
+        defer explicit_dependencies.deinit();
 
-        try maybeRefreshWith(std.testing.allocator, &cfg, &dependencies, now);
-        try std.testing.expectEqual(@as(usize, 0), dependencies.request_count);
+        try maybeRefreshWith(std.testing.allocator, &explicit_cfg, &explicit_dependencies, now);
+        try std.testing.expectEqual(@as(usize, 0), explicit_dependencies.request_count);
     }
 }
 
