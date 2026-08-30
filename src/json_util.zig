@@ -88,6 +88,16 @@ pub const Object = struct {
         try self.buffer.append(self.allocator, ']');
     }
 
+    pub fn integerValues(self: *Object, name: []const u8, values: []const i64) !void {
+        try self.key(name);
+        try self.buffer.append(self.allocator, '[');
+        for (values, 0..) |value, index| {
+            if (index != 0) try self.buffer.append(self.allocator, ',');
+            try self.buffer.writer(self.allocator).print("{d}", .{value});
+        }
+        try self.buffer.append(self.allocator, ']');
+    }
+
     pub fn identifiers(self: *Object, name: []const u8, values: []const []const u8) !void {
         try self.key(name);
         try self.buffer.append(self.allocator, '[');

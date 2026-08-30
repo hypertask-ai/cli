@@ -6,7 +6,7 @@ Ticket: https://app.hypertask.ai/detail/project-15/5726
 
 ## Command coverage
 
-The embedded catalog contains **132 leaf commands** — full parity with `@hypertask/hypertask_cli` v1.13.25.
+The embedded catalog contains **135 leaf commands**.
 
 ```bash
 hypertask capabilities --json
@@ -41,6 +41,7 @@ Use `hypertask` for board operations:
 hypertask tasks get HTPR-5726 --project 15
 hypertask tasks move HTPR-5726 --section "In Progress"
 hypertask comment add HTPR-5726 --text "<p>...</p>"
+hypertask agents update --id <agent-id> --add-project 339
 hypertask search "query" --project 15
 ```
 
