@@ -33,10 +33,10 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
         return context.call(.POST, "/mcp/custom-fields/value", try body.finish());
     }
     if (std.mem.eql(u8, subcommand, "get")) {
-        const ticket = try context.args.requirePositional(2, "ticket");
+        const ticket = try context.args.requirePositional(2, "ticket-or-task-id");
         var path = try query.Builder.init(context.allocator, "/mcp/tasks");
         defer path.deinit();
-        try path.add("ticket_number", ticket);
+        try resolve.addTaskIdentifierQuery(&path, context.allocator, ticket);
         return context.call(.GET, path.path(), null);
     }
     if (std.mem.eql(u8, subcommand, "delete")) {

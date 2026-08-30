@@ -2,12 +2,13 @@ const std = @import("std");
 const Context = @import("../command_context.zig").Context;
 const json = @import("../json_util.zig");
 const query = @import("../query.zig");
+const resolve = @import("../resolve.zig");
 
 pub fn run(context: *const Context, subcommand: []const u8) !void {
     if (std.mem.eql(u8, subcommand, "create")) {
         var body = try json.Object.init(context.allocator);
         defer body.deinit();
-        try body.string("ticket_number", try context.args.requirePositional(2, "ticket"));
+        try resolve.addTaskIdentifierBody(&body, context.allocator, try context.args.requirePositional(2, "ticket-or-task-id"));
         try body.string("text", try context.args.require("text"));
         if (context.args.has("comment")) try body.string("draft_type", "comment");
         return context.call(.POST, "/mcp/drafts", try body.finish());
@@ -15,7 +16,7 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
     if (std.mem.eql(u8, subcommand, "list")) {
         var path = try query.Builder.init(context.allocator, "/mcp/drafts");
         defer path.deinit();
-        try path.add("ticket_number", try context.args.requirePositional(2, "ticket"));
+        try resolve.addTaskIdentifierQuery(&path, context.allocator, try context.args.requirePositional(2, "ticket-or-task-id"));
         return context.call(.GET, path.path(), null);
     }
     const id = try context.args.requirePositional(2, "draft-id");

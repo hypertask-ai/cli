@@ -12,7 +12,7 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
         if (options.len < 2 or options.len > 10) return error.InvalidOptions;
         var body = try json.Object.init(context.allocator);
         defer body.deinit();
-        try body.string("ticket_number", try resolve.normalizedTicket(context.allocator, ticket));
+        try resolve.addTaskIdentifierBody(&body, context.allocator, ticket);
         try body.string("question", try context.args.require("question"));
         try body.strings("options", options);
         try context.call(.POST, "/mcp/decisions", try body.finish());
@@ -20,7 +20,7 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
         const identifier = try context.args.requirePositional(2, "ticket-or-id");
         var path = try query.Builder.init(context.allocator, "/mcp/decisions");
         defer path.deinit();
-        if (resolve.isNumeric(identifier)) try path.add("task_id", identifier) else try path.add("ticket_number", try resolve.normalizedTicket(context.allocator, identifier));
+        try resolve.addTaskIdentifierQuery(&path, context.allocator, identifier);
         if (context.args.get("status")) |value| try path.add("status", value);
         try context.call(.GET, path.path(), null);
     } else if (std.mem.eql(u8, subcommand, "get")) {
