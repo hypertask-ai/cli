@@ -273,7 +273,43 @@ fn searchValue(context: *const Context, value: []const u8) !void {
     try path.add("q", value);
     try path.add("limit", context.args.get("limit") orelse "20");
     if (context.args.get("project")) |project| try path.add("project_id", project);
-    try context.call(.GET, path.path(), null);
+
+    var response = try context.fetch(.GET, path.path(), null);
+    defer response.deinit();
+    const code = @intFromEnum(response.status);
+    if (code < 200 or code >= 300) return context.finish(&response);
+
+    var arena = std.heap.ArenaAllocator.init(context.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    var document = try std.json.parseFromSliceLeaky(std.json.Value, allocator, response.body, .{});
+    if (document != .object) return error.InvalidResponse;
+    const tasks = document.object.getPtr("tasks") orelse return error.InvalidResponse;
+    if (tasks.* != .array) return error.InvalidResponse;
+
+    for (tasks.array.items) |*task| {
+        if (hasDescription(task.*)) {
+            try addSearchTaskLink(allocator, task);
+            continue;
+        }
+        if (task.* != .object) return error.InvalidResponse;
+        const id_value = task.object.get("id") orelse return error.InvalidResponse;
+        if (id_value != .integer) return error.InvalidResponse;
+        const id = try std.fmt.allocPrint(context.allocator, "{d}", .{id_value.integer});
+        defer context.allocator.free(id);
+        var detail_path = try query.Builder.init(context.allocator, "/mcp/tasks");
+        defer detail_path.deinit();
+        try detail_path.add("task_id", id);
+        var detail_response = try context.fetch(.GET, detail_path.path(), null);
+        defer detail_response.deinit();
+        const detail_code = @intFromEnum(detail_response.status);
+        if (detail_code < 200 or detail_code >= 300) return context.finish(&detail_response);
+        try mergeSearchTask(allocator, task, detail_response.body);
+    }
+
+    const enriched = try std.json.Stringify.valueAlloc(context.allocator, document, .{});
+    defer context.allocator.free(enriched);
+    try context.print(enriched);
 }
 
 fn addIdentifierQuery(path: *query.Builder, context: *const Context, identifier: []const u8) !void {
@@ -369,6 +405,47 @@ fn isLabelId(value: []const u8) bool {
     return value.len == 36 and value[8] == '-' and value[13] == '-' and value[18] == '-' and value[23] == '-';
 }
 
+fn hasDescription(task: std.json.Value) bool {
+    if (task != .object) return false;
+    const description = task.object.get("description") orelse return false;
+    return description == .string and description.string.len != 0;
+}
+
+fn mergeSearchTask(allocator: std.mem.Allocator, task: *std.json.Value, detail_body: []const u8) !void {
+    const detail = try std.json.parseFromSliceLeaky(std.json.Value, allocator, detail_body, .{});
+    if (detail != .object) return error.InvalidResponse;
+    const detail_tasks = detail.object.get("tasks") orelse return error.InvalidResponse;
+    if (detail_tasks != .array or detail_tasks.array.items.len == 0) return error.InvalidResponse;
+    const detail_task = detail_tasks.array.items[0];
+    if (detail_task != .object) return error.InvalidResponse;
+    const description = detail_task.object.get("description") orelse return error.InvalidResponse;
+    if (description != .string) return error.InvalidResponse;
+    try task.object.put("description", .{ .string = try allocator.dupe(u8, description.string) });
+    try addSearchTaskLink(allocator, task);
+}
+
+fn addSearchTaskLink(allocator: std.mem.Allocator, task: *std.json.Value) !void {
+    if (task.* != .object) return error.InvalidResponse;
+    const ticket_value = task.object.get("ticketNumber") orelse return;
+    const project_value = task.object.get("projectId") orelse return;
+    if (ticket_value != .string or project_value != .integer) return;
+    const separator = std.mem.lastIndexOfScalar(u8, ticket_value.string, '-') orelse return;
+    if (separator + 1 >= ticket_value.string.len) return;
+    const unique_index = std.fmt.parseInt(i64, ticket_value.string[separator + 1 ..], 10) catch return;
+    if (unique_index <= 0 or project_value.integer <= 0) return;
+
+    const url = try std.fmt.allocPrint(
+        allocator,
+        "https://app.hypertask.ai/detail/project-{d}/{d}",
+        .{ project_value.integer, unique_index },
+    );
+    var link = std.json.ObjectMap.init(allocator);
+    try link.put("url", .{ .string = url });
+    try link.put("format", .{ .string = "https://app.hypertask.ai/detail/project-{projectId}/{uniqueIndex}" });
+    try link.put("example", .{ .string = url });
+    try task.object.put("link", .{ .object = link });
+}
+
 fn numericIdentifierWarning(allocator: std.mem.Allocator, identifier: []const u8, body: []const u8) !?[]u8 {
     if (!resolve.isNumeric(identifier)) return null;
     const requested = std.fmt.parseInt(i64, identifier, 10) catch return null;
@@ -398,6 +475,25 @@ fn numericIdentifierWarning(allocator: std.mem.Allocator, identifier: []const u8
         .{ identifier, ticket_value.string, identifier },
     );
     return warning;
+}
+
+test "search response restores description and link" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var task = try std.json.parseFromSliceLeaky(std.json.Value, allocator,
+        \\{"id":32507,"ticketNumber":"HTPR-5658","title":"Status bar","description":"","projectId":15}
+    , .{});
+    try mergeSearchTask(allocator, &task,
+        \\{"success":true,"tasks":[{"id":32507,"ticketNumber":"HTPR-5658","description":"<p>Full description</p>","projectId":15}]}
+    );
+
+    try std.testing.expectEqualStrings("<p>Full description</p>", task.object.get("description").?.string);
+    const link = task.object.get("link").?.object;
+    try std.testing.expectEqualStrings("https://app.hypertask.ai/detail/project-15/5658", link.get("url").?.string);
+    try std.testing.expectEqualStrings("https://app.hypertask.ai/detail/project-{projectId}/{uniqueIndex}", link.get("format").?.string);
+    try std.testing.expectEqualStrings("https://app.hypertask.ai/detail/project-15/5658", link.get("example").?.string);
 }
 
 test "numeric task lookup warns when the internal id resolves to another ticket" {
