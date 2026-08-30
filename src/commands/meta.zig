@@ -30,7 +30,7 @@ fn capabilitiesMarkdown(allocator: std.mem.Allocator, source: []const u8) ![]u8 
     var path: std.ArrayListUnmanaged(u8) = .{};
     defer path.deinit(allocator);
     try appendCommands(&result, &path, allocator, parsed.value.commands);
-    try result.appendSlice(allocator, "\nRun `htz capabilities --json` for arguments, options, and aliases.\n");
+    try result.appendSlice(allocator, "\nRun `hypertask capabilities --json` for arguments, options, and aliases.\n");
     return result.toOwnedSlice(allocator);
 }
 
@@ -66,7 +66,7 @@ test "capabilities markdown lists leaf command paths" {
         \\- `login`: Sign in
         \\- `task get`: Get one task
         \\
-        \\Run `htz capabilities --json` for arguments, options, and aliases.
+        \\Run `hypertask capabilities --json` for arguments, options, and aliases.
         \\
     , rendered);
 }
