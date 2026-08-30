@@ -61,10 +61,10 @@ pub fn load(allocator: std.mem.Allocator, token_override: ?[]const u8, api_url_o
     if (std.mem.eql(u8, result.api_url, legacy_api_url)) {
         try setOwned(allocator, &result.owned_api_url, &result.api_url, default_api_url);
     }
-    if (std.posix.getenv("HYPERTASKS_JWT_TOKEN")) |value| try setOwned(allocator, &result.owned_token, &result.token, value);
-    if (std.posix.getenv("HT_TOKEN")) |value| try setOwned(allocator, &result.owned_token, &result.token, value);
+    try applyEnvironmentOverride(allocator, &result.owned_token, &result.token, std.posix.getenv("HYPERTASKS_JWT_TOKEN"));
+    try applyEnvironmentOverride(allocator, &result.owned_token, &result.token, std.posix.getenv("HT_TOKEN"));
     if (std.posix.getenv("HYPERTASK_MANAGEMENT_KEY")) |value| try setOwned(allocator, &result.owned_management_key, &result.management_key, value);
-    if (std.posix.getenv("HYPERTASKS_API_URL")) |value| try setOwned(allocator, &result.owned_api_url, &result.api_url, value);
+    try applyEnvironmentOverride(allocator, &result.owned_api_url, &result.api_url, std.posix.getenv("HYPERTASKS_API_URL"));
     if (token_override) |value| try setOwned(allocator, &result.owned_token, &result.token, value);
     if (management_override) |value| try setOwned(allocator, &result.owned_management_key, &result.management_key, value);
     if (api_url_override) |value| try setOwned(allocator, &result.owned_api_url, &result.api_url, value);
@@ -75,6 +75,11 @@ pub fn load(allocator: std.mem.Allocator, token_override: ?[]const u8, api_url_o
     }
     if (result.token.len == 0) return error.NoToken;
     return result;
+}
+
+fn applyEnvironmentOverride(allocator: std.mem.Allocator, owned: *?[]u8, target: *[]const u8, value: ?[]const u8) !void {
+    const present = value orelse return;
+    if (present.len != 0) try setOwned(allocator, owned, target, present);
 }
 
 fn setOwned(allocator: std.mem.Allocator, owned: *?[]u8, target: *[]const u8, value: []const u8) !void {
@@ -124,4 +129,16 @@ fn writeConfig(allocator: std.mem.Allocator, token: []const u8, management_key: 
     defer file.close();
     try file.writeAll(body);
     try file.writeAll("\n");
+}
+
+test "environment overrides ignore empty values" {
+    var owned: ?[]u8 = null;
+    defer if (owned) |value| std.testing.allocator.free(value);
+    var target: []const u8 = "saved";
+
+    try applyEnvironmentOverride(std.testing.allocator, &owned, &target, "");
+    try std.testing.expectEqualStrings("saved", target);
+
+    try applyEnvironmentOverride(std.testing.allocator, &owned, &target, "replacement");
+    try std.testing.expectEqualStrings("replacement", target);
 }
