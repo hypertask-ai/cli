@@ -128,12 +128,18 @@ fn invite(context: *const Context) !void {
 }
 
 fn labels(context: *const Context, project: []const u8) !void {
-    _ = try common.positiveInt(project, "project");
-    var path = try query.Builder.init(context.allocator, "/mcp/projects");
-    defer path.deinit();
-    try path.add("limit", "100");
-    try path.add("offset", "0");
-    try context.call(.GET, path.path(), null);
+    try context.call(.GET, try labelsPath(context.allocator, project), null);
+}
+
+fn labelsPath(allocator: std.mem.Allocator, project: []const u8) ![]const u8 {
+    const id = try common.positiveInt(project, "project");
+    return std.fmt.allocPrint(allocator, "/mcp/projects/{d}/labels", .{id});
+}
+
+test "project labels use the project-specific labels route" {
+    const path = try labelsPath(std.testing.allocator, "15");
+    defer std.testing.allocator.free(path);
+    try std.testing.expectEqualStrings("/mcp/projects/15/labels", path);
 }
 
 fn createLabel(context: *const Context) !void {

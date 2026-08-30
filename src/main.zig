@@ -56,4 +56,5 @@ test {
     _ = @import("json_util.zig");
     _ = @import("query.zig");
     _ = @import("token_refresh.zig");
+    _ = @import("commands/project.zig");
 }
