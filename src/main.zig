@@ -52,6 +52,7 @@ fn run() !void {
 
 test {
     _ = @import("args.zig");
+    _ = @import("http.zig");
     _ = @import("json_util.zig");
     _ = @import("query.zig");
     _ = @import("token_refresh.zig");

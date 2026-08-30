@@ -17,6 +17,11 @@ const RequestHeaders = struct {
     count: usize,
 };
 
+fn requestPayload(method: std.http.Method, body: ?[]const u8) ?[]const u8 {
+    if (body) |value| return value;
+    return if (method.requestHasBody()) "" else null;
+}
+
 fn buildRequestHeaders(authorization: []const u8, body: ?[]const u8) RequestHeaders {
     var result: RequestHeaders = undefined;
     result.headers[0] = .{ .name = "Authorization", .value = authorization };
@@ -57,12 +62,13 @@ pub fn requestWithToken(
     var response_buffer: std.Io.Writer.Allocating = .init(allocator);
     defer response_buffer.deinit();
 
-    const headers = buildRequestHeaders(authorization, body);
+    const payload = requestPayload(method, body);
+    const headers = buildRequestHeaders(authorization, payload);
 
     const result = try client.fetch(.{
         .location = .{ .url = url },
         .method = method,
-        .payload = body,
+        .payload = payload,
         .extra_headers = headers.headers[0..headers.count],
         .response_writer = &response_buffer.writer,
     });
@@ -91,6 +97,12 @@ pub fn patch(allocator: std.mem.Allocator, cfg: *const config.Config, path: []co
 
 pub fn delete(allocator: std.mem.Allocator, cfg: *const config.Config, path: []const u8, body: ?[]const u8) !Response {
     return request(allocator, cfg, .DELETE, path, body);
+}
+
+test "body-capable methods receive an empty payload instead of panicking" {
+    try std.testing.expectEqualStrings("", requestPayload(.POST, null).?);
+    try std.testing.expectEqualStrings("{}", requestPayload(.POST, "{}").?);
+    try std.testing.expect(requestPayload(.GET, null) == null);
 }
 
 test "request headers identify htz with and without a JSON body" {
