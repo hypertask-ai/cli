@@ -4,8 +4,15 @@ const json = @import("json_util.zig");
 pub const default_api_url = "https://api.hypertask.ai/api";
 const legacy_api_url = "https://app.hypertask.ai/api";
 
+pub const TokenSource = enum {
+    saved,
+    environment,
+    argument,
+};
+
 pub const Config = struct {
     token: []const u8 = "",
+    token_source: TokenSource = .saved,
     management_key: []const u8 = "",
     api_url: []const u8 = default_api_url,
     allocator: std.mem.Allocator,
@@ -25,6 +32,11 @@ pub const Config = struct {
             std.debug.print("no token: run `hypertask login --token <jwt>` or pass --token / HT_TOKEN\n", .{});
             return error.NoToken;
         }
+    }
+
+    pub fn replaceToken(self: *Config, token: []const u8) !void {
+        try setOwned(self.allocator, &self.owned_token, &self.token, token);
+        self.token_source = .saved;
     }
 
     pub fn managementToken(self: *const Config) []const u8 {
@@ -61,11 +73,14 @@ pub fn load(allocator: std.mem.Allocator, token_override: ?[]const u8, api_url_o
     if (std.mem.eql(u8, result.api_url, legacy_api_url)) {
         try setOwned(allocator, &result.owned_api_url, &result.api_url, default_api_url);
     }
-    try applyEnvironmentOverride(allocator, &result.owned_token, &result.token, std.posix.getenv("HYPERTASKS_JWT_TOKEN"));
-    try applyEnvironmentOverride(allocator, &result.owned_token, &result.token, std.posix.getenv("HT_TOKEN"));
+    if (try applyEnvironmentOverride(allocator, &result.owned_token, &result.token, std.posix.getenv("HYPERTASKS_JWT_TOKEN"))) result.token_source = .environment;
+    if (try applyEnvironmentOverride(allocator, &result.owned_token, &result.token, std.posix.getenv("HT_TOKEN"))) result.token_source = .environment;
     if (std.posix.getenv("HYPERTASK_MANAGEMENT_KEY")) |value| try setOwned(allocator, &result.owned_management_key, &result.management_key, value);
-    try applyEnvironmentOverride(allocator, &result.owned_api_url, &result.api_url, std.posix.getenv("HYPERTASKS_API_URL"));
-    if (token_override) |value| try setOwned(allocator, &result.owned_token, &result.token, value);
+    _ = try applyEnvironmentOverride(allocator, &result.owned_api_url, &result.api_url, std.posix.getenv("HYPERTASKS_API_URL"));
+    if (token_override) |value| {
+        try setOwned(allocator, &result.owned_token, &result.token, value);
+        result.token_source = .argument;
+    }
     if (management_override) |value| try setOwned(allocator, &result.owned_management_key, &result.management_key, value);
     if (api_url_override) |value| try setOwned(allocator, &result.owned_api_url, &result.api_url, value);
 
@@ -77,9 +92,11 @@ pub fn load(allocator: std.mem.Allocator, token_override: ?[]const u8, api_url_o
     return result;
 }
 
-fn applyEnvironmentOverride(allocator: std.mem.Allocator, owned: *?[]u8, target: *[]const u8, value: ?[]const u8) !void {
-    const present = value orelse return;
-    if (present.len != 0) try setOwned(allocator, owned, target, present);
+fn applyEnvironmentOverride(allocator: std.mem.Allocator, owned: *?[]u8, target: *[]const u8, value: ?[]const u8) !bool {
+    const present = value orelse return false;
+    if (present.len == 0) return false;
+    try setOwned(allocator, owned, target, present);
+    return true;
 }
 
 fn setOwned(allocator: std.mem.Allocator, owned: *?[]u8, target: *[]const u8, value: []const u8) !void {
@@ -136,9 +153,9 @@ test "environment overrides ignore empty values" {
     defer if (owned) |value| std.testing.allocator.free(value);
     var target: []const u8 = "saved";
 
-    try applyEnvironmentOverride(std.testing.allocator, &owned, &target, "");
+    try std.testing.expect(!try applyEnvironmentOverride(std.testing.allocator, &owned, &target, ""));
     try std.testing.expectEqualStrings("saved", target);
 
-    try applyEnvironmentOverride(std.testing.allocator, &owned, &target, "replacement");
+    try std.testing.expect(try applyEnvironmentOverride(std.testing.allocator, &owned, &target, "replacement"));
     try std.testing.expectEqualStrings("replacement", target);
 }
