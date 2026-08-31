@@ -27,12 +27,13 @@ def run(binary: str, token: str, api_url: str, *args: str) -> subprocess.Complet
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         if self.path.startswith("/mcp/comments?"):
+            overflow_case = "ticket_number=HTPR-2" in self.path
             self.respond(200, {
                 "success": True,
                 "comments": [{"id": 1, "text": "first"}],
-                "total": 2,
+                "total": 9_223_372_036_854_775_807 if overflow_case else 2,
                 "limit": 1,
-                "offset": 0,
+                "offset": 9_223_372_036_854_775_807 if overflow_case else 0,
             })
             return
         if self.path.startswith("/mcp/tasks?"):
@@ -82,10 +83,18 @@ def main() -> None:
             f"missing expiry: {status.stdout}",
         )
 
+        huge_expiry = run(binary, jwt({"exp": 9_223_372_036_854_775_807}), api_url, "status")
+        expect(huge_expiry.returncode == 0, f"huge expiry crashed: {huge_expiry.stderr}")
+        expect(json.loads(huge_expiry.stdout).get("expiresAt") is None, huge_expiry.stdout)
+
         comments = run(binary, token, api_url, "comment", "list", "HTPR-1")
         expect(comments.returncode == 0, f"comment list failed: {comments.stderr}")
         comments_json = json.loads(comments.stdout)
         expect(comments_json.get("has_more") is True, f"missing has_more: {comments.stdout}")
+
+        overflow_comments = run(binary, token, api_url, "comment", "list", "HTPR-2")
+        expect(overflow_comments.returncode == 0, f"large offset crashed: {overflow_comments.stderr}")
+        expect(json.loads(overflow_comments.stdout).get("has_more") is False, overflow_comments.stdout)
 
         missing = run(binary, token, api_url, "tasks", "get", "HTPR-404")
         expect(missing.returncode == 4, f"not-found exit was {missing.returncode}")

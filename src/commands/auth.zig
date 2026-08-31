@@ -85,8 +85,8 @@ fn appendUnknownIdentity(object: *json.Object) !void {
 }
 
 fn formatExpiry(allocator: std.mem.Allocator, seconds: i64) !?[]u8 {
-    const unsigned = std.math.cast(u64, seconds) orelse return null;
-    const epoch_seconds = std.time.epoch.EpochSeconds{ .secs = unsigned };
+    if (seconds < 0 or seconds > 253_402_300_799) return null;
+    const epoch_seconds = std.time.epoch.EpochSeconds{ .secs = @intCast(seconds) };
     const year_day = epoch_seconds.getEpochDay().calculateYearDay();
     const month_day = year_day.calculateMonthDay();
     const day_seconds = epoch_seconds.getDaySeconds();

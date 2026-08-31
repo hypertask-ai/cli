@@ -120,7 +120,7 @@ fn addHasMore(allocator: std.mem.Allocator, response_body: []const u8) ![]u8 {
         allocator,
         response_body,
         "has_more",
-        if (start >= 0 and start + returned < total_count) "true" else "false",
+        if (start >= 0 and total_count > start and returned < total_count - start) "true" else "false",
     );
 }
 

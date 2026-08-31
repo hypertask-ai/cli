@@ -34,7 +34,8 @@ pub fn build(b: *std.Build) void {
     const run_unit_tests = b.addRunArtifact(unit_tests);
     test_step.dependOn(&run_unit_tests.step);
 
+    const output_parity_test_step = b.step("output-parity-test", "Run CLI output parity tests");
     const output_parity_tests = b.addSystemCommand(&.{ "python3", "scripts/output_parity_test.py" });
     output_parity_tests.addArtifactArg(exe);
-    test_step.dependOn(&output_parity_tests.step);
+    output_parity_test_step.dependOn(&output_parity_tests.step);
 }
