@@ -2,7 +2,11 @@
 set -eu
 
 root=$(mktemp -d)
-trap 'rm -rf "$root"' EXIT HUP INT TERM
+cleanup() { rm -rf "$root"; }
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 release_dir="$root/releases/latest/download"
 install_dir="$root/install"
 mkdir -p "$release_dir"

@@ -5,7 +5,11 @@ out_dir="$PWD/dist"
 mkdir -p "$out_dir"
 find "$out_dir" -maxdepth 1 -type f \( -name 'hypertask-*' -o -name checksums.txt \) -delete
 work_dir=$(mktemp -d)
-trap 'rm -rf "$work_dir"' EXIT HUP INT TERM
+cleanup() { rm -rf "$work_dir"; }
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 build_target() {
   target=$1
