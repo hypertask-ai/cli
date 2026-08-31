@@ -53,10 +53,6 @@ fn run() !void {
     try router.dispatch(&context);
 }
 
-test "QA canary proves a red test blocks auto-merge" {
-    try std.testing.expect(false);
-}
-
 test {
     _ = @import("args.zig");
     _ = @import("http.zig");
