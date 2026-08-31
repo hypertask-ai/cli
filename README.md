@@ -47,14 +47,25 @@ hypertask time delete 119
 
 Entry IDs are available from `hypertask time report`. `time edit` is an alias for `time update`.
 
-## Build and install
+## Install
+
+Linux and macOS customers can install the latest checksum-verified release:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hypertask-ai/cli/main/scripts/install.sh | sh
+hypertask --version
+```
+
+Windows x64 binaries are available from [GitHub Releases](https://github.com/hypertask-ai/cli/releases). The npm v2 installer source is under `npm/`; publishing it is a separate owner-approved release step.
+
+## Build from source
 
 ```bash
 zig build -Doptimize=ReleaseFast
 ./scripts/install-fleet.sh zig-out/bin/hypertask
 ```
 
-Merges to `main` run the same ReleaseFast install automatically on the trusted fleet runner, then compare the installed binary with the build artifact.
+Merges to `main` install the same ReleaseFast binary automatically on the trusted fleet runner. Tags matching `v*` test all installers, cross-compile five customer binaries, and publish a GitHub release with SHA-256 checksums.
 
 ## Agent usage
 

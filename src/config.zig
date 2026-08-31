@@ -61,10 +61,10 @@ pub fn load(allocator: std.mem.Allocator, token_override: ?[]const u8, api_url_o
     if (std.mem.eql(u8, result.api_url, legacy_api_url)) {
         try setOwned(allocator, &result.owned_api_url, &result.api_url, default_api_url);
     }
-    if (try applyEnvironmentOverride(allocator, &result.owned_token, &result.token, std.posix.getenv("HYPERTASKS_JWT_TOKEN"))) result.token_source = .environment;
-    if (try applyEnvironmentOverride(allocator, &result.owned_token, &result.token, std.posix.getenv("HT_TOKEN"))) result.token_source = .environment;
-    if (std.posix.getenv("HYPERTASK_MANAGEMENT_KEY")) |value| try setOwned(allocator, &result.owned_management_key, &result.management_key, value);
-    _ = try applyEnvironmentOverride(allocator, &result.owned_api_url, &result.api_url, std.posix.getenv("HYPERTASKS_API_URL"));
+    if (try applyEnvironmentVariable(allocator, &result.owned_token, &result.token, "HYPERTASKS_JWT_TOKEN")) result.token_source = .environment;
+    if (try applyEnvironmentVariable(allocator, &result.owned_token, &result.token, "HT_TOKEN")) result.token_source = .environment;
+    _ = try applyEnvironmentVariable(allocator, &result.owned_management_key, &result.management_key, "HYPERTASK_MANAGEMENT_KEY");
+    _ = try applyEnvironmentVariable(allocator, &result.owned_api_url, &result.api_url, "HYPERTASKS_API_URL");
     if (token_override) |value| {
         try setOwned(allocator, &result.owned_token, &result.token, value);
         result.token_source = .argument;
@@ -93,11 +93,33 @@ fn loadFile(allocator: std.mem.Allocator, path: []const u8, result: *Config) !vo
     if (parsed.value.apiUrl) |value| try setOwned(allocator, &result.owned_api_url, &result.api_url, value);
 }
 
+fn environmentVariable(allocator: std.mem.Allocator, name: []const u8) !?[]u8 {
+    return std.process.getEnvVarOwned(allocator, name) catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => null,
+        else => return err,
+    };
+}
+
+fn applyEnvironmentVariable(allocator: std.mem.Allocator, owned: *?[]u8, target: *[]const u8, name: []const u8) !bool {
+    const value = try environmentVariable(allocator, name);
+    defer if (value) |present| allocator.free(present);
+    return applyEnvironmentOverride(allocator, owned, target, value);
+}
+
 fn applyEnvironmentOverride(allocator: std.mem.Allocator, owned: *?[]u8, target: *[]const u8, value: ?[]const u8) !bool {
     const present = value orelse return false;
     if (present.len == 0) return false;
     try setOwned(allocator, owned, target, present);
     return true;
+}
+
+pub fn hasEnvironmentToken(allocator: std.mem.Allocator) !bool {
+    for ([_][]const u8{ "HT_TOKEN", "HYPERTASKS_JWT_TOKEN" }) |name| {
+        const value = try environmentVariable(allocator, name);
+        defer if (value) |present| allocator.free(present);
+        if (value) |present| if (present.len != 0) return true;
+    }
+    return false;
 }
 
 fn setOwned(allocator: std.mem.Allocator, owned: *?[]u8, target: *[]const u8, value: []const u8) !void {
@@ -108,8 +130,20 @@ fn setOwned(allocator: std.mem.Allocator, owned: *?[]u8, target: *[]const u8, va
 }
 
 pub fn configPath(allocator: std.mem.Allocator) ![]u8 {
-    const home = std.posix.getenv("HOME") orelse return error.NoHome;
+    const home = try homeDirectory(allocator);
+    defer allocator.free(home);
     return std.fs.path.join(allocator, &.{ home, ".hypertask", "config.json" });
+}
+
+fn homeDirectory(allocator: std.mem.Allocator) ![]u8 {
+    for ([_][]const u8{ "HOME", "USERPROFILE" }) |name| {
+        const value = try environmentVariable(allocator, name);
+        if (value) |present| {
+            if (present.len != 0) return present;
+            allocator.free(present);
+        }
+    }
+    return error.NoHome;
 }
 
 pub fn saveToken(allocator: std.mem.Allocator, token: []const u8, api_url: ?[]const u8) !void {
@@ -129,12 +163,10 @@ pub fn clear(allocator: std.mem.Allocator) !void {
 }
 
 fn writeConfig(allocator: std.mem.Allocator, token: []const u8, management_key: []const u8, api_url: []const u8) !void {
-    const home = std.posix.getenv("HOME") orelse return error.NoHome;
-    const directory = try std.fs.path.join(allocator, &.{ home, ".hypertask" });
-    defer allocator.free(directory);
-    std.fs.makeDirAbsolute(directory) catch |err| if (err != error.PathAlreadyExists) return err;
     const path = try configPath(allocator);
     defer allocator.free(path);
+    const directory = std.fs.path.dirname(path) orelse return error.NoHome;
+    std.fs.makeDirAbsolute(directory) catch |err| if (err != error.PathAlreadyExists) return err;
     try writeConfigFile(allocator, path, token, management_key, api_url);
 }
 

@@ -120,7 +120,7 @@ pub fn token(context: *const Context, subcommand: []const u8) !void {
     if (status_code < 200 or status_code >= 300) return output.finish(&response);
 
     var saved = false;
-    if (context.args.get("token") == null and std.posix.getenv("HT_TOKEN") == null and std.posix.getenv("HYPERTASKS_JWT_TOKEN") == null) {
+    if (context.args.get("token") == null and !try config.hasEnvironmentToken(context.allocator)) {
         const parsed = try std.json.parseFromSlice(std.json.Value, context.allocator, response.body, .{});
         defer parsed.deinit();
         if (parsed.value.object.get("token")) |token_value| if (token_value == .string) {

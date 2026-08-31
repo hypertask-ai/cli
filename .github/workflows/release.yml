@@ -1,0 +1,49 @@
+name: Release CLI
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.repository == 'hypertask-ai/cli'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out tagged commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        with:
+          version: 0.15.2
+
+      - name: Test native build
+        run: zig build test -Doptimize=ReleaseFast
+
+      - name: Test installers
+        run: |
+          ./scripts/install_test.sh
+          npm test --prefix npm
+
+      - name: Build release binaries
+        run: ./scripts/build-release.sh
+
+      - name: Verify release version
+        run: |
+          zig build -Doptimize=ReleaseFast
+          expected="hypertask ${GITHUB_REF_NAME#v} (zig)"
+          test "$(./zig-out/bin/hypertask --version)" = "$expected"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes --title "Hypertask CLI $GITHUB_REF_NAME"
