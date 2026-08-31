@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        with:
+          version: 0.15.2
+
+      - name: Install Node CLI
+        run: npm install --prefix "$RUNNER_TEMP/node-cli" @hypertask/hypertask_cli
+
+      - name: Run ReleaseFast tests
+        run: zig build test -Doptimize=ReleaseFast
+
+      - name: Build ReleaseFast CLI
+        run: zig build -Doptimize=ReleaseFast
+
+      - name: Check capability parity
+        env:
+          HT_TOKEN: ci-read-only-placeholder
+          HYPERTASK_NODE_BIN: ${{ runner.temp }}/node-cli/node_modules/.bin/hypertask
+        run: python3 scripts/parity_test.py --capabilities-only
+
+      - name: Check architecture
+        run: python3 scripts/parity_test.py --architecture-only
+
+      - name: Check live read-only parity
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          HT_TOKEN: ${{ secrets.HYPERTASK_PARITY_TOKEN }}
+          HYPERTASKS_JWT_TOKEN: ${{ secrets.HYPERTASK_PARITY_TOKEN }}
+          HYPERTASK_NODE_BIN: ${{ runner.temp }}/node-cli/node_modules/.bin/hypertask
+        run: python3 scripts/parity_test.py

@@ -20,6 +20,9 @@ SPEC.loader.exec_module(parity_test)
 
 
 class ParityTest(unittest.TestCase):
+    def test_read_cases_use_agent_readable_endpoints(self) -> None:
+        self.assertNotIn(("agents", "list"), [case.args for case in parity_test.READ_CASES])
+
     def test_normalize_ignores_values_but_keeps_keys_and_types(self) -> None:
         left = {"success": True, "task": {"id": 1, "title": "control"}}
         right = {"success": True, "task": {"id": 2, "title": "zig"}}
