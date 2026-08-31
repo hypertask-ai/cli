@@ -463,7 +463,7 @@ fn migrateLegacyState(context: *const Context, state: State) !void {
         if (std.fs.cwd().access(entry[1], .{})) |_| continue else |err| if (err != error.FileNotFound) return err;
         const source = try std.fmt.allocPrint(context.allocator, "{s}/{s}.{s}", .{ legacy_directory, slug, entry[0] });
         defer context.allocator.free(source);
-        const raw = std.fs.cwd().readFileAlloc(context.allocator, source, 16 * 1024 * 1024) catch |err| switch (err) {
+        const raw = std.fs.cwd().readFileAlloc(context.allocator, source, std.math.maxInt(usize)) catch |err| switch (err) {
             error.FileNotFound => continue,
             else => return err,
         };
@@ -506,7 +506,7 @@ fn writeStateFile(allocator: std.mem.Allocator, path: []const u8, value: []const
 }
 
 fn readSmallFile(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
-    const raw = std.fs.cwd().readFileAlloc(allocator, path, 1024 * 1024) catch |err| switch (err) {
+    const raw = std.fs.cwd().readFileAlloc(allocator, path, std.math.maxInt(usize)) catch |err| switch (err) {
         error.FileNotFound => return allocator.dupe(u8, ""),
         else => return err,
     };
@@ -517,7 +517,7 @@ fn readSmallFile(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
 fn readLines(allocator: std.mem.Allocator, path: []const u8) !std.StringHashMap(void) {
     var result = std.StringHashMap(void).init(allocator);
     errdefer deinitLineSet(allocator, &result);
-    const raw = std.fs.cwd().readFileAlloc(allocator, path, 16 * 1024 * 1024) catch |err| switch (err) {
+    const raw = std.fs.cwd().readFileAlloc(allocator, path, std.math.maxInt(usize)) catch |err| switch (err) {
         error.FileNotFound => return result,
         else => return err,
     };
