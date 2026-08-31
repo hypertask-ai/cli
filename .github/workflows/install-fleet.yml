@@ -29,8 +29,13 @@ jobs:
       - name: Check installation state
         id: state
         run: |
-          marker="$HOME/.local/state/hypertask-cli/installed-commit"
-          if [ -x "$HOME/.local/bin/hypertask" ] && [ -f "$marker" ] && grep -Fxq "$GITHUB_SHA" "$marker"; then
+          state_dir="$HOME/.local/state/hypertask-cli"
+          commit_marker="$state_dir/installed-commit"
+          hash_marker="$state_dir/installed-sha256"
+          binary="$HOME/.local/bin/hypertask"
+          if [ -x "$binary" ] && [ -f "$commit_marker" ] && [ -f "$hash_marker" ] \
+            && grep -Fxq "$GITHUB_SHA" "$commit_marker" \
+            && [ "$(sha256sum "$binary" | awk '{print $1}')" = "$(cat "$hash_marker")" ]; then
             echo "needed=false" >> "$GITHUB_OUTPUT"
           else
             echo "needed=true" >> "$GITHUB_OUTPUT"
@@ -61,6 +66,10 @@ jobs:
         run: |
           state_dir="$HOME/.local/state/hypertask-cli"
           mkdir -p "$state_dir"
-          marker_tmp=$(mktemp "$state_dir/installed-commit.XXXXXX")
-          printf '%s\n' "$GITHUB_SHA" > "$marker_tmp"
-          mv "$marker_tmp" "$state_dir/installed-commit"
+          commit_tmp=$(mktemp "$state_dir/installed-commit.XXXXXX")
+          hash_tmp=$(mktemp "$state_dir/installed-sha256.XXXXXX")
+          trap 'rm -f "$commit_tmp" "$hash_tmp"' EXIT
+          sha256sum "$HOME/.local/bin/hypertask" | awk '{print $1}' > "$hash_tmp"
+          printf '%s\n' "$GITHUB_SHA" > "$commit_tmp"
+          mv "$hash_tmp" "$state_dir/installed-sha256"
+          mv "$commit_tmp" "$state_dir/installed-commit"

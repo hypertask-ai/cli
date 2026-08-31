@@ -31,6 +31,8 @@ class AutoMergeWorkflowTest(unittest.TestCase):
         *,
         check_type: str = "CheckRun",
         workflow_name: str = "CI",
+        changed_files: int = 1,
+        returned_files: int = 1,
     ) -> tuple[subprocess.CompletedProcess[str], str]:
         with tempfile.TemporaryDirectory(prefix="hypertask-automerge-test-") as directory:
             root = Path(directory)
@@ -49,10 +51,13 @@ if [ "$1 $2" = "pr view" ]; then
   if [[ " $* " == *" --json labels -q "* ]]; then exit 0; fi
   if [ "$CHECK_STATE" = "MISSING" ]; then checks='[]';
   else checks=$(jq -cn --arg state "$CHECK_STATE" --arg type "$CHECK_TYPE" --arg workflow "$WORKFLOW_NAME" '[{__typename:$type,workflowName:$workflow,name:"test",conclusion:$state,startedAt:"2026-08-31T10:00:00Z"}]'); fi
-  printf '{"number":42,"isDraft":false,"isCrossRepository":false,"mergeable":"MERGEABLE","baseRefName":"main","headRefOid":"%040d","headRepositoryOwner":{"login":"owner"},"labels":[],"statusCheckRollup":%s}\n' 0 "$checks"
+  printf '{"number":42,"changedFiles":%s,"isDraft":false,"isCrossRepository":false,"mergeable":"MERGEABLE","baseRefName":"main","headRefOid":"%040d","headRepositoryOwner":{"login":"owner"},"labels":[],"statusCheckRollup":%s}\n' "$CHANGED_FILES" 0 "$checks"
   exit 0
 fi
-if [ "$1 $2" = "pr diff" ]; then echo src/main.zig; exit 0; fi
+if [ "$1" = "api" ]; then
+  for ((index=0; index<RETURNED_FILES; index++)); do echo "src/file-$index.zig"; done
+  exit 0
+fi
 if [ "$1 $2" = "pr merge" ]; then printf 'merge %s\n' "$*" >> "$MERGE_LOG"; exit 0; fi
 if [ "$1 $2" = "workflow run" ]; then printf 'dispatch %s\n' "$*" >> "$MERGE_LOG"; exit 0; fi
 echo "unexpected gh call: $*" >&2
@@ -80,6 +85,8 @@ exit 2
                     "CHECK_STATE": check_state,
                     "CHECK_TYPE": check_type,
                     "WORKFLOW_NAME": workflow_name,
+                    "CHANGED_FILES": str(changed_files),
+                    "RETURNED_FILES": str(returned_files),
                     "MERGE_LOG": str(merge_log),
                 },
                 text=True,
@@ -118,6 +125,15 @@ exit 2
                 self.assertIn("check test = MISSING", result.stdout)
                 self.assertEqual(merges, "")
 
+    def test_incomplete_paginated_file_list_fails_closed(self) -> None:
+        result, merges = self.run_evaluator(
+            "SUCCESS", changed_files=301, returned_files=300
+        )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("reports 301 changed files", result.stdout)
+        self.assertEqual(merges, "")
+
     def test_install_workflow_reconciles_undispatched_main_commits(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "install-fleet.yml").read_text(
             encoding="utf-8"
@@ -125,7 +141,9 @@ exit 2
 
         self.assertIn('cron: "*/5 * * * *"', workflow)
         self.assertIn("installed-commit", workflow)
+        self.assertIn("installed-sha256", workflow)
         self.assertIn("grep -Fxq \"$GITHUB_SHA\"", workflow)
+        self.assertIn("sha256sum \"$binary\"", workflow)
         self.assertIn("Record installed commit", workflow)
 
 

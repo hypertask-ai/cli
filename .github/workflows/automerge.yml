@@ -90,7 +90,7 @@ jobs:
           for PR in $PRS; do
             echo "::group::PR #$PR"
             sleep 1
-            gh_view() { gh pr view "$PR" --repo "$REPO" --json number,isDraft,isCrossRepository,mergeable,baseRefName,headRefOid,headRepositoryOwner,labels,statusCheckRollup >"$PR_JSON"; }
+            gh_view() { gh pr view "$PR" --repo "$REPO" --json number,changedFiles,isDraft,isCrossRepository,mergeable,baseRefName,headRefOid,headRepositoryOwner,labels,statusCheckRollup >"$PR_JSON"; }
             if ! retry gh_view; then
               echo "::error::Cannot read PR #$PR after retries; merge evaluation is incomplete."
               infra_failures=$((infra_failures+1))
@@ -99,6 +99,7 @@ jobs:
             fi
             if ! jq -e '
               (.number | type == "number") and
+              (.changedFiles | type == "number") and
               (.isDraft | type == "boolean") and
               (.isCrossRepository | type == "boolean") and
               (.mergeable | type == "string") and
@@ -115,6 +116,7 @@ jobs:
             fi
 
             base=$(jq -r '.baseRefName' "$PR_JSON")
+            changed_files=$(jq -r '.changedFiles' "$PR_JSON")
             draft=$(jq -r '.isDraft' "$PR_JSON")
             cross_repo=$(jq -r '.isCrossRepository' "$PR_JSON")
             mergeable=$(jq -r '.mergeable' "$PR_JSON")
@@ -151,9 +153,16 @@ jobs:
             labels=$(jq -r '.labels[].name' "$PR_JSON" | tr '[:upper:]' '[:lower:]')
             has_hold "$labels" && { echo "skip: hold label present"; echo "::endgroup::"; continue; }
 
-            gh_diff() { gh pr diff "$PR" --repo "$REPO" --name-only >"$PR_FILES"; }
-            if ! retry gh_diff; then
-              echo "::error::Cannot read the diff for PR #$PR after retries; merge evaluation is incomplete."
+            gh_files() { gh api --paginate "repos/$REPO/pulls/$PR/files?per_page=100" --jq '.[].filename' >"$PR_FILES"; }
+            if ! retry gh_files; then
+              echo "::error::Cannot read files for PR #$PR after retries; merge evaluation is incomplete."
+              infra_failures=$((infra_failures+1))
+              echo "::endgroup::"
+              continue
+            fi
+            file_count=$(wc -l <"$PR_FILES" | tr -d ' ')
+            if [ "$file_count" -ne "$changed_files" ]; then
+              echo "::error::PR #$PR reports $changed_files changed files but the paginated API returned $file_count; refusing to merge."
               infra_failures=$((infra_failures+1))
               echo "::endgroup::"
               continue
