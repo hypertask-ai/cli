@@ -12,7 +12,13 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
         var path = try query.Builder.init(context.allocator, "/mcp/comments");
         defer path.deinit();
         try addIdentifierQuery(&path, try context.args.requirePositional(2, "ticket"));
-        return context.call(.GET, path.path(), null);
+        var response = try context.fetch(.GET, path.path(), null);
+        defer response.deinit();
+        const code = @intFromEnum(response.status);
+        if (code < 200 or code >= 300) return output.finish(&response);
+        const body = try addHasMore(context.allocator, response.body);
+        defer context.allocator.free(body);
+        return context.print(body);
     }
     if (std.mem.eql(u8, subcommand, "add")) {
         if (context.args.get("improve-command") != null and !context.args.has("improve")) return error.InvalidOptions;
@@ -93,6 +99,29 @@ fn improveCommand(value: []const u8) []const u8 {
     if (std.mem.eql(u8, value, "summarize")) return "Summarize";
     if (std.mem.eql(u8, value, "make-shorter")) return "MakeShorter";
     return "ImproveReadability";
+}
+
+fn addHasMore(allocator: std.mem.Allocator, response_body: []const u8) ![]u8 {
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, response_body, .{});
+    defer parsed.deinit();
+    if (parsed.value != .object) return error.InvalidResponse;
+    if (parsed.value.object.get("has_more") != null) return allocator.dupe(u8, response_body);
+
+    const comments = parsed.value.object.get("comments");
+    const total = parsed.value.object.get("total");
+    const offset = parsed.value.object.get("offset");
+    const returned: i64 = if (comments != null and comments.? == .array)
+        @intCast(comments.?.array.items.len)
+    else
+        0;
+    const total_count: i64 = if (total != null and total.? == .integer) total.?.integer else returned;
+    const start: i64 = if (offset != null and offset.? == .integer) offset.?.integer else 0;
+    return json.mergeRawField(
+        allocator,
+        response_body,
+        "has_more",
+        if (start >= 0 and total_count > start and returned < total_count - start) "true" else "false",
+    );
 }
 
 test "numeric comment identifiers use task_id" {

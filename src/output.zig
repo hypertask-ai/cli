@@ -17,13 +17,53 @@ pub fn printResponse(allocator: std.mem.Allocator, body: []const u8, json: bool)
 pub fn finish(response: *http.Response) !void {
     const code = @intFromEnum(response.status);
     if (code < 200 or code >= 300) {
-        try std.fs.File.stderr().writeAll(response.body);
-        if (response.body.len == 0 or response.body[response.body.len - 1] != '\n') {
-            try std.fs.File.stderr().writeAll("\n");
-        }
-        return error.CommandFailed;
+        try print(response.body);
+        return apiError(response.status);
     }
     try print(response.body);
+}
+
+fn apiError(status: std.http.Status) anyerror {
+    return switch (status) {
+        .bad_request, .unprocessable_entity => error.ApiInvalidInput,
+        .unauthorized, .forbidden => error.ApiAuthentication,
+        .not_found => error.ApiNotFound,
+        else => error.ApiFailure,
+    };
+}
+
+pub fn exitCode(err: anyerror) u8 {
+    return switch (err) {
+        error.MissingOption,
+        error.MissingSubcommand,
+        error.InvalidInteger,
+        error.InvalidOptions,
+        error.InvalidProject,
+        error.UnknownCommand,
+        error.ApiInvalidInput,
+        => 2,
+        error.TaskNotFound,
+        error.ProjectNotFound,
+        error.SectionNotFound,
+        error.FieldNotFound,
+        error.LabelNotFound,
+        error.ApiNotFound,
+        error.ApiFailure,
+        error.CommandFailed,
+        => 4,
+        else => 1,
+    };
+}
+
+pub fn responseBodyWasPrinted(err: anyerror) bool {
+    return switch (err) {
+        error.ApiInvalidInput,
+        error.ApiAuthentication,
+        error.ApiNotFound,
+        error.ApiFailure,
+        => true,
+        else => false,
+    };
 }
 
 pub fn finishResponse(allocator: std.mem.Allocator, response: *http.Response, json: bool) !void {
