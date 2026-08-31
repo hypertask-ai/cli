@@ -31,3 +31,8 @@ Scope: implement every current Node CLI leaf command in the native Zig CLI, pres
 
 - [ ] G6: every non-local leaf command maps to the Node CLI HTTP method, path, query keys, and JSON body fields
   EVIDENCE: pending
+
+- [ ] G7: opt-in write parity covers create, comment, move, assign, rename, and archive, with archive cleanup on failure
+  CHECK: python3 scripts/parity_test.py --write --token "$HYPERTASKS_JWT_TOKEN"
+  EXPECT: write parity passed (6 commands)
+  EVIDENCE: pending

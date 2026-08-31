@@ -2,3 +2,4 @@
 zig-out/
 *.o
 hypertask
+__pycache__/

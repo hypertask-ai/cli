@@ -24,6 +24,9 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_ZIG_CLI = ROOT / "zig-out" / "bin" / "hypertask"
 PROJECT = os.environ.get("HYPERTASK_PARITY_PROJECT", "15")
 TICKET = os.environ.get("HYPERTASK_PARITY_TICKET", "HTPR-5783")
+WRITE_PROJECT = "15"
+WRITE_SECTION = "In Progress"
+WRITE_ASSIGNEE = "6"
 DERIVED_NODE_FIELDS = frozenset({"has_more", "next_offset", "link", "uniqueIndex"})
 STABLE_SCALAR_FIELDS = frozenset({"authenticated", "hasToken", "identity", "success"})
 ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
@@ -133,13 +136,19 @@ def parse_json(process: subprocess.CompletedProcess[str], label: str) -> Any:
         raise AssertionError(f"{label} did not print JSON: {process.stdout!r}") from error
 
 
-def run_json(cli: list[str], args: list[str], label: str) -> Any:
-    process = run(cli, args)
+def run_json(
+    cli: list[str],
+    args: list[str],
+    label: str,
+    *,
+    env: dict[str, str] | None = None,
+) -> Any:
+    process = run(cli, args, env=env)
     for delay in (5, 10):
         if "rate limit exceeded" not in (process.stdout + process.stderr).lower():
             break
         time.sleep(delay)
-        process = run(cli, args)
+        process = run(cli, args, env=env)
     return parse_json(process, label)
 
 
@@ -281,6 +290,95 @@ def read_only_parity(node_cli: list[str], zig_cli: list[str]) -> None:
     print(f"read-only JSON parity passed ({len(READ_CASES)} commands)")
 
 
+def write_environment(token: str) -> dict[str, str]:
+    env = os.environ.copy()
+    env["HT_TOKEN"] = token
+    env["HYPERTASKS_JWT_TOKEN"] = token
+    return env
+
+
+def write_round_trip(
+    cli: list[str], token: str, title: str, label: str
+) -> dict[str, Any]:
+    env = write_environment(token)
+    ticket: str | None = None
+    archived = False
+    results: dict[str, Any] = {}
+    try:
+        results["create"] = run_json(
+            cli,
+            ["tasks", "create", "--project", WRITE_PROJECT, "--title", title, "--json"],
+            f"{label} create",
+            env=env,
+        )
+        ticket = results["create"]["task"]["ticketNumber"]
+        results["comment"] = run_json(
+            cli,
+            ["comment", "add", ticket, "--text", "hypertask parity write check", "--json"],
+            f"{label} comment",
+            env=env,
+        )
+        results["move"] = run_json(
+            cli,
+            ["tasks", "move", ticket, "--section", WRITE_SECTION, "--json"],
+            f"{label} move",
+            env=env,
+        )
+        results["assign"] = run_json(
+            cli,
+            ["tasks", "assign", ticket, "--assignee", WRITE_ASSIGNEE, "--json"],
+            f"{label} assign",
+            env=env,
+        )
+        results["update"] = run_json(
+            cli,
+            ["tasks", "update", ticket, "--title", f"{title} updated", "--json"],
+            f"{label} update",
+            env=env,
+        )
+        results["archive"] = run_json(
+            cli,
+            ["tasks", "update", ticket, "--status", "Archive", "--json"],
+            f"{label} archive",
+            env=env,
+        )
+        archived = True
+        return results
+    finally:
+        if ticket is not None and not archived:
+            active_error = sys.exc_info()[0] is not None
+            try:
+                run_json(
+                    cli,
+                    ["tasks", "update", ticket, "--status", "Archive", "--json"],
+                    f"{label} cleanup",
+                    env=env,
+                )
+            except (AssertionError, json.JSONDecodeError, OSError) as cleanup_error:
+                if not active_error:
+                    raise
+                print(f"cleanup failed for {ticket}: {cleanup_error}", file=sys.stderr)
+
+
+def write_parity(node_cli: list[str], zig_cli: list[str], token: str) -> None:
+    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    node = write_round_trip(
+        node_cli, token, f"hypertask parity write {stamp} control", "Node"
+    )
+    zig = write_round_trip(
+        zig_cli, token, f"hypertask parity write {stamp} zig", "Zig"
+    )
+    failures: list[str] = []
+    for operation in node:
+        node_shape = normalize(node[operation], frozenset())
+        zig_shape = normalize(zig[operation], frozenset())
+        if node_shape != zig_shape:
+            failures.append(f"{operation}: JSON shape differs\n{json_diff(node_shape, zig_shape)}")
+    if failures:
+        raise AssertionError("write parity failures:\n\n" + "\n\n".join(failures))
+    print(f"write parity passed ({len(node)} commands)")
+
+
 def jwt(agent_id: str) -> str:
     payload = base64.urlsafe_b64encode(
         json.dumps({"agentId": agent_id, "exp": 2_000_000_000}, separators=(",", ":")).encode()
@@ -419,8 +517,11 @@ def negative_cases(node_cli: list[str], zig_cli: list[str]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--capabilities-only", action="store_true")
-    parser.add_argument("--architecture-only", action="store_true")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--capabilities-only", action="store_true")
+    modes.add_argument("--architecture-only", action="store_true")
+    modes.add_argument("--write", action="store_true")
+    parser.add_argument("--token", help="JWT for --write; defaults to HT_TOKEN or HYPERTASKS_JWT_TOKEN")
     parser.add_argument("--node-cli", help="Node CLI executable command")
     parser.add_argument("--zig-cli", help="Zig CLI executable path")
     options = parser.parse_args()
@@ -428,11 +529,19 @@ def main() -> int:
         if options.architecture_only:
             architecture()
             return 0
+        write_token = None
+        if options.write:
+            write_token = options.token or os.environ.get("HT_TOKEN") or os.environ.get("HYPERTASKS_JWT_TOKEN")
+            if not write_token:
+                parser.error("--write requires --token, HT_TOKEN, or HYPERTASKS_JWT_TOKEN")
         node_cli = resolve_node_cli(options.node_cli)
         zig_cli = resolve_zig_cli(options.zig_cli)
         reject_same_executable(node_cli, zig_cli)
         capabilities(node_cli, zig_cli)
-        if not options.capabilities_only:
+        if options.write:
+            assert write_token is not None
+            write_parity(node_cli, zig_cli, write_token)
+        elif not options.capabilities_only:
             read_only_parity(node_cli, zig_cli)
             auth_matrix(node_cli, zig_cli)
             human_output(zig_cli)
