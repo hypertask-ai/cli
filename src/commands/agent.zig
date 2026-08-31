@@ -650,9 +650,12 @@ fn addressesAgent(html: []const u8, agent_id: []const u8, agent_name: []const u8
         const data_type = attributeValue(chip, "data-type");
         if (data_type != null and std.mem.eql(u8, data_type.?, "mention")) {
             const label = attributeValue(chip, "data-label");
-            const display_name = attributeValue(chip, "data-id");
-            if ((label != null and std.mem.startsWith(u8, label.?, "agent-") and std.mem.eql(u8, label.?[6..], agent_id)) or
-                (display_name != null and agent_name.len != 0 and std.mem.eql(u8, display_name.?, agent_name))) return true;
+            if (label != null and std.mem.startsWith(u8, label.?, "agent-")) {
+                if (std.mem.eql(u8, label.?[6..], agent_id)) return true;
+            } else {
+                const display_name = attributeValue(chip, "data-id");
+                if (display_name != null and agent_name.len != 0 and std.mem.eql(u8, display_name.?, agent_name)) return true;
+            }
         }
         remaining = remaining[end + 1 ..];
     }
@@ -776,6 +779,7 @@ test "mention matching only accepts exact mention identifiers" {
     try std.testing.expect(addressesAgent("<span data-type='mention' data-label='agent-agent-1'>@Dev</span>", "agent-1", "Dev"));
     try std.testing.expect(!addressesAgent("<p>agent-1 without a mention chip</p>", "agent-1", "Dev"));
     try std.testing.expect(!addressesAgent("<span data-type=\"mention\" data-id=\"Other\" data-label=\"agent-agent-10\">@Other</span>", "agent-1", "Dev"));
+    try std.testing.expect(!addressesAgent("<span data-type=\"mention\" data-id=\"Dev\" data-label=\"agent-agent-10\">@Dev</span>", "agent-1", "Dev"));
     try std.testing.expect(!addressesAgent("<span data-type=\"mention\" data-other=\"agent-1\" data-id=\"Other\">@Other</span>", "agent-1", "Dev"));
     try std.testing.expect(!addressesAgent("<span xdata-type=\"mention\" data-label=\"agent-agent-1\">@Other</span>", "agent-1", "Dev"));
     try std.testing.expect(!addressesAgent("<span data-type=\"mention\" xdata-label=\"agent-agent-1\" data-id=\"Other\">@Other</span>", "agent-1", "Dev"));
