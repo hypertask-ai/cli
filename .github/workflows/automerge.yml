@@ -1,0 +1,273 @@
+name: Auto-merge green PRs
+
+# workflow_run always executes this file from the default branch, so a pull
+# request cannot grant its own code write permissions or weaken this evaluator.
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "PR number to evaluate (blank = scan all open PRs)"
+        required: false
+  schedule:
+    - cron: "*/5 * * * *"
+
+concurrency:
+  group: automerge
+  cancel-in-progress: false
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+  checks: read
+  statuses: read
+
+jobs:
+  automerge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Evaluate and merge green PRs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          DISP_PR: ${{ github.event.inputs.pr }}
+          RUN_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          RUN_REPO: ${{ github.event.workflow_run.head_repository.full_name }}
+        run: |
+          set -uo pipefail
+
+          if ! AUTOMERGE_TMP=$(mktemp -d "${RUNNER_TEMP:-/tmp}/hypertask-cli-automerge.XXXXXX"); then
+            echo "::error::Cannot create job-private auto-merge scratch space."
+            exit 1
+          fi
+          trap 'rm -rf "$AUTOMERGE_TMP"' EXIT
+          PR_JSON="$AUTOMERGE_TMP/pr.json"
+          PR_FILES="$AUTOMERGE_TMP/pr.files"
+          CHECKS_JSON="$AUTOMERGE_TMP/checks.json"
+          RUN_JSON="$AUTOMERGE_TMP/run.json"
+          infra_failures=0
+          merge_failures=0
+
+          retry() { local attempt; for attempt in 1 2 3; do "$@" && return 0; sleep $((attempt*4)); done; return 1; }
+
+          REQUIRED="test"
+          HOLD_LABELS="hold do-not-merge valentin-review wip probation"
+          RISK_RE='(^|/)\.github/|(^|/)build\.zig(\.zon)?$|(^|/)scripts/(automerge_workflow_test\.py|install-fleet\.sh|install_fleet_test\.sh)$'
+          OWNER="${REPO%%/*}"
+
+          if [ "$EVENT" != "workflow_run" ]; then
+            if [ "$EVENT" = "workflow_dispatch" ] && [ -n "${DISP_PR:-}" ]; then
+              PRS="$DISP_PR"
+            else
+              list_all_prs() { gh pr list --repo "$REPO" --base main --state open --json number -q '.[].number'; }
+              if ! PRS=$(retry list_all_prs); then
+                echo "::error::Cannot discover open main PRs after retries; merge evaluation did not run."
+                exit 1
+              fi
+            fi
+          else
+            [ "${RUN_REPO:-}" = "$REPO" ] || { echo "workflow_run from a fork ($RUN_REPO); ignoring."; exit 0; }
+            list_branch_prs() { gh pr list --repo "$REPO" --base main --state open --head "$RUN_BRANCH" --json number -q '.[].number'; }
+            if ! PRS=$(retry list_branch_prs); then
+              echo "::error::Cannot discover the main PR for branch $RUN_BRANCH after retries; merge evaluation did not run."
+              exit 1
+            fi
+            [ -z "${PRS:-}" ] && { echo "No open main PR for branch $RUN_BRANCH."; exit 0; }
+          fi
+          [ -z "${PRS:-}" ] && { echo "No open PRs to main."; exit 0; }
+
+          has_hold() {
+            local labels="$1" label
+            for label in $HOLD_LABELS; do
+              echo "$labels" | grep -qx "$label" && return 0
+            done
+            return 1
+          }
+
+          for PR in $PRS; do
+            echo "::group::PR #$PR"
+            sleep 1
+            gh_view() { gh pr view "$PR" --repo "$REPO" --json number,changedFiles,isDraft,isCrossRepository,mergeable,baseRefName,headRefOid,headRepositoryOwner,labels >"$PR_JSON"; }
+            if ! retry gh_view; then
+              echo "::error::Cannot read PR #$PR after retries; merge evaluation is incomplete."
+              infra_failures=$((infra_failures+1))
+              echo "::endgroup::"
+              continue
+            fi
+            if ! jq -e '
+              (.number | type == "number") and
+              (.changedFiles | type == "number") and
+              (.isDraft | type == "boolean") and
+              (.isCrossRepository | type == "boolean") and
+              (.mergeable | type == "string") and
+              (.baseRefName | type == "string") and
+              (.headRefOid | type == "string" and test("^[0-9a-f]{40}$")) and
+              (.headRepositoryOwner.login | type == "string") and
+              (.labels | type == "array")
+            ' "$PR_JSON" >/dev/null; then
+              echo "::error::PR #$PR metadata is malformed or incomplete; refusing to evaluate it."
+              infra_failures=$((infra_failures+1))
+              echo "::endgroup::"
+              continue
+            fi
+
+            base=$(jq -r '.baseRefName' "$PR_JSON")
+            changed_files=$(jq -r '.changedFiles' "$PR_JSON")
+            draft=$(jq -r '.isDraft' "$PR_JSON")
+            cross_repo=$(jq -r '.isCrossRepository' "$PR_JSON")
+            mergeable=$(jq -r '.mergeable' "$PR_JSON")
+            head_owner=$(jq -r '.headRepositoryOwner.login' "$PR_JSON")
+            head_oid=$(jq -r '.headRefOid' "$PR_JSON")
+
+            mergeability_failed=0
+            attempts=0
+            while [ "$mergeable" = "UNKNOWN" ] && [ "$attempts" -lt 5 ]; do
+              sleep 3
+              attempts=$((attempts+1))
+              gh_mergeability() { gh pr view "$PR" --repo "$REPO" --json mergeable -q '.mergeable'; }
+              if ! mergeable=$(retry gh_mergeability); then
+                echo "::error::Cannot resolve mergeability for PR #$PR after retries; refusing to merge."
+                infra_failures=$((infra_failures+1))
+                mergeability_failed=1
+                break
+              fi
+            done
+            [ "$mergeability_failed" = "1" ] && { echo "::endgroup::"; continue; }
+            if [ "$mergeable" = "UNKNOWN" ]; then
+              echo "::error::Mergeability for PR #$PR stayed UNKNOWN after $attempts polls; refusing to merge."
+              infra_failures=$((infra_failures+1))
+              echo "::endgroup::"
+              continue
+            fi
+
+            [ "$base" = "main" ] || { echo "skip: base=$base"; echo "::endgroup::"; continue; }
+            [ "$draft" = "false" ] || { echo "skip: draft"; echo "::endgroup::"; continue; }
+            [ "$cross_repo" = "false" ] || { echo "skip: fork/cross-repo PR"; echo "::endgroup::"; continue; }
+            [ "$head_owner" = "$OWNER" ] || { echo "skip: head owner $head_owner"; echo "::endgroup::"; continue; }
+            [ "$mergeable" != "CONFLICTING" ] || { echo "skip: merge conflicts"; echo "::endgroup::"; continue; }
+
+            labels=$(jq -r '.labels[].name' "$PR_JSON" | tr '[:upper:]' '[:lower:]')
+            has_hold "$labels" && { echo "skip: hold label present"; echo "::endgroup::"; continue; }
+
+            gh_files() { gh api --paginate "repos/$REPO/pulls/$PR/files?per_page=100" --jq '.[].filename' >"$PR_FILES"; }
+            if ! retry gh_files; then
+              echo "::error::Cannot read files for PR #$PR after retries; merge evaluation is incomplete."
+              infra_failures=$((infra_failures+1))
+              echo "::endgroup::"
+              continue
+            fi
+            file_count=$(wc -l <"$PR_FILES" | tr -d ' ')
+            if [ "$file_count" -ne "$changed_files" ]; then
+              echo "::error::PR #$PR reports $changed_files changed files but the paginated API returned $file_count; refusing to merge."
+              infra_failures=$((infra_failures+1))
+              echo "::endgroup::"
+              continue
+            fi
+            risky=$(grep -iE "$RISK_RE" "$PR_FILES" || true)
+            [ -z "$risky" ] || { echo "skip: sensitive paths require manual merge"; echo "$risky"; echo "::endgroup::"; continue; }
+
+            gh_labels() { gh pr view "$PR" --repo "$REPO" --json labels -q '.labels[].name'; }
+            if ! current_labels=$(retry gh_labels); then
+              echo "::error::Cannot recheck hold labels for PR #$PR after retries; refusing to merge."
+              infra_failures=$((infra_failures+1))
+              echo "::endgroup::"
+              continue
+            fi
+            current_labels=$(printf '%s\n' "$current_labels" | tr '[:upper:]' '[:lower:]')
+            has_hold "$current_labels" && { echo "skip: hold label added during evaluation"; echo "::endgroup::"; continue; }
+
+            # Refresh the authoritative GitHub Actions run immediately before the
+            # merge. Check-run ids are monotonic, so a queued rerun supersedes an
+            # older success even when it has no started_at timestamp yet.
+            all_green=1
+            check_read_failed=0
+            for check in $REQUIRED; do
+              gh_checks() {
+                gh api --method GET "repos/$REPO/commits/$head_oid/check-runs" \
+                  -f check_name="$check" -f filter=latest -F per_page=100 >"$CHECKS_JSON"
+              }
+              if ! retry gh_checks; then
+                echo "::error::Cannot refresh check $check for PR #$PR; refusing to merge."
+                infra_failures=$((infra_failures+1))
+                check_read_failed=1
+                break
+              fi
+              latest=$(jq -c --arg name "$check" '
+                [.check_runs[]
+                  | select(.name == $name)
+                  | select(.app.slug == "github-actions")]
+                | sort_by(.id) | last // empty
+              ' "$CHECKS_JSON")
+              if [ -z "$latest" ]; then
+                state="MISSING"
+              else
+                status=$(jq -r '.status | ascii_upcase' <<<"$latest")
+                conclusion=$(jq -r '(.conclusion // "NO_CONCLUSION") | ascii_upcase' <<<"$latest")
+                if [ "$status" != "COMPLETED" ]; then
+                  state="$status"
+                elif [ "$conclusion" != "SUCCESS" ]; then
+                  state="$conclusion"
+                else
+                  details_url=$(jq -r '.details_url // ""' <<<"$latest")
+                  run_id=$(sed -nE 's#^https://github\.com/[^/]+/[^/]+/actions/runs/([0-9]+)(/.*)?$#\1#p' <<<"$details_url")
+                  if [ -z "$run_id" ]; then
+                    state="INVALID"
+                  else
+                    gh_run() { gh api "repos/$REPO/actions/runs/$run_id" >"$RUN_JSON"; }
+                    if ! retry gh_run; then
+                      echo "::error::Cannot verify workflow run $run_id for PR #$PR; refusing to merge."
+                      infra_failures=$((infra_failures+1))
+                      check_read_failed=1
+                      break
+                    fi
+                    if jq -e --arg head "$head_oid" '
+                      .name == "CI" and
+                      .head_sha == $head and
+                      .status == "completed" and
+                      .conclusion == "success"
+                    ' "$RUN_JSON" >/dev/null; then
+                      state="SUCCESS"
+                    else
+                      state="INVALID"
+                    fi
+                  fi
+                fi
+              fi
+              if [ "$state" = "SUCCESS" ]; then
+                echo "check $check = SUCCESS"
+              else
+                echo "check $check = $state"
+                all_green=0
+              fi
+            done
+            [ "$check_read_failed" = "0" ] || { echo "::endgroup::"; continue; }
+            [ "$all_green" = "1" ] || { echo "skip: not all required checks green"; echo "::endgroup::"; continue; }
+
+            echo "MERGING #$PR @ ${head_oid:0:9}"
+            if gh pr merge "$PR" --repo "$REPO" --squash --match-head-commit "$head_oid"; then
+              echo "MERGED #$PR"
+              # GITHUB_TOKEN merge events do not start push workflows. Dispatch
+              # installation explicitly so every automated merge reaches the fleet.
+              dispatch_install() { gh workflow run install-fleet.yml --repo "$REPO" --ref main; }
+              if retry dispatch_install; then
+                echo "Dispatched fleet installation."
+              else
+                echo "::error::Merged PR #$PR but could not dispatch fleet installation."
+                infra_failures=$((infra_failures+1))
+              fi
+            else
+              echo "::error::Merge failed for PR #$PR; it will retry on the next trigger."
+              merge_failures=$((merge_failures+1))
+            fi
+            echo "::endgroup::"
+          done
+
+          if [ "$infra_failures" -gt 0 ] || [ "$merge_failures" -gt 0 ]; then
+            echo "::error::Auto-merge finished with $infra_failures infrastructure read failure(s) and $merge_failures merge failure(s)."
+            exit 1
+          fi
