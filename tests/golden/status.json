@@ -1,0 +1,1 @@
+{"authenticated":true,"hasToken":true,"identity":"agent","agentId":"agent-test","expiresAt":"2026-09-05T13:24:26.000Z","apiUrl":"{{API_URL}}","configPath":"{{HOME}}/.hypertask/config.json"}
