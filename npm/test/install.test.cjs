@@ -54,12 +54,13 @@ test('installs a checksum-verified native binary', async (t) => {
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
   const destination = path.join(directory, 'hypertask.exe');
 
-  const result = await install({
+  const options = {
     platform: 'linux',
     architecture: 'x64',
     releaseRoot: root,
     destination,
-  });
+  };
+  const [result] = await Promise.all([install(options), install(options)]);
 
   assert.equal(result.asset, 'hypertask-linux-x86_64');
   assert.deepEqual(await fs.readFile(destination), binary);

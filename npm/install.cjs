@@ -51,15 +51,19 @@ async function install(options = {}) {
   if (actual !== expected) throw new Error(`Checksum verification failed for ${asset}`);
 
   await fs.mkdir(path.dirname(destination), { recursive: true });
-  const temporary = `${destination}.${process.pid}.tmp`;
-  await fs.writeFile(temporary, binary, { mode: 0o755 });
-  await fs.chmod(temporary, 0o755);
+  const temporary = `${destination}.${process.pid}.${crypto.randomUUID()}.tmp`;
   try {
-    await fs.rename(temporary, destination);
-  } catch (error) {
-    if (!['EEXIST', 'EPERM'].includes(error.code)) throw error;
-    await fs.rm(destination, { force: true });
-    await fs.rename(temporary, destination);
+    await fs.writeFile(temporary, binary, { flag: 'wx', mode: 0o755 });
+    await fs.chmod(temporary, 0o755);
+    try {
+      await fs.rename(temporary, destination);
+    } catch (error) {
+      if (!['EEXIST', 'EPERM'].includes(error.code)) throw error;
+      await fs.rm(destination, { force: true });
+      await fs.rename(temporary, destination);
+    }
+  } finally {
+    await fs.rm(temporary, { force: true });
   }
   return { asset, destination };
 }

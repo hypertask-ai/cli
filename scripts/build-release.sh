@@ -1,13 +1,9 @@
 #!/bin/sh
 set -eu
 
-out_dir=${HYPERTASK_RELEASE_OUT_DIR:-dist}
-case "$out_dir" in
-  ""|/) echo "invalid release output directory" >&2; exit 1 ;;
-esac
+out_dir="$PWD/dist"
 mkdir -p "$out_dir"
-find "$out_dir" -type f -maxdepth 1 -delete
-out_dir=$(cd "$out_dir" && pwd)
+find "$out_dir" -maxdepth 1 -type f \( -name 'hypertask-*' -o -name checksums.txt \) -delete
 work_dir=$(mktemp -d)
 trap 'rm -rf "$work_dir"' EXIT HUP INT TERM
 

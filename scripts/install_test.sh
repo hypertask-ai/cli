@@ -10,7 +10,11 @@ printf '#!/bin/sh\nprintf "native hypertask\\n"\n' > "$release_dir/hypertask-lin
 chmod 0755 "$release_dir/hypertask-linux-x86_64"
 (
   cd "$release_dir"
-  sha256sum hypertask-linux-x86_64 > checksums.txt
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum hypertask-linux-x86_64 > checksums.txt
+  else
+    shasum -a 256 hypertask-linux-x86_64 > checksums.txt
+  fi
 )
 
 fake_bin="$root/bin"
