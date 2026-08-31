@@ -79,7 +79,7 @@ test "router dispatches task and decision aliases" {
     );
 }
 
-test "task get resolves bare numbers as project ticket suffixes" {
+test "task get distinguishes internal ids from project ticket indexes" {
     try expectRequest(
         &.{ "tasks", "get", "5661", "--project", "15" },
         .GET,
@@ -92,7 +92,12 @@ test "task get resolves bare numbers as project ticket suffixes" {
         "/mcp/tasks?ticket_number=HTPR-5661",
         null,
     );
-    try expectDispatchError(error.MissingOption, &.{ "tasks", "get", "5661" });
+    try expectRequest(
+        &.{ "tasks", "get", "35672" },
+        .GET,
+        "/mcp/tasks?task_id=35672",
+        null,
+    );
 }
 
 test "messages poll rejects invalid cursors before making a request" {
