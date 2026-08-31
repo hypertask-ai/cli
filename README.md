@@ -101,6 +101,10 @@ hypertask agent new-tickets --label Bug
 
 `--token`, `HT_TOKEN`, and `HYPERTASKS_JWT_TOKEN` are also accepted. Ticket capability environment variables are checked before any request. Without `HT_AGENT_STATE_DIR`, durable state is isolated by API endpoint, project, and agent identity. On first use, seen, ticket, and watermark files migrate from `~/.config/hypertask-agents/<slug>.*` when present.
 
+## Pull request checks
+
+Every pull request to `main` runs ReleaseFast unit tests, installer tests, capability and architecture checks, and live read-only parity. The repository's auto-merge evaluator merges eligible same-repository changes only after the current `test` check passes.
+
 ## Verification
 
 ```bash
