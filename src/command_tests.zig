@@ -33,6 +33,25 @@ fn expectRequest(argv: []const []const u8, method: std.http.Method, path: []cons
     }
 }
 
+fn expectDispatchError(expected: anyerror, argv: []const []const u8) !void {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var parsed = try args.parse(allocator, argv);
+    defer parsed.deinit();
+    var cfg = config.Config{ .allocator = allocator, .token = "test-token" };
+    defer cfg.deinit();
+    const context = command_context.Context{
+        .allocator = allocator,
+        .args = &parsed,
+        .cfg = &cfg,
+        .json = true,
+    };
+
+    try std.testing.expectError(expected, router.dispatch(&context));
+}
+
 test "router dispatches task and decision aliases" {
     try expectRequest(
         &.{ "task", "list", "--project", "15" },
@@ -58,6 +77,22 @@ test "router dispatches task and decision aliases" {
         "/mcp/decisions?ticket_number=HTPR-123&status=pending",
         null,
     );
+}
+
+test "task get resolves bare numbers as project ticket suffixes" {
+    try expectRequest(
+        &.{ "tasks", "get", "5661", "--project", "15" },
+        .GET,
+        "/mcp/tasks?unique_index=5661&project_id=15",
+        null,
+    );
+    try expectRequest(
+        &.{ "tasks", "get", "htpr-5661" },
+        .GET,
+        "/mcp/tasks?ticket_number=HTPR-5661",
+        null,
+    );
+    try expectDispatchError(error.MissingOption, &.{ "tasks", "get", "5661" });
 }
 
 test "command handlers build request bodies and query strings without HTTP" {

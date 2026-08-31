@@ -50,7 +50,8 @@ install -m 755 zig-out/bin/hypertask ~/.local/bin/hypertask
 Use `hypertask` for board operations:
 
 ```bash
-hypertask tasks get HTPR-5726 --project 15
+hypertask tasks get HTPR-5726
+hypertask tasks get 5726 --project 15
 hypertask tasks move HTPR-5726 --section "In Progress"
 hypertask comment add HTPR-5726 --text "<p>...</p>"
 hypertask agents update --id <agent-id> --add-project 339
