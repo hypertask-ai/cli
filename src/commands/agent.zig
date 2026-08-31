@@ -34,6 +34,11 @@ const PollState = struct {
     watermark: []u8,
 };
 
+const TicketCursors = struct {
+    comment: i64 = 0,
+    reaction: i64 = 0,
+};
+
 pub fn run(context: *const Context, subcommand: []const u8) !void {
     if (std.mem.eql(u8, subcommand, "say")) return say(context);
     if (std.mem.eql(u8, subcommand, "take")) return assignSelf(context, "assign");
@@ -212,6 +217,7 @@ fn pollTicket(context: *const Context, seen: *std.StringHashMap(void), result: *
     const agent_id = optionOrEnvironment(context, "agent-id", "HT_AGENT_ID") orelse return error.MissingAgentIdentity;
     const agent_name = optionOrEnvironment(context, "agent-name", "HT_AGENT_NAME") orelse "";
     const all = context.args.has("all");
+    var cursors = ticketCursors(seen, ticket);
 
     for (comments) |comment| {
         const id = integerField(comment, "id") orelse continue;
@@ -221,14 +227,10 @@ fn pollTicket(context: *const Context, seen: *std.StringHashMap(void), result: *
             for (reactions) |reaction| {
                 const reaction_id = integerField(reaction, "id") orelse continue;
                 const reaction_key = try stateKey(context.allocator, ticket, "r:", reaction_id);
-                if (seenContains(seen, ticket, reaction_key, reaction_id, true)) {
-                    context.allocator.free(reaction_key);
-                    continue;
-                }
-                seen.put(reaction_key, {}) catch |err| {
-                    context.allocator.free(reaction_key);
-                    return err;
-                };
+                defer context.allocator.free(reaction_key);
+                const already_seen = reaction_id <= cursors.reaction or seenContains(seen, ticket, reaction_key, reaction_id, true);
+                cursors.reaction = @max(cursors.reaction, reaction_id);
+                if (already_seen) continue;
                 if (ours) {
                     const emoji = try boundedText(context.allocator, stringField(reaction, "emoji") orelse "", 32);
                     defer context.allocator.free(emoji);
@@ -240,14 +242,10 @@ fn pollTicket(context: *const Context, seen: *std.StringHashMap(void), result: *
         }
 
         const key = try stateKey(context.allocator, ticket, "", id);
-        if (seenContains(seen, ticket, key, id, false)) {
-            context.allocator.free(key);
-            continue;
-        }
-        seen.put(key, {}) catch |err| {
-            context.allocator.free(key);
-            return err;
-        };
+        defer context.allocator.free(key);
+        const already_seen = id <= cursors.comment or seenContains(seen, ticket, key, id, false);
+        cursors.comment = @max(cursors.comment, id);
+        if (already_seen) continue;
         const html = stringField(comment, "text") orelse "";
         const addressed = addressesAgent(html, agent_id, agent_name);
         if (!all and !addressed) continue;
@@ -264,6 +262,7 @@ fn pollTicket(context: *const Context, seen: *std.StringHashMap(void), result: *
             text,
         });
     }
+    try compactTicketState(context.allocator, seen, ticket, cursors);
 }
 
 fn newTickets(context: *const Context) !void {
@@ -315,11 +314,16 @@ fn newTickets(context: *const Context) !void {
 
 fn guard(context: *const Context, ticket: ?[]const u8) !void {
     const scoped_slug = environment("HT_CAPABILITY_AGENT_SLUG");
-    const actual_slug = optionOrEnvironment(context, "slug", "HT_AGENT_SLUG");
+    const actual_slug = try guardedAgentSlug(scoped_slug, context.args.get("slug"), environment("HT_AGENT_SLUG"));
     const scoped_ticket = environment("HT_CAPABILITY_TICKET");
     const expires = environment("HT_CAPABILITY_EXPIRES_AT");
     const expires_at = if (expires) |value| try std.fmt.parseInt(i64, value, 10) else null;
     try guardCapability(std.time.timestamp(), expires_at, scoped_slug, actual_slug, scoped_ticket, ticket);
+}
+
+fn guardedAgentSlug(scoped_slug: ?[]const u8, option_slug: ?[]const u8, environment_slug: ?[]const u8) !?[]const u8 {
+    if (scoped_slug != null and option_slug != null) return error.CapabilityAgentOverride;
+    return if (scoped_slug != null) environment_slug else option_slug orelse environment_slug;
 }
 
 fn guardCapability(now: i64, expires_at: ?i64, scoped_slug: ?[]const u8, actual_slug: ?[]const u8, scoped_ticket: ?[]const u8, ticket: ?[]const u8) !void {
@@ -589,6 +593,50 @@ fn stateKey(allocator: std.mem.Allocator, ticket: []const u8, middle: []const u8
     return std.fmt.allocPrint(allocator, "{s}:{s}{d}", .{ ticket, middle, id });
 }
 
+fn ticketCursors(seen: *const std.StringHashMap(void), ticket: []const u8) TicketCursors {
+    var result = TicketCursors{};
+    var iterator = seen.keyIterator();
+    while (iterator.next()) |key| {
+        const suffix = ticketStateSuffix(key.*, ticket) orelse continue;
+        if (std.mem.startsWith(u8, suffix, "cursor:c:")) {
+            result.comment = @max(result.comment, std.fmt.parseInt(i64, suffix[9..], 10) catch 0);
+        } else if (std.mem.startsWith(u8, suffix, "cursor:r:")) {
+            result.reaction = @max(result.reaction, std.fmt.parseInt(i64, suffix[9..], 10) catch 0);
+        }
+    }
+    return result;
+}
+
+fn compactTicketState(allocator: std.mem.Allocator, seen: *std.StringHashMap(void), ticket: []const u8, cursors: TicketCursors) !void {
+    var removals: std.ArrayListUnmanaged([]const u8) = .{};
+    defer removals.deinit(allocator);
+    var iterator = seen.keyIterator();
+    while (iterator.next()) |key| {
+        if (ticketStateSuffix(key.*, ticket) != null) try removals.append(allocator, key.*);
+    }
+    for (removals.items) |key| {
+        if (seen.fetchRemove(key)) |removed| allocator.free(removed.key);
+    }
+    if (cursors.comment > 0) {
+        const key = try std.fmt.allocPrint(allocator, "{s}:cursor:c:{d}", .{ ticket, cursors.comment });
+        defer allocator.free(key);
+        try putLine(allocator, seen, key);
+    }
+    if (cursors.reaction > 0) {
+        const key = try std.fmt.allocPrint(allocator, "{s}:cursor:r:{d}", .{ ticket, cursors.reaction });
+        defer allocator.free(key);
+        try putLine(allocator, seen, key);
+    }
+}
+
+fn ticketStateSuffix(key: []const u8, ticket: []const u8) ?[]const u8 {
+    if (key.len > ticket.len and std.mem.startsWith(u8, key, ticket) and key[ticket.len] == ':') return key[ticket.len + 1 ..];
+    const separator = std.mem.lastIndexOfScalar(u8, ticket, '-') orelse return null;
+    const legacy_ticket = ticket[separator + 1 ..];
+    if (key.len > legacy_ticket.len and std.mem.startsWith(u8, key, legacy_ticket) and key[legacy_ticket.len] == ':') return key[legacy_ticket.len + 1 ..];
+    return null;
+}
+
 fn seenContains(seen: *const std.StringHashMap(void), ticket: []const u8, full_key: []const u8, id: i64, reaction: bool) bool {
     if (seen.contains(full_key)) return true;
     const separator = std.mem.lastIndexOfScalar(u8, ticket, '-') orelse return false;
@@ -774,6 +822,12 @@ test "capability guards reject expired and cross-ticket operations" {
     try guardCapability(10, 10, "dev-3", "dev-3", "HTPR-1", "HTPR-1");
 }
 
+test "scoped capability rejects command-line agent slug overrides" {
+    try std.testing.expectError(error.CapabilityAgentOverride, guardedAgentSlug("dev-3", "dev-3", "dev-3"));
+    try std.testing.expectEqualStrings("dev-3", (try guardedAgentSlug("dev-3", null, "dev-3")).?);
+    try std.testing.expectEqualStrings("dev-2", (try guardedAgentSlug(null, "dev-2", "dev-3")).?);
+}
+
 test "mention matching only accepts exact mention identifiers" {
     try std.testing.expect(addressesAgent("<p><span data-type=\"mention\" data-id=\"Dev\" data-label=\"agent-agent-1\">@Dev</span></p>", "agent-1", "Dev"));
     try std.testing.expect(addressesAgent("<span data-type='mention' data-label='agent-agent-1'>@Dev</span>", "agent-1", "Dev"));
@@ -810,6 +864,24 @@ test "legacy migration requires matching identity and first project" {
     try std.testing.expect(!legacyScopeFieldsMatch(raw, "agent-2", "15"));
     try std.testing.expect(!legacyScopeFieldsMatch(raw, "agent-3", "16"));
     try std.testing.expect(!legacyScopeFieldsMatch("HT_AGENT_ID=agent-3\n", "agent-3", "15"));
+}
+
+test "seen state compacts to per-ticket cursors" {
+    var seen = std.StringHashMap(void).init(std.testing.allocator);
+    defer deinitLineSet(std.testing.allocator, &seen);
+    try putLine(std.testing.allocator, &seen, "HTPR-5778:10");
+    try putLine(std.testing.allocator, &seen, "5778:r:20");
+    try putLine(std.testing.allocator, &seen, "HTPR-5778:cursor:c:5");
+    try putLine(std.testing.allocator, &seen, "HTPR-9999:30");
+
+    const cursors = ticketCursors(&seen, "HTPR-5778");
+    try std.testing.expectEqual(@as(i64, 5), cursors.comment);
+    try std.testing.expectEqual(@as(i64, 0), cursors.reaction);
+    try compactTicketState(std.testing.allocator, &seen, "HTPR-5778", .{ .comment = 10, .reaction = 20 });
+    try std.testing.expectEqual(@as(usize, 3), seen.count());
+    try std.testing.expect(seen.contains("HTPR-5778:cursor:c:10"));
+    try std.testing.expect(seen.contains("HTPR-5778:cursor:r:20"));
+    try std.testing.expect(seen.contains("HTPR-9999:30"));
 }
 
 test "legacy seen keys remain compatible with ht-agent state" {
