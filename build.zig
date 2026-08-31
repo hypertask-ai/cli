@@ -34,8 +34,11 @@ pub fn build(b: *std.Build) void {
     const run_unit_tests = b.addRunArtifact(unit_tests);
     test_step.dependOn(&run_unit_tests.step);
 
-    const output_parity_test_step = b.step("output-parity-test", "Run CLI output parity tests");
-    const output_parity_tests = b.addSystemCommand(&.{ "python3", "scripts/output_parity_test.py" });
+    const output_parity_test_step = b.step("output-parity-test", "Run golden-file HTTP stub tests");
+    const python = b.option([]const u8, "python", "Python 3 executable for HTTP stub tests") orelse
+        b.findProgram(&.{ "python3", "python" }, &.{}) catch "python3";
+    const output_parity_tests = b.addSystemCommand(&.{ python, "scripts/output_parity_test.py" });
     output_parity_tests.addArtifactArg(exe);
     output_parity_test_step.dependOn(&output_parity_tests.step);
+    test_step.dependOn(&output_parity_tests.step);
 }
