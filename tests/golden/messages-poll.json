@@ -1,1 +1,1 @@
-{"success":true,"messages":[{"id":12,"type":"Comment"},{"id":13,"type":"Assigned"}],"next_cursor":13}
+{"success":true,"messages":[{"id":12,"type":"Comment"},{"id":"13","type":"Assigned"}],"next_cursor":13}
