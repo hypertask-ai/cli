@@ -15,6 +15,17 @@ const State = struct {
     seen_path: []const u8,
     tickets_path: []const u8,
     watermark_path: []const u8,
+
+    fn deinit(self: *State, allocator: std.mem.Allocator) void {
+        allocator.free(self.directory);
+        allocator.free(self.lock_path);
+        allocator.free(self.poll_lock_path);
+        allocator.free(self.tickets_lock_path);
+        allocator.free(self.seen_path);
+        allocator.free(self.tickets_path);
+        allocator.free(self.watermark_path);
+        self.* = undefined;
+    }
 };
 
 const PollState = struct {
@@ -50,7 +61,11 @@ fn say(context: *const Context) !void {
     try requireSuccess(context, &response);
     if (commentId(response.body)) |id| {
         // The comment already exists remotely, so local bookkeeping must not make a retry post it twice.
-        if (statePaths(context)) |state| appendSeen(context, state, ticket, id) catch {} else |_| {}
+        if (statePaths(context)) |state_value| {
+            var state = state_value;
+            defer state.deinit(context.allocator);
+            appendSeen(context, state, ticket, id) catch {};
+        } else |_| {}
     }
     try context.print(response.body);
 }
@@ -128,7 +143,8 @@ fn removeOtherAgents(context: *const Context, ticket: []const u8, target: []cons
 fn poll(context: *const Context) !void {
     const project = try projectId(context);
     try guard(context, null);
-    const state = try statePaths(context);
+    var state = try statePaths(context);
+    defer state.deinit(context.allocator);
     try ensureStateDirectory(state.directory);
     var operation_lock = try acquireFileLock(state.poll_lock_path);
     defer releaseStateLock(&operation_lock);
@@ -252,7 +268,8 @@ fn pollTicket(context: *const Context, seen: *std.StringHashMap(void), result: *
 fn newTickets(context: *const Context) !void {
     const project = try projectId(context);
     try guard(context, null);
-    const state = try statePaths(context);
+    var state = try statePaths(context);
+    defer state.deinit(context.allocator);
     try ensureStateDirectory(state.directory);
     var operation_lock = try acquireFileLock(state.tickets_lock_path);
     defer releaseStateLock(&operation_lock);
@@ -326,7 +343,9 @@ fn projectId(context: *const Context) !i64 {
 }
 
 fn statePaths(context: *const Context) !State {
-    const directory = optionOrEnvironment(context, "state-dir", "HT_AGENT_STATE_DIR") orelse blk: {
+    const directory = if (optionOrEnvironment(context, "state-dir", "HT_AGENT_STATE_DIR")) |path|
+        try context.allocator.dupe(u8, path)
+    else blk: {
         const home = environment("HOME") orelse return error.NoHome;
         const identity = optionOrEnvironment(context, "slug", "HT_AGENT_SLUG") orelse
             optionOrEnvironment(context, "agent-id", "HT_AGENT_ID") orelse return error.MissingAgentIdentity;
@@ -335,13 +354,24 @@ fn statePaths(context: *const Context) !State {
         const endpoint = try std.fmt.bufPrint(&endpoint_buffer, "{x}", .{std.hash.Wyhash.hash(0, context.cfg.api_url)});
         break :blk try std.fs.path.join(context.allocator, &.{ home, ".local", "state", "hypertask-agent", endpoint, project, identity });
     };
+    errdefer context.allocator.free(directory);
+    const lock_path = try std.fs.path.join(context.allocator, &.{ directory, "state.lock" });
+    errdefer context.allocator.free(lock_path);
+    const poll_lock_path = try std.fs.path.join(context.allocator, &.{ directory, "poll.lock" });
+    errdefer context.allocator.free(poll_lock_path);
+    const tickets_lock_path = try std.fs.path.join(context.allocator, &.{ directory, "new-tickets.lock" });
+    errdefer context.allocator.free(tickets_lock_path);
+    const seen_path = try std.fs.path.join(context.allocator, &.{ directory, "seen" });
+    errdefer context.allocator.free(seen_path);
+    const tickets_path = try std.fs.path.join(context.allocator, &.{ directory, "tickets" });
+    errdefer context.allocator.free(tickets_path);
     return .{
         .directory = directory,
-        .lock_path = try std.fs.path.join(context.allocator, &.{ directory, "state.lock" }),
-        .poll_lock_path = try std.fs.path.join(context.allocator, &.{ directory, "poll.lock" }),
-        .tickets_lock_path = try std.fs.path.join(context.allocator, &.{ directory, "new-tickets.lock" }),
-        .seen_path = try std.fs.path.join(context.allocator, &.{ directory, "seen" }),
-        .tickets_path = try std.fs.path.join(context.allocator, &.{ directory, "tickets" }),
+        .lock_path = lock_path,
+        .poll_lock_path = poll_lock_path,
+        .tickets_lock_path = tickets_lock_path,
+        .seen_path = seen_path,
+        .tickets_path = tickets_path,
         .watermark_path = try std.fs.path.join(context.allocator, &.{ directory, "watermark" }),
     };
 }
