@@ -5,6 +5,7 @@ const json = @import("../json_util.zig");
 const query = @import("../query.zig");
 const resolve = @import("../resolve.zig");
 const attachments = @import("../attachments.zig");
+const http = @import("../http.zig");
 const output = @import("../output.zig");
 
 pub fn run(context: *const Context, subcommand: []const u8) !void {
@@ -69,7 +70,7 @@ fn next(context: *const Context) !void {
 }
 
 fn get(context: *const Context) !void {
-    const identifier = try context.args.requirePositional(2, "ticket");
+    const identifier = try context.args.requirePositional(2, "ticket-or-task-id");
     var path = try query.Builder.init(context.allocator, "/mcp/tasks");
     defer path.deinit();
     try addGetIdentifierQuery(&path, context, identifier);
@@ -161,14 +162,13 @@ fn create(context: *const Context) !void {
     const assignees = try common.optionList(context, "assignee");
     if (assignees.len != 0) try body.integers("assignee", assignees);
     const attach_inputs = try common.optionList(context, "attach");
-    if (attach_inputs.len == 0) return context.call(.POST, "/mcp/tasks/create", try body.finish());
     var response = try context.fetch(.POST, "/mcp/tasks/create", try body.finish());
     defer response.deinit();
-    const code = @intFromEnum(response.status);
-    if (code < 200 or code >= 300) return output.finish(&response);
+    const linked_body = try taskMutationBody(context, &response);
+    if (attach_inputs.len == 0) return context.print(linked_body);
     const ticket = try responseTicket(context, response.body);
     const uploaded = try attachments.upload(context, ticket, null, attach_inputs);
-    try context.print(try json.mergeRawField(context.allocator, response.body, "attachments_uploaded", uploaded));
+    try context.print(try json.mergeRawField(context.allocator, linked_body, "attachments_uploaded", uploaded));
 }
 
 fn update(context: *const Context) !void {
@@ -199,7 +199,6 @@ fn update(context: *const Context) !void {
     const assignees = try common.optionList(context, "assignee");
     if (assignees.len != 0) try body.integers("assignee", assignees);
     const attach_inputs = try common.optionList(context, "attach");
-    if (attach_inputs.len == 0) return context.call(.POST, "/mcp/tasks/update", try body.finish());
     var response = if (hasUpdateOptions(context))
         try context.fetch(.POST, "/mcp/tasks/update", try body.finish())
     else blk: {
@@ -209,10 +208,10 @@ fn update(context: *const Context) !void {
         break :blk try context.fetch(.GET, path.path(), null);
     };
     defer response.deinit();
-    const code = @intFromEnum(response.status);
-    if (code < 200 or code >= 300) return output.finish(&response);
+    const linked_body = try taskMutationBody(context, &response);
+    if (attach_inputs.len == 0) return context.print(linked_body);
     const uploaded = try attachments.upload(context, ticket, null, attach_inputs);
-    try context.print(try json.mergeRawField(context.allocator, response.body, "attachments_uploaded", uploaded));
+    try context.print(try json.mergeRawField(context.allocator, linked_body, "attachments_uploaded", uploaded));
 }
 
 fn assign(context: *const Context, intent: []const u8) !void {
@@ -238,7 +237,9 @@ fn move(context: *const Context) !void {
     var body = try identifierBody(context, identifier);
     defer body.deinit();
     try body.integer("sectionId", try resolve.sectionId(context, found.project_id, section));
-    try context.call(.POST, "/mcp/tasks/update", try body.finish());
+    var response = try context.fetch(.POST, "/mcp/tasks/update", try body.finish());
+    defer response.deinit();
+    try context.print(try taskMutationBody(context, &response));
 }
 
 fn moveBoard(context: *const Context) !void {
@@ -422,6 +423,22 @@ fn mergeSearchTask(allocator: std.mem.Allocator, task: *std.json.Value, detail_b
     try addSearchTaskLink(allocator, task);
 }
 
+fn taskMutationBody(context: *const Context, response: *http.Response) ![]u8 {
+    const code = @intFromEnum(response.status);
+    if (code < 200 or code >= 300) {
+        try output.finish(response);
+        return error.CommandFailed;
+    }
+    return addTaskLinkToResponse(context.allocator, response.body);
+}
+
+fn addTaskLinkToResponse(allocator: std.mem.Allocator, response_body: []const u8) ![]u8 {
+    var document = try std.json.parseFromSliceLeaky(std.json.Value, allocator, response_body, .{});
+    if (document != .object) return error.InvalidResponse;
+    if (document.object.getPtr("task")) |task| try addSearchTaskLink(allocator, task);
+    return std.json.Stringify.valueAlloc(allocator, document, .{});
+}
+
 fn addSearchTaskLink(allocator: std.mem.Allocator, task: *std.json.Value) !void {
     if (task.* != .object) return error.InvalidResponse;
     const ticket_value = task.object.get("ticketNumber") orelse return;
@@ -461,4 +478,19 @@ test "search response restores description and link" {
     try std.testing.expectEqualStrings("https://app.hypertask.ai/detail/project-15/5658", link.get("url").?.string);
     try std.testing.expectEqualStrings("https://app.hypertask.ai/detail/project-{projectId}/{uniqueIndex}", link.get("format").?.string);
     try std.testing.expectEqualStrings("https://app.hypertask.ai/detail/project-15/5658", link.get("example").?.string);
+}
+
+test "write responses include the control task link shape" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const body = try addTaskLinkToResponse(allocator,
+        \\{"success":true,"task":{"ticketNumber":"HTPR-5827","projectId":15}}
+    );
+    const parsed = try std.json.parseFromSliceLeaky(std.json.Value, allocator, body, .{});
+    const link = parsed.object.get("task").?.object.get("link").?.object;
+    try std.testing.expectEqualStrings("https://app.hypertask.ai/detail/project-15/5827", link.get("url").?.string);
+    try std.testing.expectEqualStrings("https://app.hypertask.ai/detail/project-{projectId}/{uniqueIndex}", link.get("format").?.string);
+    try std.testing.expectEqualStrings("https://app.hypertask.ai/detail/project-15/5827", link.get("example").?.string);
 }

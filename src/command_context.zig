@@ -53,6 +53,7 @@ pub const Context = struct {
     }
 
     pub fn print(self: *const Context, body: []const u8) !void {
+        if (self.request_recorder != null) return;
         try output.printResponse(self.allocator, body, self.json);
     }
 

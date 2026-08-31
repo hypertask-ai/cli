@@ -62,9 +62,16 @@ hypertask search "query" --project 15
 
 ```bash
 zig build test
+python3 -m unittest scripts/parity_test_test.py
 python3 scripts/parity_test.py --capabilities-only
 python3 scripts/parity_test.py --architecture-only
 python3 scripts/parity_test.py
 ```
 
 `zig build test` runs unit tests plus golden-file HTTP tests against a local stub server. It does not need a token or contact the live API. The final command compares read-only JSON schemas, authentication sources, human output, and error behavior across both implementations.
+
+Write parity is opt-in. It creates one clearly named throwaway task per implementation on board 15, comments, moves, assigns, renames, and archives each task. Cleanup retries the archive if an earlier command fails.
+
+```bash
+python3 scripts/parity_test.py --write --token "$HYPERTASKS_JWT_TOKEN"
+```
