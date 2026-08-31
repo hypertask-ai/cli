@@ -99,7 +99,7 @@ hypertask agent poll
 hypertask agent new-tickets --label Bug
 ```
 
-`--token`, `HT_TOKEN`, and `HYPERTASKS_JWT_TOKEN` are also accepted. Ticket capability environment variables are checked before any request. On first use, durable seen, ticket, and watermark files migrate from `~/.config/hypertask-agents/<slug>.*` when present.
+`--token`, `HT_TOKEN`, and `HYPERTASKS_JWT_TOKEN` are also accepted. Ticket capability environment variables are checked before any request. Without `HT_AGENT_STATE_DIR`, durable state is isolated by API endpoint, project, and agent identity. On first use, seen, ticket, and watermark files migrate from `~/.config/hypertask-agents/<slug>.*` when present.
 
 ## Verification
 

@@ -10,6 +10,8 @@ const resolve = @import("../resolve.zig");
 const State = struct {
     directory: []const u8,
     lock_path: []const u8,
+    poll_lock_path: []const u8,
+    tickets_lock_path: []const u8,
     seen_path: []const u8,
     tickets_path: []const u8,
     watermark_path: []const u8,
@@ -47,8 +49,8 @@ fn say(context: *const Context) !void {
     defer response.deinit();
     try requireSuccess(context, &response);
     if (commentId(response.body)) |id| {
-        const state = try statePaths(context);
-        try appendSeen(context, state, ticket, id);
+        // The comment already exists remotely, so local bookkeeping must not make a retry post it twice.
+        if (statePaths(context)) |state| appendSeen(context, state, ticket, id) catch {} else |_| {}
     }
     try context.print(response.body);
 }
@@ -128,6 +130,8 @@ fn poll(context: *const Context) !void {
     try guard(context, null);
     const state = try statePaths(context);
     try ensureStateDirectory(state.directory);
+    var operation_lock = try acquireFileLock(state.poll_lock_path);
+    defer releaseStateLock(&operation_lock);
     var stored = try loadPollState(context, state);
     defer deinitLineSet(context.allocator, &stored.seen);
     defer context.allocator.free(stored.watermark);
@@ -250,6 +254,8 @@ fn newTickets(context: *const Context) !void {
     try guard(context, null);
     const state = try statePaths(context);
     try ensureStateDirectory(state.directory);
+    var operation_lock = try acquireFileLock(state.tickets_lock_path);
+    defer releaseStateLock(&operation_lock);
     var known = try loadLineState(context, state, state.tickets_path);
     defer deinitLineSet(context.allocator, &known);
 
@@ -324,11 +330,16 @@ fn statePaths(context: *const Context) !State {
         const home = environment("HOME") orelse return error.NoHome;
         const identity = optionOrEnvironment(context, "slug", "HT_AGENT_SLUG") orelse
             optionOrEnvironment(context, "agent-id", "HT_AGENT_ID") orelse return error.MissingAgentIdentity;
-        break :blk try std.fs.path.join(context.allocator, &.{ home, ".local", "state", "hypertask-agent", identity });
+        const project = context.args.get("project") orelse environment("HT_AGENT_PROJECT_ID") orelse "global";
+        var endpoint_buffer: [16]u8 = undefined;
+        const endpoint = try std.fmt.bufPrint(&endpoint_buffer, "{x}", .{std.hash.Wyhash.hash(0, context.cfg.api_url)});
+        break :blk try std.fs.path.join(context.allocator, &.{ home, ".local", "state", "hypertask-agent", endpoint, project, identity });
     };
     return .{
         .directory = directory,
         .lock_path = try std.fs.path.join(context.allocator, &.{ directory, "state.lock" }),
+        .poll_lock_path = try std.fs.path.join(context.allocator, &.{ directory, "poll.lock" }),
+        .tickets_lock_path = try std.fs.path.join(context.allocator, &.{ directory, "new-tickets.lock" }),
         .seen_path = try std.fs.path.join(context.allocator, &.{ directory, "seen" }),
         .tickets_path = try std.fs.path.join(context.allocator, &.{ directory, "tickets" }),
         .watermark_path = try std.fs.path.join(context.allocator, &.{ directory, "watermark" }),
@@ -340,7 +351,11 @@ fn ensureStateDirectory(path: []const u8) !void {
 }
 
 fn acquireStateLock(state: State) !std.fs.File {
-    var file = try std.fs.cwd().createFile(state.lock_path, .{ .truncate = false, .mode = 0o600 });
+    return acquireFileLock(state.lock_path);
+}
+
+fn acquireFileLock(path: []const u8) !std.fs.File {
+    var file = try std.fs.cwd().createFile(path, .{ .truncate = false, .mode = 0o600 });
     errdefer file.close();
     try file.lock(.exclusive);
     return file;
