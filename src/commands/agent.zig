@@ -45,6 +45,16 @@ const CursorEntry = struct {
     reaction: bool,
 };
 
+const EnvironmentValue = struct {
+    value: ?[]const u8,
+    owned: ?[]u8 = null,
+
+    fn deinit(self: *EnvironmentValue, allocator: std.mem.Allocator) void {
+        if (self.owned) |value| allocator.free(value);
+        self.* = undefined;
+    }
+};
+
 pub fn run(context: *const Context, subcommand: []const u8) !void {
     if (std.mem.eql(u8, subcommand, "say")) return say(context);
     if (std.mem.eql(u8, subcommand, "take")) return assignSelf(context, "assign");
@@ -65,8 +75,12 @@ fn say(context: *const Context) !void {
     defer body.deinit();
     try body.string("ticket_number", ticket);
     try body.string("text", text);
-    if (environment("HT_REPLY_TO_COMMENT_ID")) |value| try body.integer("reply_to_comment_id", try common.positiveInt(value, "reply comment id"));
-    if (environment("HT_REPLY_TO_INVOCATION_ID")) |value| try body.integer("reply_to_invocation_id", try common.positiveInt(value, "reply invocation id"));
+    var reply_comment = try resolveEnvironment(context.allocator, "HT_REPLY_TO_COMMENT_ID");
+    defer reply_comment.deinit(context.allocator);
+    if (reply_comment.value) |value| try body.integer("reply_to_comment_id", try common.positiveInt(value, "reply comment id"));
+    var reply_invocation = try resolveEnvironment(context.allocator, "HT_REPLY_TO_INVOCATION_ID");
+    defer reply_invocation.deinit(context.allocator);
+    if (reply_invocation.value) |value| try body.integer("reply_to_invocation_id", try common.positiveInt(value, "reply invocation id"));
 
     var response = try context.fetch(.POST, "/mcp/comments", try body.finish());
     defer response.deinit();
@@ -218,8 +232,12 @@ fn pollTicket(context: *const Context, seen: *std.StringHashMap(void), result: *
     const parsed = try std.json.parseFromSlice(std.json.Value, context.allocator, response.body, .{});
     defer parsed.deinit();
     const comments = arrayField(parsed.value, "comments") orelse return error.InvalidResponse;
-    const agent_id = optionOrEnvironment(context, "agent-id", "HT_AGENT_ID") orelse return error.MissingAgentIdentity;
-    const agent_name = optionOrEnvironment(context, "agent-name", "HT_AGENT_NAME") orelse "";
+    var agent_id_value = try resolveOptionOrEnvironment(context, "agent-id", "HT_AGENT_ID");
+    defer agent_id_value.deinit(context.allocator);
+    const agent_id = agent_id_value.value orelse return error.MissingAgentIdentity;
+    var agent_name_value = try resolveOptionOrEnvironment(context, "agent-name", "HT_AGENT_NAME");
+    defer agent_name_value.deinit(context.allocator);
+    const agent_name = agent_name_value.value orelse "";
     const all = context.args.has("all");
     const previous_cursors = ticketCursors(seen, ticket);
     var cursors = previous_cursors;
@@ -322,12 +340,18 @@ fn newTickets(context: *const Context) !void {
 }
 
 fn guard(context: *const Context, ticket: ?[]const u8) !void {
-    const scoped_slug = environment("HT_CAPABILITY_AGENT_SLUG");
-    const actual_slug = try guardedAgentSlug(scoped_slug, context.args.get("slug"), environment("HT_AGENT_SLUG"));
-    const scoped_ticket = environment("HT_CAPABILITY_TICKET");
-    const expires = environment("HT_CAPABILITY_EXPIRES_AT");
-    const expires_at = if (expires) |value| try std.fmt.parseInt(i64, value, 10) else null;
-    try guardCapability(std.time.timestamp(), expires_at, scoped_slug, actual_slug, scoped_ticket, ticket);
+    var scoped_slug_value = try resolveEnvironment(context.allocator, "HT_CAPABILITY_AGENT_SLUG");
+    defer scoped_slug_value.deinit(context.allocator);
+    const scoped_slug = scoped_slug_value.value;
+    var environment_slug = try resolveEnvironment(context.allocator, "HT_AGENT_SLUG");
+    defer environment_slug.deinit(context.allocator);
+    const actual_slug = try guardedAgentSlug(scoped_slug, context.args.get("slug"), environment_slug.value);
+    var scoped_ticket_value = try resolveEnvironment(context.allocator, "HT_CAPABILITY_TICKET");
+    defer scoped_ticket_value.deinit(context.allocator);
+    var expires_value = try resolveEnvironment(context.allocator, "HT_CAPABILITY_EXPIRES_AT");
+    defer expires_value.deinit(context.allocator);
+    const expires_at = if (expires_value.value) |value| try std.fmt.parseInt(i64, value, 10) else null;
+    try guardCapability(std.time.timestamp(), expires_at, scoped_slug, actual_slug, scoped_ticket_value.value, ticket);
 }
 
 fn guardedAgentSlug(scoped_slug: ?[]const u8, option_slug: ?[]const u8, environment_slug: ?[]const u8) !?[]const u8 {
@@ -352,18 +376,30 @@ fn normalizedTicketArgument(context: *const Context, index: usize) ![]const u8 {
 }
 
 fn projectId(context: *const Context) !i64 {
-    const value = context.args.get("project") orelse environment("HT_AGENT_PROJECT_ID") orelse return error.MissingProject;
-    return common.positiveInt(value, "project");
+    if (context.args.get("project")) |value| return common.positiveInt(value, "project");
+    var environment_value = try resolveEnvironment(context.allocator, "HT_AGENT_PROJECT_ID");
+    defer environment_value.deinit(context.allocator);
+    return common.positiveInt(environment_value.value orelse return error.MissingProject, "project");
 }
 
 fn statePaths(context: *const Context) !State {
-    const directory = if (optionOrEnvironment(context, "state-dir", "HT_AGENT_STATE_DIR")) |path|
+    var state_directory = try resolveOptionOrEnvironment(context, "state-dir", "HT_AGENT_STATE_DIR");
+    defer state_directory.deinit(context.allocator);
+    var home_value = try resolveEnvironment(context.allocator, "HOME");
+    defer home_value.deinit(context.allocator);
+    var slug_value = try resolveOptionOrEnvironment(context, "slug", "HT_AGENT_SLUG");
+    defer slug_value.deinit(context.allocator);
+    var agent_id_value = try resolveOptionOrEnvironment(context, "agent-id", "HT_AGENT_ID");
+    defer agent_id_value.deinit(context.allocator);
+    var project_value = try resolveEnvironment(context.allocator, "HT_AGENT_PROJECT_ID");
+    defer project_value.deinit(context.allocator);
+
+    const directory = if (state_directory.value) |path|
         try context.allocator.dupe(u8, path)
     else blk: {
-        const home = environment("HOME") orelse return error.NoHome;
-        const identity = optionOrEnvironment(context, "slug", "HT_AGENT_SLUG") orelse
-            optionOrEnvironment(context, "agent-id", "HT_AGENT_ID") orelse return error.MissingAgentIdentity;
-        const project = context.args.get("project") orelse environment("HT_AGENT_PROJECT_ID") orelse "global";
+        const home = home_value.value orelse return error.NoHome;
+        const identity = slug_value.value orelse agent_id_value.value orelse return error.MissingAgentIdentity;
+        const project = context.args.get("project") orelse project_value.value orelse "global";
         var endpoint_buffer: [16]u8 = undefined;
         const endpoint = try std.fmt.bufPrint(&endpoint_buffer, "{x}", .{std.hash.Wyhash.hash(0, context.cfg.api_url)});
         break :blk try std.fs.path.join(context.allocator, &.{ home, ".local", "state", "hypertask-agent", endpoint, project, identity });
@@ -465,8 +501,12 @@ fn appendSeen(context: *const Context, state: State, ticket: []const u8, id: i64
 }
 
 fn migrateLegacyState(context: *const Context, state: State) !void {
-    const home = environment("HOME") orelse return;
-    const slug = optionOrEnvironment(context, "slug", "HT_AGENT_SLUG") orelse return;
+    var home_value = try resolveEnvironment(context.allocator, "HOME");
+    defer home_value.deinit(context.allocator);
+    const home = home_value.value orelse return;
+    var slug_value = try resolveOptionOrEnvironment(context, "slug", "HT_AGENT_SLUG");
+    defer slug_value.deinit(context.allocator);
+    const slug = slug_value.value orelse return;
     const legacy_directory = try std.fs.path.join(context.allocator, &.{ home, ".config", "hypertask-agents" });
     defer context.allocator.free(legacy_directory);
     if (!try legacyScopeMatches(context, legacy_directory, slug)) return;
@@ -490,8 +530,12 @@ fn migrateLegacyState(context: *const Context, state: State) !void {
 
 fn legacyScopeMatches(context: *const Context, directory: []const u8, slug: []const u8) !bool {
     if (!std.mem.eql(u8, context.cfg.api_url, config.default_api_url)) return false;
-    const agent_id = optionOrEnvironment(context, "agent-id", "HT_AGENT_ID") orelse return false;
-    const project = context.args.get("project") orelse environment("HT_AGENT_PROJECT_ID") orelse return false;
+    var agent_id_value = try resolveOptionOrEnvironment(context, "agent-id", "HT_AGENT_ID");
+    defer agent_id_value.deinit(context.allocator);
+    const agent_id = agent_id_value.value orelse return false;
+    var project_value = try resolveEnvironment(context.allocator, "HT_AGENT_PROJECT_ID");
+    defer project_value.deinit(context.allocator);
+    const project = context.args.get("project") orelse project_value.value orelse return false;
     const path = try std.fmt.allocPrint(context.allocator, "{s}/{s}.env", .{ directory, slug });
     defer context.allocator.free(path);
     const raw = std.fs.cwd().readFileAlloc(context.allocator, path, std.math.maxInt(usize)) catch |err| switch (err) {
@@ -836,13 +880,21 @@ fn boundedText(allocator: std.mem.Allocator, value: []const u8, limit: usize) ![
     return result.toOwnedSlice(allocator);
 }
 
-fn optionOrEnvironment(context: *const Context, option: []const u8, name: []const u8) ?[]const u8 {
-    return context.args.get(option) orelse environment(name);
+fn resolveOptionOrEnvironment(context: *const Context, option: []const u8, name: []const u8) !EnvironmentValue {
+    if (context.args.get(option)) |value| return .{ .value = value };
+    return resolveEnvironment(context.allocator, name);
 }
 
-fn environment(name: []const u8) ?[]const u8 {
-    const value = std.posix.getenv(name) orelse return null;
-    return if (value.len == 0) null else value;
+fn resolveEnvironment(allocator: std.mem.Allocator, name: []const u8) !EnvironmentValue {
+    const owned = std.process.getEnvVarOwned(allocator, name) catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => return .{ .value = null },
+        else => return err,
+    };
+    if (owned.len == 0) {
+        allocator.free(owned);
+        return .{ .value = null };
+    }
+    return .{ .value = owned, .owned = owned };
 }
 
 fn arrayField(value: std.json.Value, name: []const u8) ?[]const std.json.Value {
