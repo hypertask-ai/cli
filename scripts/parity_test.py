@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -132,6 +133,16 @@ def parse_json(process: subprocess.CompletedProcess[str], label: str) -> Any:
         raise AssertionError(f"{label} did not print JSON: {process.stdout!r}") from error
 
 
+def run_json(cli: list[str], args: list[str], label: str) -> Any:
+    process = run(cli, args)
+    for delay in (5, 10):
+        if "rate limit exceeded" not in (process.stdout + process.stderr).lower():
+            break
+        time.sleep(delay)
+        process = run(cli, args)
+    return parse_json(process, label)
+
+
 def leaf_catalog(document: dict[str, Any]) -> dict[str, tuple[tuple[str, ...], tuple[str, ...]]]:
     leaves: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {}
 
@@ -155,8 +166,8 @@ def leaf_catalog(document: dict[str, Any]) -> dict[str, tuple[tuple[str, ...], t
 
 
 def capabilities(node_cli: list[str], zig_cli: list[str]) -> None:
-    node = leaf_catalog(parse_json(run(node_cli, ["capabilities", "--json"]), "Node capabilities"))
-    zig = leaf_catalog(parse_json(run(zig_cli, ["capabilities", "--json"]), "Zig capabilities"))
+    node = leaf_catalog(run_json(node_cli, ["capabilities", "--json"], "Node capabilities"))
+    zig = leaf_catalog(run_json(zig_cli, ["capabilities", "--json"], "Zig capabilities"))
     missing = sorted(node.keys() - zig.keys())
     changed = sorted(name for name in node.keys() & zig.keys() if node[name] != zig[name])
     if missing or changed:
@@ -258,11 +269,9 @@ def json_diff(node: Any, zig: Any) -> str:
 def read_only_parity(node_cli: list[str], zig_cli: list[str]) -> None:
     failures: list[str] = []
     for case in READ_CASES:
-        node_process = run(node_cli, [*case.args, "--json"])
-        zig_process = run(zig_cli, [*case.args, "--json"])
         try:
-            node = normalize(parse_json(node_process, f"Node {case.name}"), case.ignored_fields)
-            zig = normalize(parse_json(zig_process, f"Zig {case.name}"), case.ignored_fields)
+            node = normalize(run_json(node_cli, [*case.args, "--json"], f"Node {case.name}"), case.ignored_fields)
+            zig = normalize(run_json(zig_cli, [*case.args, "--json"], f"Zig {case.name}"), case.ignored_fields)
             if node != zig:
                 failures.append(f"{case.name}: JSON differs\n{json_diff(node, zig)}")
         except AssertionError as error:
