@@ -66,4 +66,4 @@ python3 scripts/parity_test.py --architecture-only
 python3 scripts/parity_test.py
 ```
 
-`zig build test` runs unit tests plus golden-file HTTP tests against a local stub server. It does not need a token or contact the live API. The final command runs a read-only subset against both implementations and compares exit codes.
+`zig build test` runs unit tests plus golden-file HTTP tests against a local stub server. It does not need a token or contact the live API. The final command compares read-only JSON schemas, authentication sources, human output, and error behavior across both implementations.
