@@ -12,12 +12,7 @@ fi
 mkdir -p "$(dirname "$destination")"
 install_target=$destination
 if [[ -L "$destination" ]]; then
-  link_target=$(readlink "$destination")
-  if [[ "$link_target" = /* ]]; then
-    install_target=$link_target
-  else
-    install_target=$(realpath -m "$(dirname "$destination")/$link_target")
-  fi
+  install_target=$(realpath -m "$destination")
   mkdir -p "$(dirname "$install_target")"
 fi
 

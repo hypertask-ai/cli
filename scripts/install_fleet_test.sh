@@ -17,12 +17,17 @@ cmp "$artifact" "$regular"
 link_target="$tmp/releases/hypertask"
 mkdir -p "$(dirname "$link_target")"
 printf 'old build\n' >"$link_target"
+intermediate="$tmp/current/hypertask"
+mkdir -p "$(dirname "$intermediate")"
+ln -s ../releases/hypertask "$intermediate"
 linked="$tmp/linked-bin/hypertask"
 mkdir -p "$(dirname "$linked")"
-ln -s ../releases/hypertask "$linked"
+ln -s ../current/hypertask "$linked"
 HYPERTASK_INSTALL_PATH="$linked" "$repo_root/scripts/install-fleet.sh" "$artifact"
 [[ -L "$linked" ]]
-[[ $(readlink "$linked") == ../releases/hypertask ]]
+[[ $(readlink "$linked") == ../current/hypertask ]]
+[[ -L "$intermediate" ]]
+[[ $(readlink "$intermediate") == ../releases/hypertask ]]
 cmp "$artifact" "$linked"
 [[ $(stat -c '%a' "$link_target") == 755 ]]
 
