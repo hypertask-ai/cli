@@ -36,6 +36,7 @@ jobs:
 
       - name: Check capability parity
         env:
+          HT_TOKEN: ci-read-only-placeholder
           HYPERTASK_NODE_BIN: ${{ runner.temp }}/node-cli/node_modules/.bin/hypertask
         run: python3 scripts/parity_test.py --capabilities-only
 
