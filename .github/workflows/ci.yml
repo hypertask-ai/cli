@@ -47,5 +47,6 @@ jobs:
         if: github.event.pull_request.head.repo.full_name == github.repository
         env:
           HT_TOKEN: ${{ secrets.HYPERTASK_PARITY_TOKEN }}
+          HYPERTASKS_JWT_TOKEN: ${{ secrets.HYPERTASK_PARITY_TOKEN }}
           HYPERTASK_NODE_BIN: ${{ runner.temp }}/node-cli/node_modules/.bin/hypertask
         run: python3 scripts/parity_test.py
