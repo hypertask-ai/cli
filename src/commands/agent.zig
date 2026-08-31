@@ -164,17 +164,15 @@ fn poll(context: *const Context) !void {
     defer result.deinit(context.allocator);
     var newest = try context.allocator.dupe(u8, watermark);
     defer context.allocator.free(newest);
-    var offset: i64 = 0;
-    var reached_watermark = false;
+    var cursor = try context.allocator.dupe(u8, "");
+    defer context.allocator.free(cursor);
 
-    while (!reached_watermark) {
+    while (true) {
         var path = try query.Builder.init(context.allocator, "/mcp/tasks");
         defer path.deinit();
         try path.addInt("project_id", project);
         try path.add("limit", "100");
-        try path.addInt("offset", offset);
-        try path.add("sort_by", "updatedAt");
-        try path.add("sort_order", "desc");
+        try path.add("cursor", cursor);
         var response = try context.fetch(.GET, path.path(), null);
         defer response.deinit();
         try requireSuccess(context, &response);
@@ -189,15 +187,15 @@ fn poll(context: *const Context) !void {
                 context.allocator.free(newest);
                 newest = next;
             }
-            if (predatesWatermark(updated, watermark)) {
-                reached_watermark = true;
-                break;
-            }
+            if (predatesWatermark(updated, watermark)) continue;
             const ticket = stringField(task, "ticketNumber") orelse continue;
             try pollTicket(context, seen, &result, ticket);
         }
-        if (tasks.len < 100) break;
-        offset += @intCast(tasks.len);
+        const next_cursor = stringField(parsed.value, "nextCursor") orelse break;
+        if (next_cursor.len == 0 or std.mem.eql(u8, next_cursor, cursor)) break;
+        const next = try context.allocator.dupe(u8, next_cursor);
+        context.allocator.free(cursor);
+        cursor = next;
     }
 
     if (result.items.len != 0) try output.print(result.items);
@@ -279,14 +277,15 @@ fn newTickets(context: *const Context) !void {
     const label = context.args.get("label") orelse context.args.positionalAt(2);
     var result: std.ArrayListUnmanaged(u8) = .{};
     defer result.deinit(context.allocator);
-    var offset: i64 = 0;
+    var cursor = try context.allocator.dupe(u8, "");
+    defer context.allocator.free(cursor);
 
     while (true) {
         var path = try query.Builder.init(context.allocator, "/mcp/tasks");
         defer path.deinit();
         try path.addInt("project_id", project);
         try path.add("limit", "100");
-        try path.addInt("offset", offset);
+        try path.add("cursor", cursor);
         var response = try context.fetch(.GET, path.path(), null);
         defer response.deinit();
         try requireSuccess(context, &response);
@@ -305,8 +304,11 @@ fn newTickets(context: *const Context) !void {
             defer context.allocator.free(title);
             try result.writer(context.allocator).print("NEW {s} [{s}] {s}\n", .{ ticket, section, title });
         }
-        if (tasks.len < 100) break;
-        offset += @intCast(tasks.len);
+        const next_cursor = stringField(parsed.value, "nextCursor") orelse break;
+        if (next_cursor.len == 0 or std.mem.eql(u8, next_cursor, cursor)) break;
+        const next = try context.allocator.dupe(u8, next_cursor);
+        context.allocator.free(cursor);
+        cursor = next;
     }
     if (result.items.len != 0) try output.print(result.items);
     try commitLineState(context, state, state.tickets_path, &known);
