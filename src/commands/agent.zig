@@ -1,6 +1,7 @@
 const std = @import("std");
 const common = @import("../command_context.zig");
 const Context = common.Context;
+const config = @import("../config.zig");
 const http = @import("../http.zig");
 const json = @import("../json_util.zig");
 const output = @import("../output.zig");
@@ -454,6 +455,7 @@ fn migrateLegacyState(context: *const Context, state: State) !void {
     const slug = optionOrEnvironment(context, "slug", "HT_AGENT_SLUG") orelse return;
     const legacy_directory = try std.fs.path.join(context.allocator, &.{ home, ".config", "hypertask-agents" });
     defer context.allocator.free(legacy_directory);
+    if (!try legacyScopeMatches(context, legacy_directory, slug)) return;
     const names = [_][2][]const u8{
         .{ "seen", state.seen_path },
         .{ "tickets", state.tickets_path },
@@ -470,6 +472,41 @@ fn migrateLegacyState(context: *const Context, state: State) !void {
         defer context.allocator.free(raw);
         try writeStateFile(context.allocator, entry[1], std.mem.trimRight(u8, raw, "\r\n"));
     }
+}
+
+fn legacyScopeMatches(context: *const Context, directory: []const u8, slug: []const u8) !bool {
+    if (!std.mem.eql(u8, context.cfg.api_url, config.default_api_url)) return false;
+    const agent_id = optionOrEnvironment(context, "agent-id", "HT_AGENT_ID") orelse return false;
+    const project = context.args.get("project") orelse environment("HT_AGENT_PROJECT_ID") orelse return false;
+    const path = try std.fmt.allocPrint(context.allocator, "{s}/{s}.env", .{ directory, slug });
+    defer context.allocator.free(path);
+    const raw = std.fs.cwd().readFileAlloc(context.allocator, path, std.math.maxInt(usize)) catch |err| switch (err) {
+        error.FileNotFound => return false,
+        else => return err,
+    };
+    defer context.allocator.free(raw);
+    return legacyScopeFieldsMatch(raw, agent_id, project);
+}
+
+fn legacyScopeFieldsMatch(raw: []const u8, agent_id: []const u8, project: []const u8) bool {
+    const legacy_agent_id = legacyEnvironmentValue(raw, "HT_AGENT_ID") orelse return false;
+    const projects = legacyEnvironmentValue(raw, "HT_AGENT_PROJECTS") orelse return false;
+    const first_project = if (std.mem.indexOfScalar(u8, projects, ',')) |index| projects[0..index] else projects;
+    return std.mem.eql(u8, legacy_agent_id, agent_id) and std.mem.eql(u8, std.mem.trim(u8, first_project, " \t"), project);
+}
+
+fn legacyEnvironmentValue(raw: []const u8, name: []const u8) ?[]const u8 {
+    var lines = std.mem.splitScalar(u8, raw, '\n');
+    while (lines.next()) |line| {
+        const trimmed = std.mem.trim(u8, line, " \t\r");
+        if (!std.mem.startsWith(u8, trimmed, name) or trimmed.len <= name.len or trimmed[name.len] != '=') continue;
+        var value = std.mem.trim(u8, trimmed[name.len + 1 ..], " \t");
+        if (value.len >= 2 and ((value[0] == '"' and value[value.len - 1] == '"') or (value[0] == '\'' and value[value.len - 1] == '\''))) {
+            value = value[1 .. value.len - 1];
+        }
+        return value;
+    }
+    return null;
 }
 
 fn appendStateLine(allocator: std.mem.Allocator, path: []const u8, line: []const u8) !void {
@@ -761,6 +798,14 @@ test "poll processes tasks sharing the watermark timestamp" {
     try std.testing.expect(!predatesWatermark("2026-08-31T12:00:00.000Z", "2026-08-31T12:00:00.000Z"));
     try std.testing.expect(!predatesWatermark("2026-08-31T12:00:01.000Z", "2026-08-31T12:00:00.000Z"));
     try std.testing.expect(predatesWatermark("2026-08-31T11:59:59.000Z", "2026-08-31T12:00:00.000Z"));
+}
+
+test "legacy migration requires matching identity and first project" {
+    const raw = "HT_AGENT_NAME=Dev 3\nHT_AGENT_ID=agent-3\nHT_AGENT_PROJECTS=15,16\n";
+    try std.testing.expect(legacyScopeFieldsMatch(raw, "agent-3", "15"));
+    try std.testing.expect(!legacyScopeFieldsMatch(raw, "agent-2", "15"));
+    try std.testing.expect(!legacyScopeFieldsMatch(raw, "agent-3", "16"));
+    try std.testing.expect(!legacyScopeFieldsMatch("HT_AGENT_ID=agent-3\n", "agent-3", "15"));
 }
 
 test "legacy seen keys remain compatible with ht-agent state" {
