@@ -39,6 +39,12 @@ const TicketCursors = struct {
     reaction: i64 = 0,
 };
 
+const CursorEntry = struct {
+    ticket: []const u8,
+    id: i64,
+    reaction: bool,
+};
+
 pub fn run(context: *const Context, subcommand: []const u8) !void {
     if (std.mem.eql(u8, subcommand, "say")) return say(context);
     if (std.mem.eql(u8, subcommand, "take")) return assignSelf(context, "assign");
@@ -215,7 +221,8 @@ fn pollTicket(context: *const Context, seen: *std.StringHashMap(void), result: *
     const agent_id = optionOrEnvironment(context, "agent-id", "HT_AGENT_ID") orelse return error.MissingAgentIdentity;
     const agent_name = optionOrEnvironment(context, "agent-name", "HT_AGENT_NAME") orelse "";
     const all = context.args.has("all");
-    var cursors = ticketCursors(seen, ticket);
+    const previous_cursors = ticketCursors(seen, ticket);
+    var cursors = previous_cursors;
 
     for (comments) |comment| {
         const id = integerField(comment, "id") orelse continue;
@@ -226,7 +233,7 @@ fn pollTicket(context: *const Context, seen: *std.StringHashMap(void), result: *
                 const reaction_id = integerField(reaction, "id") orelse continue;
                 const reaction_key = try stateKey(context.allocator, ticket, "r:", reaction_id);
                 defer context.allocator.free(reaction_key);
-                const already_seen = reaction_id <= cursors.reaction or seenContains(seen, ticket, reaction_key, reaction_id, true);
+                const already_seen = reaction_id <= previous_cursors.reaction or seenContains(seen, ticket, reaction_key, reaction_id, true);
                 cursors.reaction = @max(cursors.reaction, reaction_id);
                 if (already_seen) continue;
                 if (ours) {
@@ -241,7 +248,7 @@ fn pollTicket(context: *const Context, seen: *std.StringHashMap(void), result: *
 
         const key = try stateKey(context.allocator, ticket, "", id);
         defer context.allocator.free(key);
-        const already_seen = id <= cursors.comment or seenContains(seen, ticket, key, id, false);
+        const already_seen = id <= previous_cursors.comment or seenContains(seen, ticket, key, id, false);
         cursors.comment = @max(cursors.comment, id);
         if (already_seen) continue;
         const html = stringField(comment, "text") orelse "";
@@ -428,6 +435,7 @@ fn commitPollState(context: *const Context, state: State, seen: *const std.Strin
     var current = try readLines(context.allocator, state.seen_path);
     defer deinitLineSet(context.allocator, &current);
     try mergeLineSet(context.allocator, &current, seen);
+    try compactMergedCursorState(context.allocator, &current, seen);
     try writeLineSet(context.allocator, state.seen_path, &current);
 
     const watermark = try readSmallFile(context.allocator, state.watermark_path);
@@ -609,12 +617,18 @@ fn ticketCursors(seen: *const std.StringHashMap(void), ticket: []const u8) Ticke
     return result;
 }
 
-fn compactTicketState(allocator: std.mem.Allocator, seen: *std.StringHashMap(void), ticket: []const u8, cursors: TicketCursors) !void {
+fn compactTicketState(allocator: std.mem.Allocator, seen: *std.StringHashMap(void), ticket: []const u8, requested_cursors: TicketCursors) !void {
+    const existing_cursors = ticketCursors(seen, ticket);
+    const cursors = TicketCursors{
+        .comment = @max(requested_cursors.comment, existing_cursors.comment),
+        .reaction = @max(requested_cursors.reaction, existing_cursors.reaction),
+    };
     var removals: std.ArrayListUnmanaged([]const u8) = .{};
     defer removals.deinit(allocator);
     var iterator = seen.keyIterator();
     while (iterator.next()) |key| {
-        if (ticketStateSuffix(key.*, ticket) != null) try removals.append(allocator, key.*);
+        const suffix = ticketStateSuffix(key.*, ticket) orelse continue;
+        if (ticketStateCoveredByCursor(suffix, cursors)) try removals.append(allocator, key.*);
     }
     for (removals.items) |key| {
         if (seen.fetchRemove(key)) |removed| allocator.free(removed.key);
@@ -629,6 +643,46 @@ fn compactTicketState(allocator: std.mem.Allocator, seen: *std.StringHashMap(voi
         defer allocator.free(key);
         try putLine(allocator, seen, key);
     }
+}
+
+fn compactMergedCursorState(allocator: std.mem.Allocator, current: *std.StringHashMap(void), updates: *const std.StringHashMap(void)) !void {
+    var tickets = std.StringHashMap(TicketCursors).init(allocator);
+    defer tickets.deinit();
+    var iterator = updates.keyIterator();
+    while (iterator.next()) |key| {
+        const entry = parseCursorEntry(key.*) orelse continue;
+        const value = try tickets.getOrPut(entry.ticket);
+        if (!value.found_existing) value.value_ptr.* = .{};
+        if (entry.reaction) {
+            value.value_ptr.reaction = @max(value.value_ptr.reaction, entry.id);
+        } else {
+            value.value_ptr.comment = @max(value.value_ptr.comment, entry.id);
+        }
+    }
+    var ticket_iterator = tickets.iterator();
+    while (ticket_iterator.next()) |entry| try compactTicketState(allocator, current, entry.key_ptr.*, entry.value_ptr.*);
+}
+
+fn parseCursorEntry(key: []const u8) ?CursorEntry {
+    const comment_marker = ":cursor:c:";
+    const reaction_marker = ":cursor:r:";
+    const marker_index = std.mem.indexOf(u8, key, comment_marker) orelse
+        std.mem.indexOf(u8, key, reaction_marker) orelse return null;
+    const reaction = std.mem.startsWith(u8, key[marker_index..], reaction_marker);
+    const marker = if (reaction) reaction_marker else comment_marker;
+    const id = std.fmt.parseInt(i64, key[marker_index + marker.len ..], 10) catch return null;
+    if (marker_index == 0 or id <= 0) return null;
+    return .{ .ticket = key[0..marker_index], .id = id, .reaction = reaction };
+}
+
+fn ticketStateCoveredByCursor(suffix: []const u8, cursors: TicketCursors) bool {
+    if (std.mem.startsWith(u8, suffix, "cursor:c:") or std.mem.startsWith(u8, suffix, "cursor:r:")) return true;
+    if (std.mem.startsWith(u8, suffix, "r:")) {
+        const id = std.fmt.parseInt(i64, suffix[2..], 10) catch return false;
+        return id <= cursors.reaction;
+    }
+    const id = std.fmt.parseInt(i64, suffix, 10) catch return false;
+    return id <= cursors.comment;
 }
 
 fn ticketStateSuffix(key: []const u8, ticket: []const u8) ?[]const u8 {
@@ -874,16 +928,37 @@ test "seen state compacts to per-ticket cursors" {
     try putLine(std.testing.allocator, &seen, "HTPR-5778:10");
     try putLine(std.testing.allocator, &seen, "5778:r:20");
     try putLine(std.testing.allocator, &seen, "HTPR-5778:cursor:c:5");
+    try putLine(std.testing.allocator, &seen, "HTPR-5778:11");
+    try putLine(std.testing.allocator, &seen, "HTPR-5778:r:21");
     try putLine(std.testing.allocator, &seen, "HTPR-9999:30");
 
     const cursors = ticketCursors(&seen, "HTPR-5778");
     try std.testing.expectEqual(@as(i64, 5), cursors.comment);
     try std.testing.expectEqual(@as(i64, 0), cursors.reaction);
     try compactTicketState(std.testing.allocator, &seen, "HTPR-5778", .{ .comment = 10, .reaction = 20 });
-    try std.testing.expectEqual(@as(usize, 3), seen.count());
+    try std.testing.expectEqual(@as(usize, 5), seen.count());
     try std.testing.expect(seen.contains("HTPR-5778:cursor:c:10"));
     try std.testing.expect(seen.contains("HTPR-5778:cursor:r:20"));
+    try std.testing.expect(seen.contains("HTPR-5778:11"));
+    try std.testing.expect(seen.contains("HTPR-5778:r:21"));
     try std.testing.expect(seen.contains("HTPR-9999:30"));
+}
+
+test "merged cursor state prunes covered keys and preserves concurrent additions" {
+    var current = std.StringHashMap(void).init(std.testing.allocator);
+    defer deinitLineSet(std.testing.allocator, &current);
+    var updates = std.StringHashMap(void).init(std.testing.allocator);
+    defer deinitLineSet(std.testing.allocator, &updates);
+    try putLine(std.testing.allocator, &current, "HTPR-5778:cursor:c:5");
+    try putLine(std.testing.allocator, &current, "HTPR-5778:7");
+    try putLine(std.testing.allocator, &current, "HTPR-5778:11");
+    try putLine(std.testing.allocator, &updates, "HTPR-5778:cursor:c:10");
+
+    try mergeLineSet(std.testing.allocator, &current, &updates);
+    try compactMergedCursorState(std.testing.allocator, &current, &updates);
+    try std.testing.expectEqual(@as(usize, 2), current.count());
+    try std.testing.expect(current.contains("HTPR-5778:cursor:c:10"));
+    try std.testing.expect(current.contains("HTPR-5778:11"));
 }
 
 test "legacy seen keys remain compatible with ht-agent state" {
