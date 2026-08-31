@@ -213,6 +213,7 @@ def architecture() -> None:
         "src/commands/pages.zig",
         "src/commands/skills.zig",
         "src/commands/ai.zig",
+        "src/commands/messages.zig",
         "src/commands/inbox.zig",
         "src/commands/report.zig",
         "src/commands/time.zig",

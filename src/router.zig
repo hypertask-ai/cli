@@ -12,6 +12,7 @@ const draft = @import("commands/draft.zig");
 const fields = @import("commands/fields.zig");
 const inbox = @import("commands/inbox.zig");
 const meta = @import("commands/meta.zig");
+const messages = @import("commands/messages.zig");
 const pages = @import("commands/pages.zig");
 const project = @import("commands/project.zig");
 const report = @import("commands/report.zig");
@@ -59,6 +60,7 @@ pub fn dispatch(context: *const Context) !void {
     if (std.mem.eql(u8, root, "pages") or std.mem.eql(u8, root, "page")) return pages.run(context, subcommand);
     if (std.mem.eql(u8, root, "skills") or std.mem.eql(u8, root, "skill")) return skills.run(context, subcommand);
     if (std.mem.eql(u8, root, "ai")) return ai.run(context, subcommand);
+    if (std.mem.eql(u8, root, "messages")) return messages.run(context, subcommand);
     if (std.mem.eql(u8, root, "inbox")) return inbox.run(context, subcommand);
     if (std.mem.eql(u8, root, "report") or std.mem.eql(u8, root, "reports")) return report.run(context, subcommand);
     if (std.mem.eql(u8, root, "time")) return time.run(context, subcommand);

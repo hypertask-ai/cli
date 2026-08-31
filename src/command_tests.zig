@@ -95,6 +95,11 @@ test "task get resolves bare numbers as project ticket suffixes" {
     try expectDispatchError(error.MissingOption, &.{ "tasks", "get", "5661" });
 }
 
+test "messages poll rejects invalid cursors before making a request" {
+    try expectDispatchError(error.InvalidInteger, &.{ "messages", "poll", "--since", "-1" });
+    try expectDispatchError(error.InvalidInteger, &.{ "messages", "poll", "--since", "not-a-number" });
+}
+
 test "command handlers build request bodies and query strings without HTTP" {
     try expectRequest(
         &.{ "task", "create", "--project", "15", "--title", "Fix it", "--priority", "high", "--estimate", "3" },
@@ -125,6 +130,12 @@ test "command handlers build request bodies and query strings without HTTP" {
         .POST,
         "/mcp/inbox/archive",
         "{\"notification_ids\":[3,4]}",
+    );
+    try expectRequest(
+        &.{ "messages", "poll", "--since", "10" },
+        .GET,
+        "/mcp/inbox/list",
+        null,
     );
     try expectRequest(
         &.{ "draft", "create", "123", "--text", "Hello", "--comment" },

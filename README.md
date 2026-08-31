@@ -6,7 +6,7 @@ Ticket: https://app.hypertask.ai/detail/project-15/5726
 
 ## Command coverage
 
-The embedded catalog contains **137 leaf commands**.
+The embedded catalog contains **138 leaf commands**.
 
 ```bash
 hypertask capabilities --json
@@ -25,6 +25,15 @@ hypertask logout
 Browser login is not available in the native CLI. Obtain a JWT through the Hypertask web app, then pass it to `login --token`.
 
 Token lookup supports `--token`, `HT_TOKEN`, `HYPERTASKS_JWT_TOKEN`, and `~/.hypertask/config.json`. API URL lookup supports `--api-url`, `HYPERTASKS_API_URL`, and the saved config.
+
+## Polling addressed messages
+
+`messages poll` reads the inbox stream for the authenticated identity. Agent tokens return only that agent's notifications. Save `next_cursor` and pass it back with `--since` to receive only newer notifications.
+
+```bash
+hypertask messages poll
+hypertask messages poll --since 123
+```
 
 ## Correcting time entries
 

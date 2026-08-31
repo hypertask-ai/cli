@@ -73,6 +73,17 @@ class Handler(BaseHTTPRequestHandler):
             self.requests.append(request)
 
         route = (self.command, target.path)
+        if route == ("GET", "/mcp/inbox/list"):
+            self.respond(200, json.dumps({
+                "success": True,
+                "user_notifications": [{"id": 101, "type": "Mentioned"}],
+                "agent_notifications": [
+                    {"id": 13, "type": "Assigned"},
+                    {"id": 10, "type": "Mentioned"},
+                    {"id": 12, "type": "Comment"},
+                ],
+            }, separators=(",", ":")))
+            return
         if route == ("GET", "/mcp/comments"):
             overflow_case = request["query"].get("ticket_number") == ["HTPR-2"]
             maximum = 9_223_372_036_854_775_807
@@ -178,6 +189,18 @@ def main() -> None:
             expect_command(
                 binary, token, api_url, home,
                 ("status",), "status.json", 0, None,
+            )
+
+            expect_command(
+                binary, token, api_url, home,
+                ("messages", "poll", "--since", "10"),
+                "messages-poll.json", 0,
+                {
+                    "method": "GET",
+                    "path": "/mcp/inbox/list",
+                    "query": {},
+                    "body": None,
+                },
             )
 
             huge_expiry = run(
