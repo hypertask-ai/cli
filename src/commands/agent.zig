@@ -163,7 +163,7 @@ fn poll(context: *const Context) !void {
                 context.allocator.free(newest);
                 newest = next;
             }
-            if (watermark.len != 0 and updated.len != 0 and std.mem.order(u8, updated, watermark) != .gt) {
+            if (predatesWatermark(updated, watermark)) {
                 reached_watermark = true;
                 break;
             }
@@ -515,6 +515,10 @@ fn seenContains(seen: *const std.StringHashMap(void), ticket: []const u8, full_k
     return seen.contains(legacy);
 }
 
+fn predatesWatermark(updated: []const u8, watermark: []const u8) bool {
+    return updated.len != 0 and watermark.len != 0 and std.mem.order(u8, updated, watermark) == .lt;
+}
+
 fn claimLease(context: *const Context, task_id: i64) !void {
     var body = try json.Object.init(context.allocator);
     defer body.deinit();
@@ -706,6 +710,12 @@ test "bounded text produces one safe UTF-8 output line" {
     defer std.testing.allocator.free(truncated);
     try std.testing.expectEqualStrings("ééé", truncated);
     try std.testing.expect(std.unicode.utf8ValidateSlice(truncated));
+}
+
+test "poll processes tasks sharing the watermark timestamp" {
+    try std.testing.expect(!predatesWatermark("2026-08-31T12:00:00.000Z", "2026-08-31T12:00:00.000Z"));
+    try std.testing.expect(!predatesWatermark("2026-08-31T12:00:01.000Z", "2026-08-31T12:00:00.000Z"));
+    try std.testing.expect(predatesWatermark("2026-08-31T11:59:59.000Z", "2026-08-31T12:00:00.000Z"));
 }
 
 test "legacy seen keys remain compatible with ht-agent state" {
