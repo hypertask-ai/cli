@@ -19,10 +19,13 @@ zig build test         # unit tests
 
 Branch off `main`, push, open a PR with base `main`, and enable auto-merge (`gh pr merge --auto --squash`). Auto-merge is on for this repo. There is no branch protection, so a green PR merges itself.
 
-The installed binary at `~/.local/bin/hypertask` is what the fleet actually runs. After a merge, rebuild and install it, or the fix ships to nobody:
+The installed binary at `~/.local/bin/hypertask` is what the fleet actually runs. A push to `main` triggers `.github/workflows/install-fleet.yml` on the trusted fleet runner. It builds in ReleaseFast mode, installs the binary without replacing an existing `hypertask` symlink, and verifies GATES G5 with `cmp`.
+
+For a manual recovery install:
 
 ```bash
-zig build && cp zig-out/bin/hypertask ~/.local/bin/hypertask
+zig build -Doptimize=ReleaseFast
+./scripts/install-fleet.sh zig-out/bin/hypertask
 ```
 
 ## Both implementations are live: fix behaviour in both
