@@ -9,6 +9,7 @@ const resolve = @import("../resolve.zig");
 
 const State = struct {
     directory: []const u8,
+    lock_path: []const u8,
     seen_path: []const u8,
     tickets_path: []const u8,
     watermark_path: []const u8,
@@ -122,6 +123,8 @@ fn poll(context: *const Context) !void {
     try guard(context, null);
     const state = try statePaths(context);
     try ensureStateDirectory(state.directory);
+    var state_lock = try acquireStateLock(state);
+    defer releaseStateLock(&state_lock);
     try migrateLegacyState(context, state);
     var seen = try readLines(context.allocator, state.seen_path);
     defer seen.deinit();
@@ -194,7 +197,11 @@ fn pollTicket(context: *const Context, seen: *std.StringHashMap(void), result: *
                 if (ours) {
                     const emoji = stringField(reaction, "emoji") orelse "";
                     const html = stringField(comment, "text") orelse "";
-                    try result.writer(context.allocator).print("REACTION {s} {s} on your comment: {s}\n", .{ ticket, emoji, boundedWhitespace(html, 160) });
+                    try result.writer(context.allocator).print("REACTION {s} {s} on your comment: {s}\n", .{
+                        ticket,
+                        try boundedText(context.allocator, emoji, 32),
+                        try boundedText(context.allocator, html, 160),
+                    });
                 }
             }
         }
@@ -211,8 +218,8 @@ fn pollTicket(context: *const Context, seen: *std.StringHashMap(void), result: *
             if (addressed) "ADDRESSED" else "fyi",
             ticket,
             id,
-            author,
-            boundedWhitespace(html, 500),
+            try boundedText(context.allocator, author, 100),
+            try boundedText(context.allocator, html, 500),
         });
     }
 }
@@ -222,6 +229,8 @@ fn newTickets(context: *const Context) !void {
     try guard(context, null);
     const state = try statePaths(context);
     try ensureStateDirectory(state.directory);
+    var state_lock = try acquireStateLock(state);
+    defer releaseStateLock(&state_lock);
     try migrateLegacyState(context, state);
     var known = try readLines(context.allocator, state.tickets_path);
     defer known.deinit();
@@ -251,7 +260,11 @@ fn newTickets(context: *const Context) !void {
             try known.put(try context.allocator.dupe(u8, ticket), {});
             const section = stringField(task, "section") orelse "";
             const title = stringField(task, "title") orelse "";
-            try result.writer(context.allocator).print("NEW {s} [{s}] {s}\n", .{ ticket, section, boundedWhitespace(title, 90) });
+            try result.writer(context.allocator).print("NEW {s} [{s}] {s}\n", .{
+                ticket,
+                try boundedText(context.allocator, section, 100),
+                try boundedText(context.allocator, title, 90),
+            });
         }
         if (tasks.len < 100) break;
         offset += @intCast(tasks.len);
@@ -293,10 +306,13 @@ fn projectId(context: *const Context) !i64 {
 fn statePaths(context: *const Context) !State {
     const directory = optionOrEnvironment(context, "state-dir", "HT_AGENT_STATE_DIR") orelse blk: {
         const home = environment("HOME") orelse return error.NoHome;
-        break :blk try std.fs.path.join(context.allocator, &.{ home, ".local", "state", "hypertask-agent" });
+        const identity = optionOrEnvironment(context, "slug", "HT_AGENT_SLUG") orelse
+            optionOrEnvironment(context, "agent-id", "HT_AGENT_ID") orelse return error.MissingAgentIdentity;
+        break :blk try std.fs.path.join(context.allocator, &.{ home, ".local", "state", "hypertask-agent", identity });
     };
     return .{
         .directory = directory,
+        .lock_path = try std.fs.path.join(context.allocator, &.{ directory, "state.lock" }),
         .seen_path = try std.fs.path.join(context.allocator, &.{ directory, "seen" }),
         .tickets_path = try std.fs.path.join(context.allocator, &.{ directory, "tickets" }),
         .watermark_path = try std.fs.path.join(context.allocator, &.{ directory, "watermark" }),
@@ -307,8 +323,22 @@ fn ensureStateDirectory(path: []const u8) !void {
     try std.fs.cwd().makePath(path);
 }
 
+fn acquireStateLock(state: State) !std.fs.File {
+    var file = try std.fs.cwd().createFile(state.lock_path, .{ .truncate = false, .mode = 0o600 });
+    errdefer file.close();
+    try file.lock(.exclusive);
+    return file;
+}
+
+fn releaseStateLock(file: *std.fs.File) void {
+    file.unlock();
+    file.close();
+}
+
 fn appendSeen(context: *const Context, state: State, ticket: []const u8, id: i64) !void {
     try ensureStateDirectory(state.directory);
+    var state_lock = try acquireStateLock(state);
+    defer releaseStateLock(&state_lock);
     try migrateLegacyState(context, state);
     const key = try stateKey(context.allocator, ticket, "", id);
     try appendStateLine(context.allocator, state.seen_path, key);
@@ -355,12 +385,15 @@ fn writeLineSet(allocator: std.mem.Allocator, path: []const u8, values: *const s
 }
 
 fn writeStateFile(allocator: std.mem.Allocator, path: []const u8, value: []const u8) !void {
-    const pending = try std.fmt.allocPrint(allocator, "{s}.next", .{path});
+    const pending = try std.fmt.allocPrint(allocator, "{s}.next-{x}", .{ path, std.crypto.random.int(u64) });
     defer allocator.free(pending);
-    var file = try std.fs.cwd().createFile(pending, .{ .truncate = true, .mode = 0o600 });
-    try file.writeAll(value);
-    try file.writeAll("\n");
-    file.close();
+    defer std.fs.cwd().deleteFile(pending) catch {};
+    {
+        var file = try std.fs.cwd().createFile(pending, .{ .exclusive = true, .mode = 0o600 });
+        defer file.close();
+        try file.writeAll(value);
+        try file.writeAll("\n");
+    }
     try std.fs.cwd().rename(pending, path);
 }
 
@@ -444,7 +477,8 @@ fn addressesAgent(html: []const u8, agent_id: []const u8, agent_name: []const u8
         remaining = remaining[start..];
         const end = std.mem.indexOfScalar(u8, remaining, '>') orelse return false;
         const chip = remaining[0 .. end + 1];
-        if (std.mem.indexOf(u8, chip, "data-type=\"mention\"") != null) {
+        const data_type = attributeValue(chip, "data-type");
+        if (data_type != null and std.mem.eql(u8, data_type.?, "mention")) {
             const label = attributeValue(chip, "data-label");
             const display_name = attributeValue(chip, "data-id");
             if ((label != null and std.mem.startsWith(u8, label.?, "agent-") and std.mem.eql(u8, label.?[6..], agent_id)) or
@@ -456,17 +490,73 @@ fn addressesAgent(html: []const u8, agent_id: []const u8, agent_name: []const u8
 }
 
 fn attributeValue(tag: []const u8, name: []const u8) ?[]const u8 {
-    const name_start = std.mem.indexOf(u8, tag, name) orelse return null;
-    const suffix = tag[name_start + name.len ..];
-    if (!std.mem.startsWith(u8, suffix, "=\"")) return null;
-    const value = suffix[2..];
-    const end = std.mem.indexOfScalar(u8, value, '"') orelse return null;
-    return value[0..end];
+    var index: usize = 0;
+    while (index < tag.len) {
+        while (index < tag.len and std.ascii.isWhitespace(tag[index])) index += 1;
+        if (index >= tag.len or tag[index] == '>') return null;
+
+        const name_start = index;
+        while (index < tag.len and !std.ascii.isWhitespace(tag[index]) and tag[index] != '=' and tag[index] != '>' and tag[index] != '/') index += 1;
+        if (index == name_start) {
+            index += 1;
+            continue;
+        }
+        const attribute_name = tag[name_start..index];
+        while (index < tag.len and std.ascii.isWhitespace(tag[index])) index += 1;
+        if (index >= tag.len or tag[index] != '=') continue;
+        index += 1;
+        while (index < tag.len and std.ascii.isWhitespace(tag[index])) index += 1;
+        if (index >= tag.len or (tag[index] != '"' and tag[index] != '\'')) continue;
+
+        const quote = tag[index];
+        index += 1;
+        const value_start = index;
+        while (index < tag.len and tag[index] != quote) index += 1;
+        if (index >= tag.len) return null;
+        const value = tag[value_start..index];
+        index += 1;
+        if (std.mem.eql(u8, attribute_name, name)) return value;
+    }
+    return null;
 }
 
-fn boundedWhitespace(value: []const u8, limit: usize) []const u8 {
-    const end = @min(value.len, limit);
-    return std.mem.trim(u8, value[0..end], " \t\r\n");
+fn boundedText(allocator: std.mem.Allocator, value: []const u8, limit: usize) ![]u8 {
+    var result: std.ArrayListUnmanaged(u8) = .{};
+    errdefer result.deinit(allocator);
+    var index: usize = 0;
+    var pending_space = false;
+
+    while (index < value.len) {
+        const sequence_length = std.unicode.utf8ByteSequenceLength(value[index]) catch 1;
+        const end = index + sequence_length;
+        const codepoint = if (end <= value.len) std.unicode.utf8Decode(value[index..end]) catch null else null;
+        if (codepoint == null) {
+            if (pending_space and result.items.len != 0) {
+                if (result.items.len + 1 >= limit) break;
+                try result.append(allocator, ' ');
+                pending_space = false;
+            }
+            if (result.items.len >= limit) break;
+            try result.append(allocator, '?');
+            index += 1;
+            continue;
+        }
+
+        if (codepoint.? <= 0x20 or (codepoint.? >= 0x7f and codepoint.? <= 0x9f) or codepoint.? == 0x2028 or codepoint.? == 0x2029) {
+            pending_space = result.items.len != 0;
+            index = end;
+            continue;
+        }
+        if (pending_space) {
+            if (result.items.len + 1 + sequence_length > limit) break;
+            try result.append(allocator, ' ');
+            pending_space = false;
+        }
+        if (result.items.len + sequence_length > limit) break;
+        try result.appendSlice(allocator, value[index..end]);
+        index = end;
+    }
+    return result.toOwnedSlice(allocator);
 }
 
 fn optionOrEnvironment(context: *const Context, option: []const u8, name: []const u8) ?[]const u8 {
@@ -513,9 +603,25 @@ test "capability guards reject expired and cross-ticket operations" {
 
 test "mention matching only accepts exact mention identifiers" {
     try std.testing.expect(addressesAgent("<p><span data-type=\"mention\" data-id=\"Dev\" data-label=\"agent-agent-1\">@Dev</span></p>", "agent-1", "Dev"));
+    try std.testing.expect(addressesAgent("<span data-type='mention' data-label='agent-agent-1'>@Dev</span>", "agent-1", "Dev"));
     try std.testing.expect(!addressesAgent("<p>agent-1 without a mention chip</p>", "agent-1", "Dev"));
     try std.testing.expect(!addressesAgent("<span data-type=\"mention\" data-id=\"Other\" data-label=\"agent-agent-10\">@Other</span>", "agent-1", "Dev"));
     try std.testing.expect(!addressesAgent("<span data-type=\"mention\" data-other=\"agent-1\" data-id=\"Other\">@Other</span>", "agent-1", "Dev"));
+    try std.testing.expect(!addressesAgent("<span xdata-type=\"mention\" data-label=\"agent-agent-1\">@Other</span>", "agent-1", "Dev"));
+    try std.testing.expect(!addressesAgent("<span data-type=\"mention\" xdata-label=\"agent-agent-1\" data-id=\"Other\">@Other</span>", "agent-1", "Dev"));
+    try std.testing.expect(!addressesAgent("<span title=\"data-label='agent-agent-1'\" data-type=\"mention\" data-id=\"Other\">@Other</span>", "agent-1", "Dev"));
+}
+
+test "bounded text produces one safe UTF-8 output line" {
+    const sanitized = try boundedText(std.testing.allocator, " \nhello\tworld\x1b[31m\x7f! ", 100);
+    defer std.testing.allocator.free(sanitized);
+    try std.testing.expectEqualStrings("hello world [31m !", sanitized);
+    try std.testing.expect(std.unicode.utf8ValidateSlice(sanitized));
+
+    const truncated = try boundedText(std.testing.allocator, "éééé", 7);
+    defer std.testing.allocator.free(truncated);
+    try std.testing.expectEqualStrings("ééé", truncated);
+    try std.testing.expect(std.unicode.utf8ValidateSlice(truncated));
 }
 
 test "legacy seen keys remain compatible with ht-agent state" {
