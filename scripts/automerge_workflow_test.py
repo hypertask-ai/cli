@@ -54,8 +54,22 @@ if [ "$1 $2" = "pr view" ]; then
   printf '{"number":42,"changedFiles":%s,"isDraft":false,"isCrossRepository":false,"mergeable":"MERGEABLE","baseRefName":"main","headRefOid":"%040d","headRepositoryOwner":{"login":"owner"},"labels":[],"statusCheckRollup":%s}\n' "$CHANGED_FILES" 0 "$checks"
   exit 0
 fi
-if [ "$1" = "api" ]; then
+if [ "$1" = "api" ] && [[ " $* " == *"/pulls/42/files?"* ]]; then
   for ((index=0; index<RETURNED_FILES; index++)); do echo "src/file-$index.zig"; done
+  exit 0
+fi
+if [ "$1" = "api" ] && [[ " $* " == *"/check-runs"* ]]; then
+  if [ "$CHECK_STATE" = "MISSING" ] || [ "$CHECK_TYPE" != "CheckRun" ]; then
+    echo '{"total_count":0,"check_runs":[]}'
+  elif [ "$CHECK_STATE" = "PENDING" ]; then
+    jq -cn '{total_count:2,check_runs:[{id:99,name:"test",status:"completed",conclusion:"success",details_url:"https://github.com/owner/repository/actions/runs/122/job/455",app:{slug:"github-actions"}},{id:100,name:"test",status:"queued",conclusion:null,details_url:"https://github.com/owner/repository/actions/runs/123/job/456",app:{slug:"github-actions"}}]}'
+  else
+    jq -cn --arg conclusion "${CHECK_STATE,,}" '{total_count:1,check_runs:[{id:100,name:"test",status:"completed",conclusion:$conclusion,details_url:"https://github.com/owner/repository/actions/runs/123/job/456",app:{slug:"github-actions"}}]}'
+  fi
+  exit 0
+fi
+if [ "$1" = "api" ] && [[ " $* " == *"/actions/runs/123"* ]]; then
+  jq -cn --arg name "$WORKFLOW_NAME" '{name:$name,head_sha:"0000000000000000000000000000000000000000",status:"completed",conclusion:"success"}'
   exit 0
 fi
 if [ "$1 $2" = "pr merge" ]; then printf 'merge %s\n' "$*" >> "$MERGE_LOG"; exit 0; fi
@@ -110,19 +124,21 @@ exit 2
                 result, merges = self.run_evaluator(state)
 
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertIn(f"check test = {state}", result.stdout)
+                expected_state = "QUEUED" if state == "PENDING" else state
+                self.assertIn(f"check test = {expected_state}", result.stdout)
                 self.assertIn("skip: not all required checks green", result.stdout)
                 self.assertEqual(merges, "")
 
     def test_forged_or_wrong_workflow_success_does_not_satisfy_gate(self) -> None:
-        for check_type, workflow_name in (("StatusContext", ""), ("CheckRun", "Other")):
+        cases = (("StatusContext", "", "MISSING"), ("CheckRun", "Other", "INVALID"))
+        for check_type, workflow_name, expected_state in cases:
             with self.subTest(check_type=check_type, workflow_name=workflow_name):
                 result, merges = self.run_evaluator(
                     "SUCCESS", check_type=check_type, workflow_name=workflow_name
                 )
 
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertIn("check test = MISSING", result.stdout)
+                self.assertIn(f"check test = {expected_state}", result.stdout)
                 self.assertEqual(merges, "")
 
     def test_incomplete_paginated_file_list_fails_closed(self) -> None:
