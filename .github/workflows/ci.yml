@@ -15,7 +15,7 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -33,6 +33,14 @@ jobs:
 
       - name: Build ReleaseFast CLI
         run: zig build -Doptimize=ReleaseFast
+
+      - name: Test customer installers
+        run: |
+          ./scripts/install_test.sh
+          npm test --prefix npm
+
+      - name: Build Windows x64 CLI
+        run: zig build -Doptimize=ReleaseFast -Dtarget=x86_64-windows --prefix "$RUNNER_TEMP/windows-x64"
 
       - name: Check capability parity
         env:

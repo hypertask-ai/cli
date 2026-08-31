@@ -1,0 +1,26 @@
+{
+  "name": "@hypertask/hypertask_cli",
+  "version": "2.0.0",
+  "description": "Native Hypertask CLI installer",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hypertask-ai/cli.git",
+    "directory": "npm"
+  },
+  "bin": {
+    "hypertask": "bin/hypertask.exe"
+  },
+  "files": [
+    "bin/hypertask.exe",
+    "install.cjs",
+    "README.md"
+  ],
+  "scripts": {
+    "postinstall": "node install.cjs",
+    "test": "node --test test/*.test.cjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
