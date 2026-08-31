@@ -35,6 +35,16 @@ case "${1:-}" in
 esac
 EOF
 chmod 0755 "$fake_bin/uname"
+real_mv=$(command -v mv)
+cat > "$fake_bin/mv" <<EOF
+#!/bin/sh
+if [ -n "\${HYPERTASK_TEST_RACE_DESTINATION:-}" ]; then
+  rm -f "\$HYPERTASK_TEST_RACE_DESTINATION"
+  mkdir -p "\$HYPERTASK_TEST_RACE_DESTINATION"
+fi
+exec "$real_mv" "\$@"
+EOF
+chmod 0755 "$fake_bin/mv"
 
 PATH="$fake_bin:$PATH" \
 HYPERTASK_CLI_VERSION=latest \
@@ -63,6 +73,20 @@ if PATH="$fake_bin:$PATH" \
   echo "installer accepted a directory destination" >&2
   exit 1
 fi
+
+race_dir="$root/race-install"
+mkdir -p "$race_dir"
+if PATH="$fake_bin:$PATH" \
+  HYPERTASK_TEST_RACE_DESTINATION="$race_dir/hypertask" \
+  HYPERTASK_CLI_VERSION=latest \
+  HYPERTASK_CLI_RELEASE_ROOT="file://$root/releases" \
+  HYPERTASK_INSTALL_DIR="$race_dir" \
+  ./scripts/install.sh >/dev/null 2>&1; then
+  echo "installer accepted a raced directory destination" >&2
+  exit 1
+fi
+[ -d "$race_dir/hypertask" ]
+[ -z "$(find "$race_dir/hypertask" -mindepth 1 -print -quit)" ]
 
 printf '%064d  hypertask-linux-x86_64\n' 0 > "$release_dir/checksums.txt"
 if PATH="$fake_bin:$PATH" \

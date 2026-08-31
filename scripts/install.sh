@@ -54,8 +54,14 @@ mkdir -p "$install_dir"
 destination="$install_dir/hypertask"
 [ ! -d "$destination" ] || { echo "Install destination is a directory: $destination" >&2; exit 1; }
 temporary=$(mktemp "$install_dir/.hypertask.XXXXXX")
+temporary_name=${temporary##*/}
 cp "$work_dir/$asset" "$temporary"
 chmod 0755 "$temporary"
 mv -f "$temporary" "$destination"
+if [ ! -f "$destination" ] || [ ! -x "$destination" ]; then
+  rm -f "$destination/$temporary_name" 2>/dev/null || true
+  echo "Failed to replace install destination: $destination" >&2
+  exit 1
+fi
 temporary=
 printf 'Installed Hypertask CLI at %s\n' "$destination"
