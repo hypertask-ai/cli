@@ -24,13 +24,13 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Test ReleaseFast build
-        run: zig build test -Doptimize=ReleaseFast
+        run: '"$HOME/.local/bin/zig" build test -Doptimize=ReleaseFast'
 
       - name: Test installer
         run: ./scripts/install_fleet_test.sh
 
       - name: Build ReleaseFast binary
-        run: zig build -Doptimize=ReleaseFast
+        run: '"$HOME/.local/bin/zig" build -Doptimize=ReleaseFast'
 
       - name: Install fleet binary
         run: ./scripts/install-fleet.sh zig-out/bin/hypertask
