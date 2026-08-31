@@ -30,6 +30,7 @@ EOF
 chmod 0755 "$fake_bin/uname"
 
 PATH="$fake_bin:$PATH" \
+HYPERTASK_CLI_VERSION=latest \
 HYPERTASK_CLI_RELEASE_ROOT="file://$root/releases" \
 HYPERTASK_INSTALL_DIR="$install_dir" \
   ./scripts/install.sh >/dev/null
@@ -37,6 +38,7 @@ HYPERTASK_INSTALL_DIR="$install_dir" \
 
 printf 'bad checksum  hypertask-linux-x86_64\n' > "$release_dir/checksums.txt"
 if PATH="$fake_bin:$PATH" \
+  HYPERTASK_CLI_VERSION=latest \
   HYPERTASK_CLI_RELEASE_ROOT="file://$root/releases" \
   HYPERTASK_INSTALL_DIR="$install_dir" \
   ./scripts/install.sh >/dev/null 2>&1; then

@@ -59,8 +59,19 @@ async function install(options = {}) {
       await fs.rename(temporary, destination);
     } catch (error) {
       if (!['EEXIST', 'EPERM'].includes(error.code)) throw error;
-      await fs.rm(destination, { force: true });
-      await fs.rename(temporary, destination);
+      const backup = `${destination}.${process.pid}.${crypto.randomUUID()}.backup`;
+      await fs.rename(destination, backup);
+      try {
+        await fs.rename(temporary, destination);
+      } catch (replacementError) {
+        try {
+          await fs.rename(backup, destination);
+        } catch (restoreError) {
+          throw new AggregateError([replacementError, restoreError], `Failed to replace and restore ${destination}`);
+        }
+        throw replacementError;
+      }
+      await fs.rm(backup, { force: true });
     }
   } finally {
     await fs.rm(temporary, { force: true });
