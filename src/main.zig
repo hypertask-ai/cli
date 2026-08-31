@@ -2,6 +2,7 @@ const std = @import("std");
 const args_mod = @import("args.zig");
 const config = @import("config.zig");
 const Context = @import("command_context.zig").Context;
+const output = @import("output.zig");
 const router = @import("router.zig");
 const token_refresh = @import("token_refresh.zig");
 
@@ -9,8 +10,10 @@ const version = "0.2.0 (zig)";
 
 pub fn main() void {
     run() catch |err| {
-        std.debug.print("hypertask: {s}\n", .{@errorName(err)});
-        std.process.exit(1);
+        if (!output.responseBodyWasPrinted(err)) {
+            std.debug.print("hypertask: {s}\n", .{@errorName(err)});
+        }
+        std.process.exit(output.exitCode(err));
     };
 }
 
