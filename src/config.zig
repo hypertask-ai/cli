@@ -62,6 +62,7 @@ pub fn load(allocator: std.mem.Allocator, token_override: ?[]const u8, api_url_o
         try setOwned(allocator, &result.owned_api_url, &result.api_url, default_api_url);
     }
     if (try applyEnvironmentVariable(allocator, &result.owned_token, &result.token, "HYPERTASKS_JWT_TOKEN")) result.token_source = .environment;
+    if (try applyEnvironmentVariable(allocator, &result.owned_token, &result.token, "HT_AGENT_TOKEN")) result.token_source = .environment;
     if (try applyEnvironmentVariable(allocator, &result.owned_token, &result.token, "HT_TOKEN")) result.token_source = .environment;
     if (try environmentVariable(allocator, "HYPERTASK_MANAGEMENT_KEY")) |value| {
         defer allocator.free(value);

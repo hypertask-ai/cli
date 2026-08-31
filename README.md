@@ -80,6 +80,27 @@ hypertask agents update --id <agent-id> --add-project 339
 hypertask search "query" --project 15
 ```
 
+## Managed agent identity commands
+
+The native CLI replaces the former `ht-agent` shell wrapper for agent-authored comments, assignment, lifecycle moves, handoffs, and durable polling:
+
+```bash
+export HT_AGENT_TOKEN='<managed-agent-token>'
+export HT_AGENT_SLUG='dev-3'
+export HT_AGENT_ID='<managed-agent-id>'
+export HT_AGENT_NAME='Dev 3 (HT)'
+export HT_AGENT_PROJECT_ID=15
+export HT_AGENT_STATE_DIR="$HOME/.local/state/hypertask-dev-3/agent-cli"
+
+hypertask agent say HTPR-5778 '<p>Working on it.</p>'
+hypertask agent take HTPR-5778
+hypertask agent move HTPR-5778 'In Progress'
+hypertask agent poll
+hypertask agent new-tickets --label Bug
+```
+
+`--token`, `HT_TOKEN`, and `HYPERTASKS_JWT_TOKEN` are also accepted. Ticket capability environment variables are checked before any request. Without `HT_AGENT_STATE_DIR`, durable state is isolated by API endpoint, project, and agent identity. On first use, seen, ticket, and watermark files migrate from `~/.config/hypertask-agents/<slug>.*` when present.
+
 ## Verification
 
 ```bash

@@ -3,6 +3,7 @@ const Context = @import("command_context.zig").Context;
 const output = @import("output.zig");
 
 const admin = @import("commands/admin.zig");
+const agent = @import("commands/agent.zig");
 const agents = @import("commands/agents.zig");
 const ai = @import("commands/ai.zig");
 const auth = @import("commands/auth.zig");
@@ -44,7 +45,9 @@ pub fn dispatch(context: *const Context) !void {
     }
     if (std.mem.eql(u8, root, "decision") or std.mem.eql(u8, root, "decisions")) return decision.run(context, subcommand);
     if (std.mem.eql(u8, root, "user")) return user.run(context, subcommand);
+    if (std.mem.eql(u8, root, "agent")) return agent.run(context, subcommand);
     if (std.mem.eql(u8, root, "agents")) return agents.run(context, subcommand);
+    if (std.mem.eql(u8, root, "messages")) return messages.run(context, subcommand);
     if (std.mem.eql(u8, root, "webhook") or std.mem.eql(u8, root, "webhooks")) return webhook.run(context, subcommand);
     if (std.mem.eql(u8, root, "admin")) {
         const admin_subcommand = context.args.positionalAt(2) orelse return error.MissingSubcommand;
@@ -60,7 +63,6 @@ pub fn dispatch(context: *const Context) !void {
     if (std.mem.eql(u8, root, "pages") or std.mem.eql(u8, root, "page")) return pages.run(context, subcommand);
     if (std.mem.eql(u8, root, "skills") or std.mem.eql(u8, root, "skill")) return skills.run(context, subcommand);
     if (std.mem.eql(u8, root, "ai")) return ai.run(context, subcommand);
-    if (std.mem.eql(u8, root, "messages")) return messages.run(context, subcommand);
     if (std.mem.eql(u8, root, "inbox")) return inbox.run(context, subcommand);
     if (std.mem.eql(u8, root, "report") or std.mem.eql(u8, root, "reports")) return report.run(context, subcommand);
     if (std.mem.eql(u8, root, "time")) return time.run(context, subcommand);
