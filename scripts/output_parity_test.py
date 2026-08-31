@@ -78,8 +78,9 @@ class Handler(BaseHTTPRequestHandler):
                 "success": True,
                 "user_notifications": [{"id": 101, "type": "Mentioned"}],
                 "agent_notifications": [
-                    {"id": 13, "type": "Assigned"},
+                    {"id": "13", "type": "Assigned"},
                     {"id": 10, "type": "Mentioned"},
+                    {"id": "-35688", "type": "Synthetic"},
                     {"id": 12, "type": "Comment"},
                 ],
             }, separators=(",", ":")))

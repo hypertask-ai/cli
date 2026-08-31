@@ -73,20 +73,20 @@ fn notificationId(notification: std.json.Value) !i64 {
     const id = switch (value) {
         .integer => |integer| integer,
         .number_string => |number| std.fmt.parseInt(i64, number, 10) catch return error.InvalidResponse,
+        .string => |string| std.fmt.parseInt(i64, string, 10) catch return error.InvalidResponse,
         else => return error.InvalidResponse,
     };
-    if (id < 0) return error.InvalidResponse;
     return id;
 }
 
 test "poll selects the agent boundary and returns an ascending cursor window" {
     const result = try pollResponse(std.testing.allocator,
-        \\{"success":true,"user_notifications":[{"id":101,"type":"Mentioned"}],"agent_notifications":[{"id":13,"type":"Assigned"},{"id":10,"type":"Mentioned"},{"id":12,"type":"Comment"}]}
+        \\{"success":true,"user_notifications":[{"id":101,"type":"Mentioned"}],"agent_notifications":[{"id":"13","type":"Assigned"},{"id":10,"type":"Mentioned"},{"id":"-35688","type":"Synthetic"},{"id":12,"type":"Comment"}]}
     , 10);
     defer std.testing.allocator.free(result);
 
     try std.testing.expectEqualStrings(
-        \\{"success":true,"messages":[{"id":12,"type":"Comment"},{"id":13,"type":"Assigned"}],"next_cursor":13}
+        \\{"success":true,"messages":[{"id":12,"type":"Comment"},{"id":"13","type":"Assigned"}],"next_cursor":13}
     , result);
 }
 
