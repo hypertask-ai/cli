@@ -127,36 +127,47 @@ fn poll(context: *const Context) !void {
     defer seen.deinit();
     const watermark = try readSmallFile(context.allocator, state.watermark_path);
 
-    var path = try query.Builder.init(context.allocator, "/mcp/tasks");
-    defer path.deinit();
-    try path.addInt("project_id", project);
-    try path.add("limit", "100");
-    try path.add("sort_by", "updatedAt");
-    try path.add("sort_order", "desc");
-    var response = try context.fetch(.GET, path.path(), null);
-    defer response.deinit();
-    try requireSuccess(context, &response);
-
-    const parsed = try std.json.parseFromSlice(std.json.Value, context.allocator, response.body, .{});
-    defer parsed.deinit();
-    const tasks = arrayField(parsed.value, "tasks") orelse return error.InvalidResponse;
     var result: std.ArrayListUnmanaged(u8) = .{};
     defer result.deinit(context.allocator);
     var newest: []const u8 = watermark;
+    var offset: i64 = 0;
+    var reached_watermark = false;
 
-    for (tasks) |task| {
-        const updated = stringField(task, "updatedAt") orelse "";
-        if (updated.len != 0 and (newest.len == 0 or std.mem.order(u8, updated, newest) == .gt)) newest = updated;
-        if (watermark.len != 0 and updated.len != 0 and std.mem.order(u8, updated, watermark) != .gt) continue;
-        const ticket = stringField(task, "ticketNumber") orelse continue;
-        try pollTicket(context, state, &seen, &result, ticket);
+    while (!reached_watermark) {
+        var path = try query.Builder.init(context.allocator, "/mcp/tasks");
+        defer path.deinit();
+        try path.addInt("project_id", project);
+        try path.add("limit", "100");
+        try path.addInt("offset", offset);
+        try path.add("sort_by", "updatedAt");
+        try path.add("sort_order", "desc");
+        var response = try context.fetch(.GET, path.path(), null);
+        defer response.deinit();
+        try requireSuccess(context, &response);
+
+        const parsed = try std.json.parseFromSlice(std.json.Value, context.allocator, response.body, .{});
+        defer parsed.deinit();
+        const tasks = arrayField(parsed.value, "tasks") orelse return error.InvalidResponse;
+        for (tasks) |task| {
+            const updated = stringField(task, "updatedAt") orelse "";
+            if (updated.len != 0 and (newest.len == 0 or std.mem.order(u8, updated, newest) == .gt)) newest = try context.allocator.dupe(u8, updated);
+            if (watermark.len != 0 and updated.len != 0 and std.mem.order(u8, updated, watermark) != .gt) {
+                reached_watermark = true;
+                break;
+            }
+            const ticket = stringField(task, "ticketNumber") orelse continue;
+            try pollTicket(context, &seen, &result, ticket);
+        }
+        if (tasks.len < 100) break;
+        offset += @intCast(tasks.len);
     }
 
-    if (newest.len != 0 and !std.mem.eql(u8, newest, watermark)) try writeStateFile(context.allocator, state.watermark_path, newest);
     if (result.items.len != 0) try output.print(result.items);
+    try writeLineSet(context.allocator, state.seen_path, &seen);
+    if (newest.len != 0 and !std.mem.eql(u8, newest, watermark)) try writeStateFile(context.allocator, state.watermark_path, newest);
 }
 
-fn pollTicket(context: *const Context, state: State, seen: *std.StringHashMap(void), result: *std.ArrayListUnmanaged(u8), ticket: []const u8) !void {
+fn pollTicket(context: *const Context, seen: *std.StringHashMap(void), result: *std.ArrayListUnmanaged(u8), ticket: []const u8) !void {
     var path = try query.Builder.init(context.allocator, "/mcp/comments");
     defer path.deinit();
     try path.add("ticket_number", ticket);
@@ -180,7 +191,6 @@ fn pollTicket(context: *const Context, state: State, seen: *std.StringHashMap(vo
                 const reaction_key = try stateKey(context.allocator, ticket, "r:", reaction_id);
                 if (seenContains(seen, ticket, reaction_key, reaction_id, true)) continue;
                 try seen.put(reaction_key, {});
-                try appendStateLine(context.allocator, state.seen_path, reaction_key);
                 if (ours) {
                     const emoji = stringField(reaction, "emoji") orelse "";
                     const html = stringField(comment, "text") orelse "";
@@ -192,7 +202,6 @@ fn pollTicket(context: *const Context, state: State, seen: *std.StringHashMap(vo
         const key = try stateKey(context.allocator, ticket, "", id);
         if (seenContains(seen, ticket, key, id, false)) continue;
         try seen.put(key, {});
-        try appendStateLine(context.allocator, state.seen_path, key);
         const html = stringField(comment, "text") orelse "";
         const addressed = addressesAgent(html, agent_id, agent_name);
         if (!all and !addressed) continue;
@@ -217,31 +226,38 @@ fn newTickets(context: *const Context) !void {
     var known = try readLines(context.allocator, state.tickets_path);
     defer known.deinit();
 
-    var path = try query.Builder.init(context.allocator, "/mcp/tasks");
-    defer path.deinit();
-    try path.addInt("project_id", project);
-    try path.add("limit", "100");
-    var response = try context.fetch(.GET, path.path(), null);
-    defer response.deinit();
-    try requireSuccess(context, &response);
-    const parsed = try std.json.parseFromSlice(std.json.Value, context.allocator, response.body, .{});
-    defer parsed.deinit();
-    const tasks = arrayField(parsed.value, "tasks") orelse return error.InvalidResponse;
     const label = context.args.get("label") orelse context.args.positionalAt(2);
     var result: std.ArrayListUnmanaged(u8) = .{};
     defer result.deinit(context.allocator);
+    var offset: i64 = 0;
 
-    for (tasks) |task| {
-        if (label) |wanted| if (!taskHasLabel(task, wanted)) continue;
-        const ticket = stringField(task, "ticketNumber") orelse continue;
-        if (known.contains(ticket)) continue;
-        try known.put(ticket, {});
-        try appendStateLine(context.allocator, state.tickets_path, ticket);
-        const section = stringField(task, "section") orelse "";
-        const title = stringField(task, "title") orelse "";
-        try result.writer(context.allocator).print("NEW {s} [{s}] {s}\n", .{ ticket, section, boundedWhitespace(title, 90) });
+    while (true) {
+        var path = try query.Builder.init(context.allocator, "/mcp/tasks");
+        defer path.deinit();
+        try path.addInt("project_id", project);
+        try path.add("limit", "100");
+        try path.addInt("offset", offset);
+        var response = try context.fetch(.GET, path.path(), null);
+        defer response.deinit();
+        try requireSuccess(context, &response);
+        const parsed = try std.json.parseFromSlice(std.json.Value, context.allocator, response.body, .{});
+        defer parsed.deinit();
+        const tasks = arrayField(parsed.value, "tasks") orelse return error.InvalidResponse;
+
+        for (tasks) |task| {
+            if (label) |wanted| if (!taskHasLabel(task, wanted)) continue;
+            const ticket = stringField(task, "ticketNumber") orelse continue;
+            if (known.contains(ticket)) continue;
+            try known.put(try context.allocator.dupe(u8, ticket), {});
+            const section = stringField(task, "section") orelse "";
+            const title = stringField(task, "title") orelse "";
+            try result.writer(context.allocator).print("NEW {s} [{s}] {s}\n", .{ ticket, section, boundedWhitespace(title, 90) });
+        }
+        if (tasks.len < 100) break;
+        offset += @intCast(tasks.len);
     }
     if (result.items.len != 0) try output.print(result.items);
+    try writeLineSet(context.allocator, state.tickets_path, &known);
 }
 
 fn guard(context: *const Context, ticket: ?[]const u8) !void {
@@ -259,9 +275,10 @@ fn guardCapability(now: i64, expires_at: ?i64, scoped_slug: ?[]const u8, actual_
         const actual = actual_slug orelse return error.CapabilityAgentMismatch;
         if (!std.mem.eql(u8, expected, actual)) return error.CapabilityAgentMismatch;
     }
-    if (scoped_ticket) |expected| if (ticket) |actual| {
+    if (scoped_ticket) |expected| {
+        const actual = ticket orelse return error.CapabilityTicketMismatch;
         if (!std.mem.eql(u8, expected, actual)) return error.CapabilityTicketMismatch;
-    };
+    }
 }
 
 fn normalizedTicketArgument(context: *const Context, index: usize) ![]const u8 {
@@ -324,6 +341,17 @@ fn appendStateLine(allocator: std.mem.Allocator, path: []const u8, line: []const
     try file.seekFromEnd(0);
     try file.writeAll(line);
     try file.writeAll("\n");
+}
+
+fn writeLineSet(allocator: std.mem.Allocator, path: []const u8, values: *const std.StringHashMap(void)) !void {
+    var contents: std.ArrayListUnmanaged(u8) = .{};
+    defer contents.deinit(allocator);
+    var iterator = values.keyIterator();
+    while (iterator.next()) |value| {
+        try contents.appendSlice(allocator, value.*);
+        try contents.append(allocator, '\n');
+    }
+    try writeStateFile(allocator, path, std.mem.trimRight(u8, contents.items, "\r\n"));
 }
 
 fn writeStateFile(allocator: std.mem.Allocator, path: []const u8, value: []const u8) !void {
@@ -416,11 +444,24 @@ fn addressesAgent(html: []const u8, agent_id: []const u8, agent_name: []const u8
         remaining = remaining[start..];
         const end = std.mem.indexOfScalar(u8, remaining, '>') orelse return false;
         const chip = remaining[0 .. end + 1];
-        if (std.mem.indexOf(u8, chip, "data-type=\"mention\"") != null and
-            (std.mem.indexOf(u8, chip, agent_id) != null or (agent_name.len != 0 and std.mem.indexOf(u8, chip, agent_name) != null))) return true;
+        if (std.mem.indexOf(u8, chip, "data-type=\"mention\"") != null) {
+            const label = attributeValue(chip, "data-label");
+            const display_name = attributeValue(chip, "data-id");
+            if ((label != null and std.mem.startsWith(u8, label.?, "agent-") and std.mem.eql(u8, label.?[6..], agent_id)) or
+                (display_name != null and agent_name.len != 0 and std.mem.eql(u8, display_name.?, agent_name))) return true;
+        }
         remaining = remaining[end + 1 ..];
     }
     return false;
+}
+
+fn attributeValue(tag: []const u8, name: []const u8) ?[]const u8 {
+    const name_start = std.mem.indexOf(u8, tag, name) orelse return null;
+    const suffix = tag[name_start + name.len ..];
+    if (!std.mem.startsWith(u8, suffix, "=\"")) return null;
+    const value = suffix[2..];
+    const end = std.mem.indexOfScalar(u8, value, '"') orelse return null;
+    return value[0..end];
 }
 
 fn boundedWhitespace(value: []const u8, limit: usize) []const u8 {
@@ -466,13 +507,15 @@ test "capability guards reject expired and cross-ticket operations" {
     try std.testing.expectError(error.CapabilityExpired, guardCapability(11, 10, null, null, null, null));
     try std.testing.expectError(error.CapabilityAgentMismatch, guardCapability(10, 10, "dev-3", "dev-2", null, null));
     try std.testing.expectError(error.CapabilityTicketMismatch, guardCapability(10, null, null, null, "HTPR-1", "HTPR-2"));
+    try std.testing.expectError(error.CapabilityTicketMismatch, guardCapability(10, null, null, null, "HTPR-1", null));
     try guardCapability(10, 10, "dev-3", "dev-3", "HTPR-1", "HTPR-1");
 }
 
-test "mention matching only accepts matching mention chips" {
-    try std.testing.expect(addressesAgent("<p><span data-type=\"mention\" data-id=\"agent-1\">@Dev</span></p>", "agent-1", "Dev"));
+test "mention matching only accepts exact mention identifiers" {
+    try std.testing.expect(addressesAgent("<p><span data-type=\"mention\" data-id=\"Dev\" data-label=\"agent-agent-1\">@Dev</span></p>", "agent-1", "Dev"));
     try std.testing.expect(!addressesAgent("<p>agent-1 without a mention chip</p>", "agent-1", "Dev"));
-    try std.testing.expect(!addressesAgent("<span data-type=\"mention\" data-id=\"agent-2\">@Other</span>", "agent-1", "Dev"));
+    try std.testing.expect(!addressesAgent("<span data-type=\"mention\" data-id=\"Other\" data-label=\"agent-agent-10\">@Other</span>", "agent-1", "Dev"));
+    try std.testing.expect(!addressesAgent("<span data-type=\"mention\" data-other=\"agent-1\" data-id=\"Other\">@Other</span>", "agent-1", "Dev"));
 }
 
 test "legacy seen keys remain compatible with ht-agent state" {
