@@ -87,6 +87,19 @@ fn sniffMime(data: []const u8) ?[]const u8 {
     return null;
 }
 
+test "attachment MIME detection uses extensions and file signatures" {
+    try std.testing.expectEqualStrings("image/png", mimeType("IMAGE.PNG"));
+    try std.testing.expectEqualStrings("image/jpeg", mimeType("photo.jpeg"));
+    try std.testing.expectEqualStrings("text/markdown", mimeType("notes.md"));
+    try std.testing.expectEqualStrings("application/octet-stream", mimeType("archive.bin"));
+
+    try std.testing.expectEqualStrings("image/png", sniffMime("\x89PNG\r\n").?);
+    try std.testing.expectEqualStrings("image/jpeg", sniffMime("\xff\xd8\xffrest").?);
+    try std.testing.expectEqualStrings("image/gif", sniffMime("GIF89a...").?);
+    try std.testing.expectEqualStrings("application/pdf", sniffMime("%PDF-1.7").?);
+    try std.testing.expect(sniffMime("plain text") == null);
+}
+
 test "numeric comment attachment identifiers use task_id" {
     var body = try json.Object.init(std.testing.allocator);
     defer body.deinit();

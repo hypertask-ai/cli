@@ -56,19 +56,7 @@ pub fn load(allocator: std.mem.Allocator, token_override: ?[]const u8, api_url_o
 
     const path = try configPath(allocator);
     defer allocator.free(path);
-    if (std.fs.cwd().readFileAlloc(allocator, path, 1024 * 1024)) |raw| {
-        defer allocator.free(raw);
-        const parsed = std.json.parseFromSlice(FileConfig, allocator, raw, .{
-            .ignore_unknown_fields = true,
-            .allocate = .alloc_always,
-        }) catch null;
-        if (parsed) |document| {
-            defer document.deinit();
-            if (document.value.token) |value| try setOwned(allocator, &result.owned_token, &result.token, value);
-            if (document.value.managementKey) |value| try setOwned(allocator, &result.owned_management_key, &result.management_key, value);
-            if (document.value.apiUrl) |value| try setOwned(allocator, &result.owned_api_url, &result.api_url, value);
-        }
-    } else |_| {}
+    try loadFile(allocator, path, &result);
 
     if (std.mem.eql(u8, result.api_url, legacy_api_url)) {
         try setOwned(allocator, &result.owned_api_url, &result.api_url, default_api_url);
@@ -90,6 +78,19 @@ pub fn load(allocator: std.mem.Allocator, token_override: ?[]const u8, api_url_o
     }
     if (result.token.len == 0) return error.NoToken;
     return result;
+}
+
+fn loadFile(allocator: std.mem.Allocator, path: []const u8, result: *Config) !void {
+    const raw = std.fs.cwd().readFileAlloc(allocator, path, 1024 * 1024) catch return;
+    defer allocator.free(raw);
+    const parsed = std.json.parseFromSlice(FileConfig, allocator, raw, .{
+        .ignore_unknown_fields = true,
+        .allocate = .alloc_always,
+    }) catch return;
+    defer parsed.deinit();
+    if (parsed.value.token) |value| try setOwned(allocator, &result.owned_token, &result.token, value);
+    if (parsed.value.managementKey) |value| try setOwned(allocator, &result.owned_management_key, &result.management_key, value);
+    if (parsed.value.apiUrl) |value| try setOwned(allocator, &result.owned_api_url, &result.api_url, value);
 }
 
 fn applyEnvironmentOverride(allocator: std.mem.Allocator, owned: *?[]u8, target: *[]const u8, value: ?[]const u8) !bool {
@@ -134,7 +135,10 @@ fn writeConfig(allocator: std.mem.Allocator, token: []const u8, management_key: 
     std.fs.makeDirAbsolute(directory) catch |err| if (err != error.PathAlreadyExists) return err;
     const path = try configPath(allocator);
     defer allocator.free(path);
+    try writeConfigFile(allocator, path, token, management_key, api_url);
+}
 
+fn writeConfigFile(allocator: std.mem.Allocator, path: []const u8, token: []const u8, management_key: []const u8, api_url: []const u8) !void {
     var object = try json.Object.init(allocator);
     defer object.deinit();
     if (token.len != 0) try object.string("token", token);
@@ -146,6 +150,24 @@ fn writeConfig(allocator: std.mem.Allocator, token: []const u8, management_key: 
     defer file.close();
     try file.writeAll(body);
     try file.writeAll("\n");
+}
+
+test "config file round trips saved values" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const directory = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(directory);
+    const path = try std.fs.path.join(std.testing.allocator, &.{ directory, "config.json" });
+    defer std.testing.allocator.free(path);
+
+    try writeConfigFile(std.testing.allocator, path, "saved-token", "management-key", "https://example.test/api");
+    var loaded = Config{ .allocator = std.testing.allocator };
+    defer loaded.deinit();
+    try loadFile(std.testing.allocator, path, &loaded);
+
+    try std.testing.expectEqualStrings("saved-token", loaded.token);
+    try std.testing.expectEqualStrings("management-key", loaded.management_key);
+    try std.testing.expectEqualStrings("https://example.test/api", loaded.api_url);
 }
 
 test "environment overrides ignore empty values" {

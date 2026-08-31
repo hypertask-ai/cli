@@ -18,6 +18,12 @@ pub fn isNumeric(value: []const u8) bool {
 
 pub fn normalizedTicket(allocator: std.mem.Allocator, value: []const u8) ![]u8 {
     const trimmed = std.mem.trim(u8, value, " \t\r\n");
+    const separator = std.mem.indexOfScalar(u8, trimmed, '-') orelse return error.InvalidTicket;
+    if (separator == 0 or separator == trimmed.len - 1 or std.mem.indexOfScalar(u8, trimmed[separator + 1 ..], '-') != null) return error.InvalidTicket;
+    if (!std.ascii.isAlphabetic(trimmed[0])) return error.InvalidTicket;
+    for (trimmed[1..separator]) |byte| if (!std.ascii.isAlphanumeric(byte) and byte != '_') return error.InvalidTicket;
+    for (trimmed[separator + 1 ..]) |byte| if (!std.ascii.isDigit(byte)) return error.InvalidTicket;
+
     const result = try allocator.alloc(u8, trimmed.len);
     for (trimmed, 0..) |byte, index| result[index] = std.ascii.toUpper(byte);
     return result;
@@ -92,19 +98,22 @@ pub fn sectionId(context: *const Context, project_id: i64, value: []const u8) !i
     return error.SectionNotFound;
 }
 
-test "task identifier helpers distinguish numeric IDs from ticket keys" {
-    var path = try query_mod.Builder.init(std.testing.allocator, "/mcp/drafts");
-    defer path.deinit();
-    try addTaskIdentifierQuery(&path, std.testing.allocator, "35341");
-    try std.testing.expectEqualStrings("/mcp/drafts?task_id=35341", path.path());
+test "task identifier helpers normalize tickets and reject invalid values" {
+    var numeric_path = try query_mod.Builder.init(std.testing.allocator, "/mcp/drafts");
+    defer numeric_path.deinit();
+    try addTaskIdentifierQuery(&numeric_path, std.testing.allocator, "123");
+    try std.testing.expectEqualStrings("/mcp/drafts?task_id=123", numeric_path.path());
 
-    var numeric_body = try json.Object.init(std.testing.allocator);
-    defer numeric_body.deinit();
-    try addTaskIdentifierBody(&numeric_body, std.testing.allocator, "35341");
-    try std.testing.expectEqualStrings("{\"task_id\":35341}", try numeric_body.finish());
+    var ticket_path = try query_mod.Builder.init(std.testing.allocator, "/mcp/drafts");
+    defer ticket_path.deinit();
+    try addTaskIdentifierQuery(&ticket_path, std.testing.allocator, "htpr-123");
+    try std.testing.expectEqualStrings("/mcp/drafts?ticket_number=HTPR-123", ticket_path.path());
 
     var ticket_body = try json.Object.init(std.testing.allocator);
     defer ticket_body.deinit();
-    try addTaskIdentifierBody(&ticket_body, std.testing.allocator, "qaro2-8");
-    try std.testing.expectEqualStrings("{\"ticket_number\":\"QARO2-8\"}", try ticket_body.finish());
+    try addTaskIdentifierBody(&ticket_body, std.testing.allocator, "HTPR-123");
+    try std.testing.expectEqualStrings("{\"ticket_number\":\"HTPR-123\"}", try ticket_body.finish());
+
+    try std.testing.expectError(error.InvalidTicket, normalizedTicket(std.testing.allocator, "not-a-ticket"));
+    try std.testing.expectError(error.InvalidTicket, normalizedTicket(std.testing.allocator, "123-4"));
 }

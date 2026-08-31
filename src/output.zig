@@ -245,12 +245,9 @@ test "human output formats object arrays as tabular rows" {
     );
     defer std.testing.allocator.free(formatted);
     try std.testing.expectEqualStrings(
-        \\success: true
-        \\tasks:
-        \\  ticketNumber\ttitle
-        \\  HTPR-1\tFirst
-        \\  HTPR-2\tSecond
-    , formatted);
+        "success: true\ntasks:\n  ticketNumber\ttitle\n  HTPR-1\tFirst\n  HTPR-2\tSecond",
+        formatted,
+    );
 }
 
 test "human output expands nested list fields without raw JSON cells" {
