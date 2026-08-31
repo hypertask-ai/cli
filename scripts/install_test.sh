@@ -36,7 +36,7 @@ HYPERTASK_INSTALL_DIR="$install_dir" \
   ./scripts/install.sh >/dev/null
 [ "$("$install_dir/hypertask")" = "native hypertask" ]
 
-printf 'bad checksum  hypertask-linux-x86_64\n' > "$release_dir/checksums.txt"
+printf '%064d  hypertask-linux-x86_64\n' 0 > "$release_dir/checksums.txt"
 if PATH="$fake_bin:$PATH" \
   HYPERTASK_CLI_VERSION=latest \
   HYPERTASK_CLI_RELEASE_ROOT="file://$root/releases" \

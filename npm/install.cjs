@@ -6,6 +6,21 @@ const path = require('node:path');
 
 const BINARY_VERSION = '0.2.0';
 const RELEASE_ROOT = 'https://github.com/hypertask-ai/cli/releases';
+const installLocks = new Map();
+
+async function withInstallLock(destination, operation) {
+  const previous = installLocks.get(destination) || Promise.resolve();
+  let release;
+  const current = new Promise((resolve) => { release = resolve; });
+  installLocks.set(destination, current);
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    release();
+    if (installLocks.get(destination) === current) installLocks.delete(destination);
+  }
+}
 
 function assetFor(platform, architecture) {
   const assets = {
@@ -50,33 +65,35 @@ async function install(options = {}) {
   const actual = crypto.createHash('sha256').update(binary).digest('hex');
   if (actual !== expected) throw new Error(`Checksum verification failed for ${asset}`);
 
-  await fs.mkdir(path.dirname(destination), { recursive: true });
-  const temporary = `${destination}.${process.pid}.${crypto.randomUUID()}.tmp`;
-  try {
-    await fs.writeFile(temporary, binary, { flag: 'wx', mode: 0o755 });
-    await fs.chmod(temporary, 0o755);
+  return withInstallLock(destination, async () => {
+    await fs.mkdir(path.dirname(destination), { recursive: true });
+    const temporary = `${destination}.${process.pid}.${crypto.randomUUID()}.tmp`;
     try {
-      await fs.rename(temporary, destination);
-    } catch (error) {
-      if (!['EEXIST', 'EPERM'].includes(error.code)) throw error;
-      const backup = `${destination}.${process.pid}.${crypto.randomUUID()}.backup`;
-      await fs.rename(destination, backup);
+      await fs.writeFile(temporary, binary, { flag: 'wx', mode: 0o755 });
+      await fs.chmod(temporary, 0o755);
       try {
         await fs.rename(temporary, destination);
-      } catch (replacementError) {
+      } catch (error) {
+        if (!['EEXIST', 'EPERM'].includes(error.code)) throw error;
+        const backup = `${destination}.${process.pid}.${crypto.randomUUID()}.backup`;
+        await fs.rename(destination, backup);
         try {
-          await fs.rename(backup, destination);
-        } catch (restoreError) {
-          throw new AggregateError([replacementError, restoreError], `Failed to replace and restore ${destination}`);
+          await fs.rename(temporary, destination);
+        } catch (replacementError) {
+          try {
+            await fs.rename(backup, destination);
+          } catch (restoreError) {
+            throw new AggregateError([replacementError, restoreError], `Failed to replace and restore ${destination}`);
+          }
+          throw replacementError;
         }
-        throw replacementError;
+        await fs.rm(backup, { force: true });
       }
-      await fs.rm(backup, { force: true });
+    } finally {
+      await fs.rm(temporary, { force: true });
     }
-  } finally {
-    await fs.rm(temporary, { force: true });
-  }
-  return { asset, destination };
+    return { asset, destination };
+  });
 }
 
 if (require.main === module) {
