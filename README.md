@@ -6,7 +6,7 @@ Ticket: https://app.hypertask.ai/detail/project-15/5726
 
 ## Command coverage
 
-The embedded catalog contains **135 leaf commands**.
+The embedded catalog contains **137 leaf commands**.
 
 ```bash
 hypertask capabilities --json
@@ -25,6 +25,18 @@ hypertask logout
 Browser login is not available in the native CLI. Obtain a JWT through the Hypertask web app, then pass it to `login --token`.
 
 Token lookup supports `--token`, `HT_TOKEN`, `HYPERTASKS_JWT_TOKEN`, and `~/.hypertask/config.json`. API URL lookup supports `--api-url`, `HYPERTASKS_API_URL`, and the saved config.
+
+## Correcting time entries
+
+Use a negative log to subtract minutes from your latest completed whole-minute entry for a task. An exact subtraction deletes that entry; ambiguous partial-minute and oversized corrections are rejected.
+
+```bash
+hypertask time log RINT-32 -30
+hypertask time update 119 --minutes 25 --note "Corrected"
+hypertask time delete 119
+```
+
+Entry IDs are available from `hypertask time report`. `time edit` is an alias for `time update`.
 
 ## Build and install
 

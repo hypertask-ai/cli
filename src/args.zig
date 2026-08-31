@@ -78,7 +78,7 @@ pub fn parse(allocator: std.mem.Allocator, argv: []const []const u8) !Parsed {
     var positional_only = false;
     while (i < argv.len) : (i += 1) {
         const value = argv[i];
-        if (positional_only or !std.mem.startsWith(u8, value, "-") or std.mem.eql(u8, value, "-")) {
+        if (positional_only or !std.mem.startsWith(u8, value, "-") or std.mem.eql(u8, value, "-") or isNegativeInteger(value)) {
             try positional.append(allocator, value);
             continue;
         }
@@ -112,6 +112,12 @@ pub fn parse(allocator: std.mem.Allocator, argv: []const []const u8) !Parsed {
         .options = try options.toOwnedSlice(allocator),
         .allocator = allocator,
     };
+}
+
+fn isNegativeInteger(value: []const u8) bool {
+    if (value.len < 2 or value[0] != '-') return false;
+    for (value[1..]) |byte| if (!std.ascii.isDigit(byte)) return false;
+    return true;
 }
 
 fn canonicalName(name: []const u8) []const u8 {
@@ -160,4 +166,12 @@ test "parse repeated and global options" {
     try std.testing.expectEqualStrings("urgent", parsed.get("label").?);
     try std.testing.expectEqual(@as(usize, 2), parsed.count("label"));
     try std.testing.expect(parsed.has("json"));
+}
+
+test "negative integers remain positional arguments" {
+    const argv = [_][]const u8{ "time", "log", "RINT-32", "-30" };
+    var parsed = try parse(std.testing.allocator, &argv);
+    defer parsed.deinit();
+    try std.testing.expectEqual(@as(usize, 4), parsed.positional.len);
+    try std.testing.expectEqualStrings("-30", parsed.positional[3]);
 }
