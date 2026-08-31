@@ -36,6 +36,17 @@ HYPERTASK_INSTALL_DIR="$install_dir" \
   ./scripts/install.sh >/dev/null
 [ "$("$install_dir/hypertask")" = "native hypertask" ]
 
+blocked_dir="$root/blocked-install"
+mkdir -p "$blocked_dir/hypertask"
+if PATH="$fake_bin:$PATH" \
+  HYPERTASK_CLI_VERSION=latest \
+  HYPERTASK_CLI_RELEASE_ROOT="file://$root/releases" \
+  HYPERTASK_INSTALL_DIR="$blocked_dir" \
+  ./scripts/install.sh >/dev/null 2>&1; then
+  echo "installer accepted a directory destination" >&2
+  exit 1
+fi
+
 printf '%064d  hypertask-linux-x86_64\n' 0 > "$release_dir/checksums.txt"
 if PATH="$fake_bin:$PATH" \
   HYPERTASK_CLI_VERSION=latest \

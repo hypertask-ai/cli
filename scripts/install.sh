@@ -31,7 +31,10 @@ cleanup() {
   rm -rf "$work_dir"
   if [ -n "$temporary" ]; then rm -f "$temporary"; fi
 }
-trap cleanup EXIT HUP INT TERM
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 curl -fsSL "$download_base/$asset" -o "$work_dir/$asset"
 curl -fsSL "$download_base/checksums.txt" -o "$work_dir/checksums.txt"
 expected=$(awk -v asset="$asset" '$2 == asset { print $1 }' "$work_dir/checksums.txt")
@@ -48,9 +51,11 @@ fi
 [ "$actual" = "$expected" ] || { echo "Checksum verification failed for $asset." >&2; exit 1; }
 
 mkdir -p "$install_dir"
+destination="$install_dir/hypertask"
+[ ! -d "$destination" ] || { echo "Install destination is a directory: $destination" >&2; exit 1; }
 temporary=$(mktemp "$install_dir/.hypertask.XXXXXX")
 cp "$work_dir/$asset" "$temporary"
 chmod 0755 "$temporary"
-mv -f "$temporary" "$install_dir/hypertask"
+mv -f "$temporary" "$destination"
 temporary=
-printf 'Installed Hypertask CLI at %s\n' "$install_dir/hypertask"
+printf 'Installed Hypertask CLI at %s\n' "$destination"

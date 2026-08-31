@@ -12,10 +12,10 @@ const { assetFor, checksumFor, install } = require('../install.cjs');
 const binary = Buffer.from('native-hypertask-binary');
 const digest = crypto.createHash('sha256').update(binary).digest('hex');
 
-function releaseServer(checksum = digest) {
+function releaseServer(checksum = digest, stallBinary = false) {
   const server = http.createServer((request, response) => {
     if (request.url === '/download/v0.2.0/hypertask-linux-x86_64') {
-      response.end(binary);
+      if (!stallBinary) response.end(binary);
       return;
     }
     if (request.url === '/download/v0.2.0/checksums.txt') {
@@ -64,7 +64,9 @@ test('installs a checksum-verified native binary', async (t) => {
 
   assert.equal(result.asset, 'hypertask-linux-x86_64');
   assert.deepEqual(await fs.readFile(destination), binary);
-  assert.notEqual((await fs.stat(destination)).mode & 0o111, 0);
+  if (process.platform !== 'win32') {
+    assert.notEqual((await fs.stat(destination)).mode & 0o111, 0);
+  }
 });
 
 test('rejects a binary whose checksum does not match', async (t) => {
@@ -81,5 +83,23 @@ test('rejects a binary whose checksum does not match', async (t) => {
       destination: path.join(directory, 'hypertask.exe'),
     }),
     /Checksum verification failed/,
+  );
+});
+
+test('times out a stalled release download', async (t) => {
+  const { server, root } = await releaseServer(digest, true);
+  t.after(() => server.close());
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'hypertask-npm-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+
+  await assert.rejects(
+    install({
+      platform: 'linux',
+      architecture: 'x64',
+      releaseRoot: root,
+      destination: path.join(directory, 'hypertask.exe'),
+      timeoutMs: 20,
+    }),
+    (error) => ['AbortError', 'TimeoutError'].includes(error.name),
   );
 });

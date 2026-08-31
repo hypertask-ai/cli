@@ -35,8 +35,11 @@ function assetFor(platform, architecture) {
   return asset;
 }
 
-async function download(url) {
-  const response = await fetch(url, { redirect: 'follow' });
+async function download(url, timeoutMs) {
+  const response = await fetch(url, {
+    redirect: 'follow',
+    signal: AbortSignal.timeout(timeoutMs),
+  });
   if (!response.ok) throw new Error(`Download failed with HTTP ${response.status}: ${url}`);
   return Buffer.from(await response.arrayBuffer());
 }
@@ -55,11 +58,12 @@ async function install(options = {}) {
   const version = options.version || BINARY_VERSION;
   const releaseRoot = options.releaseRoot || process.env.HYPERTASK_CLI_RELEASE_ROOT || RELEASE_ROOT;
   const destination = options.destination || path.join(__dirname, 'bin', 'hypertask.exe');
+  const timeoutMs = options.timeoutMs || 30_000;
   const asset = assetFor(platform, architecture);
   const baseUrl = `${releaseRoot}/download/v${version}`;
   const [binary, checksums] = await Promise.all([
-    download(`${baseUrl}/${asset}`),
-    download(`${baseUrl}/checksums.txt`).then((value) => value.toString('utf8')),
+    download(`${baseUrl}/${asset}`, timeoutMs),
+    download(`${baseUrl}/checksums.txt`, timeoutMs).then((value) => value.toString('utf8')),
   ]);
   const expected = checksumFor(checksums, asset);
   const actual = crypto.createHash('sha256').update(binary).digest('hex');
