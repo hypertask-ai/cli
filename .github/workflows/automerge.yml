@@ -32,7 +32,7 @@ jobs:
     steps:
       - name: Evaluate and merge green PRs
         env:
-          GH_TOKEN: ${{ secrets.AUTOMERGE_TOKEN || github.token }}
+          GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           EVENT: ${{ github.event_name }}
           DISP_PR: ${{ github.event.inputs.pr }}
