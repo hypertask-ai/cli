@@ -1,9 +1,11 @@
 #!/bin/sh
 set -eu
 
-out_dir="$PWD/dist"
+repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+cd "$repo_root"
+out_dir="$repo_root/dist"
+rm -rf "$out_dir"
 mkdir -p "$out_dir"
-find "$out_dir" -maxdepth 1 -type f \( -name 'hypertask-*' -o -name checksums.txt \) -delete
 work_dir=$(mktemp -d)
 cleanup() { rm -rf "$work_dir"; }
 trap cleanup EXIT

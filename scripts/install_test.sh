@@ -20,6 +20,9 @@ chmod 0755 "$release_dir/hypertask-linux-x86_64"
     shasum -a 256 hypertask-linux-x86_64 > checksums.txt
   fi
 )
+versioned_release_dir="$root/releases/download/v0.2.0"
+mkdir -p "$versioned_release_dir"
+cp "$release_dir/hypertask-linux-x86_64" "$release_dir/checksums.txt" "$versioned_release_dir/"
 
 fake_bin="$root/bin"
 mkdir -p "$fake_bin"
@@ -39,6 +42,16 @@ HYPERTASK_CLI_RELEASE_ROOT="file://$root/releases" \
 HYPERTASK_INSTALL_DIR="$install_dir" \
   ./scripts/install.sh >/dev/null
 [ "$("$install_dir/hypertask")" = "native hypertask" ]
+
+for version in 0.2.0 v0.2.0; do
+  version_install_dir="$root/install-$version"
+  PATH="$fake_bin:$PATH" \
+  HYPERTASK_CLI_VERSION="$version" \
+  HYPERTASK_CLI_RELEASE_ROOT="file://$root/releases" \
+  HYPERTASK_INSTALL_DIR="$version_install_dir" \
+    ./scripts/install.sh >/dev/null
+  [ "$("$version_install_dir/hypertask")" = "native hypertask" ]
+done
 
 blocked_dir="$root/blocked-install"
 mkdir -p "$blocked_dir/hypertask"
