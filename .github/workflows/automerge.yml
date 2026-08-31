@@ -165,8 +165,10 @@ jobs:
             for check in $REQUIRED; do
               state=$(jq -r --arg name "$check" '
                 [.statusCheckRollup[]
-                  | select((.name // .context) == $name)
-                  | {state: (((.conclusion // .state) // "PENDING") | ascii_upcase), at: (.startedAt // .createdAt // "")}]
+                  | select(.__typename == "CheckRun")
+                  | select(.workflowName == "CI")
+                  | select(.name == $name)
+                  | {state: (((.conclusion // "PENDING") | ascii_upcase)), at: (.startedAt // "")}]
                 | sort_by(.at) | last | .state // "MISSING"
               ' "$PR_JSON")
               if [ "$state" = "SUCCESS" ]; then

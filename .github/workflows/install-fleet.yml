@@ -5,6 +5,8 @@ on:
     branches:
       - main
   workflow_dispatch:
+  schedule:
+    - cron: "*/5 * * * *"
 
 permissions:
   contents: read
@@ -24,17 +26,41 @@ jobs:
       - name: Check out merged commit
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
+      - name: Check installation state
+        id: state
+        run: |
+          marker="$HOME/.local/state/hypertask-cli/installed-commit"
+          if [ -x "$HOME/.local/bin/hypertask" ] && [ -f "$marker" ] && grep -Fxq "$GITHUB_SHA" "$marker"; then
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Test ReleaseFast build
+        if: steps.state.outputs.needed == 'true'
         run: '"$HOME/.local/bin/zig" build test -Doptimize=ReleaseFast'
 
       - name: Test installer
+        if: steps.state.outputs.needed == 'true'
         run: ./scripts/install_fleet_test.sh
 
       - name: Build ReleaseFast binary
+        if: steps.state.outputs.needed == 'true'
         run: '"$HOME/.local/bin/zig" build -Doptimize=ReleaseFast'
 
       - name: Install fleet binary
+        if: steps.state.outputs.needed == 'true'
         run: ./scripts/install-fleet.sh zig-out/bin/hypertask
 
       - name: Verify installed binary
+        if: steps.state.outputs.needed == 'true'
         run: cmp zig-out/bin/hypertask "$HOME/.local/bin/hypertask"
+
+      - name: Record installed commit
+        if: steps.state.outputs.needed == 'true'
+        run: |
+          state_dir="$HOME/.local/state/hypertask-cli"
+          mkdir -p "$state_dir"
+          marker_tmp=$(mktemp "$state_dir/installed-commit.XXXXXX")
+          printf '%s\n' "$GITHUB_SHA" > "$marker_tmp"
+          mv "$marker_tmp" "$state_dir/installed-commit"

@@ -25,7 +25,13 @@ def workflow_script() -> str:
 
 
 class AutoMergeWorkflowTest(unittest.TestCase):
-    def run_evaluator(self, check_state: str) -> tuple[subprocess.CompletedProcess[str], str]:
+    def run_evaluator(
+        self,
+        check_state: str,
+        *,
+        check_type: str = "CheckRun",
+        workflow_name: str = "CI",
+    ) -> tuple[subprocess.CompletedProcess[str], str]:
         with tempfile.TemporaryDirectory(prefix="hypertask-automerge-test-") as directory:
             root = Path(directory)
             binary_dir = root / "bin"
@@ -42,7 +48,7 @@ if [ "$1 $2" = "pr view" ]; then
   if [[ " $* " == *" --json mergeable "* ]]; then echo MERGEABLE; exit 0; fi
   if [[ " $* " == *" --json labels -q "* ]]; then exit 0; fi
   if [ "$CHECK_STATE" = "MISSING" ]; then checks='[]';
-  else checks=$(jq -cn --arg state "$CHECK_STATE" '[{name:"test",conclusion:$state,startedAt:"2026-08-31T10:00:00Z"}]'); fi
+  else checks=$(jq -cn --arg state "$CHECK_STATE" --arg type "$CHECK_TYPE" --arg workflow "$WORKFLOW_NAME" '[{__typename:$type,workflowName:$workflow,name:"test",conclusion:$state,startedAt:"2026-08-31T10:00:00Z"}]'); fi
   printf '{"number":42,"isDraft":false,"isCrossRepository":false,"mergeable":"MERGEABLE","baseRefName":"main","headRefOid":"%040d","headRepositoryOwner":{"login":"owner"},"labels":[],"statusCheckRollup":%s}\n' 0 "$checks"
   exit 0
 fi
@@ -72,6 +78,8 @@ exit 2
                     "RUN_REPO": "",
                     "RUNNER_TEMP": str(runner_temp),
                     "CHECK_STATE": check_state,
+                    "CHECK_TYPE": check_type,
+                    "WORKFLOW_NAME": workflow_name,
                     "MERGE_LOG": str(merge_log),
                 },
                 text=True,
@@ -98,6 +106,27 @@ exit 2
                 self.assertIn(f"check test = {state}", result.stdout)
                 self.assertIn("skip: not all required checks green", result.stdout)
                 self.assertEqual(merges, "")
+
+    def test_forged_or_wrong_workflow_success_does_not_satisfy_gate(self) -> None:
+        for check_type, workflow_name in (("StatusContext", ""), ("CheckRun", "Other")):
+            with self.subTest(check_type=check_type, workflow_name=workflow_name):
+                result, merges = self.run_evaluator(
+                    "SUCCESS", check_type=check_type, workflow_name=workflow_name
+                )
+
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("check test = MISSING", result.stdout)
+                self.assertEqual(merges, "")
+
+    def test_install_workflow_reconciles_undispatched_main_commits(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "install-fleet.yml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('cron: "*/5 * * * *"', workflow)
+        self.assertIn("installed-commit", workflow)
+        self.assertIn("grep -Fxq \"$GITHUB_SHA\"", workflow)
+        self.assertIn("Record installed commit", workflow)
 
 
 if __name__ == "__main__":
