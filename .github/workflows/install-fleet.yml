@@ -1,0 +1,39 @@
+name: Install fleet CLI
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: install-fleet-cli
+  cancel-in-progress: false
+
+jobs:
+  install:
+    if: github.repository == 'hypertask-ai/cli'
+    runs-on:
+      - self-hosted
+      - hypertask-cli-fleet
+    timeout-minutes: 10
+    steps:
+      - name: Check out merged commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Test ReleaseFast build
+        run: zig build test -Doptimize=ReleaseFast
+
+      - name: Test installer
+        run: ./scripts/install_fleet_test.sh
+
+      - name: Build ReleaseFast binary
+        run: zig build -Doptimize=ReleaseFast
+
+      - name: Install fleet binary
+        run: ./scripts/install-fleet.sh zig-out/bin/hypertask
+
+      - name: Verify installed binary
+        run: cmp zig-out/bin/hypertask "$HOME/.local/bin/hypertask"

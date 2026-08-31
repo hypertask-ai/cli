@@ -42,8 +42,10 @@ Entry IDs are available from `hypertask time report`. `time edit` is an alias fo
 
 ```bash
 zig build -Doptimize=ReleaseFast
-install -m 755 zig-out/bin/hypertask ~/.local/bin/hypertask
+./scripts/install-fleet.sh zig-out/bin/hypertask
 ```
+
+Merges to `main` run the same ReleaseFast install automatically on the trusted fleet runner, then compare the installed binary with the build artifact.
 
 ## Agent usage
 
