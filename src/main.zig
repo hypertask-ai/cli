@@ -61,4 +61,5 @@ test {
     _ = @import("token_refresh.zig");
     _ = @import("commands/project.zig");
     _ = @import("commands/task.zig");
+    _ = @import("command_tests.zig");
 }

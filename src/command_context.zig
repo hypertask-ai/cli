@@ -4,11 +4,49 @@ const config = @import("config.zig");
 const http = @import("http.zig");
 const output = @import("output.zig");
 
+pub const RequestRecorder = struct {
+    allocator: std.mem.Allocator,
+    method: ?std.http.Method = null,
+    path: ?[]u8 = null,
+    body: ?[]u8 = null,
+
+    pub fn init(allocator: std.mem.Allocator) RequestRecorder {
+        return .{ .allocator = allocator };
+    }
+
+    pub fn deinit(self: *RequestRecorder) void {
+        if (self.path) |value| self.allocator.free(value);
+        if (self.body) |value| self.allocator.free(value);
+        self.* = undefined;
+    }
+
+    fn fetch(self: *RequestRecorder, method: std.http.Method, path: []const u8, body: ?[]const u8) !http.Response {
+        const next_path = try self.allocator.dupe(u8, path);
+        errdefer self.allocator.free(next_path);
+        const next_body = if (body) |value| try self.allocator.dupe(u8, value) else null;
+        errdefer if (next_body) |value| self.allocator.free(value);
+        const response_body = try self.allocator.dupe(u8, "{}");
+        errdefer self.allocator.free(response_body);
+
+        if (self.path) |value| self.allocator.free(value);
+        if (self.body) |value| self.allocator.free(value);
+        self.method = method;
+        self.path = next_path;
+        self.body = next_body;
+        return .{
+            .status = .ok,
+            .body = response_body,
+            .allocator = self.allocator,
+        };
+    }
+};
+
 pub const Context = struct {
     allocator: std.mem.Allocator,
     args: *const args.Parsed,
     cfg: *const config.Config,
     json: bool,
+    request_recorder: ?*RequestRecorder = null,
 
     pub fn requireAuth(self: *const Context) !void {
         try self.cfg.requireToken();
@@ -19,6 +57,11 @@ pub const Context = struct {
     }
 
     pub fn finish(self: *const Context, response: *http.Response) !void {
+        if (self.request_recorder != null) {
+            const code = @intFromEnum(response.status);
+            if (code < 200 or code >= 300) return error.CommandFailed;
+            return;
+        }
         try output.finishResponse(self.allocator, response, self.json);
     }
 
@@ -30,6 +73,7 @@ pub const Context = struct {
 
     pub fn fetch(self: *const Context, method: std.http.Method, path: []const u8, body: ?[]const u8) !http.Response {
         try self.requireAuth();
+        if (self.request_recorder) |recorder| return recorder.fetch(method, path, body);
         return http.request(self.allocator, self.cfg, method, path, body);
     }
 
