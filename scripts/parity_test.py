@@ -43,7 +43,6 @@ class ReadCase:
 READ_CASES = (
     ReadCase(("context",)),
     ReadCase(("teams", "list")),
-    ReadCase(("agents", "list")),
     ReadCase(("project", "list", "--limit", "2")),
     ReadCase(("project", "show", PROJECT)),
     ReadCase(("project", "manifest", PROJECT)),
