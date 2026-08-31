@@ -15,6 +15,11 @@ const State = struct {
     watermark_path: []const u8,
 };
 
+const PollState = struct {
+    seen: std.StringHashMap(void),
+    watermark: []u8,
+};
+
 pub fn run(context: *const Context, subcommand: []const u8) !void {
     if (std.mem.eql(u8, subcommand, "say")) return say(context);
     if (std.mem.eql(u8, subcommand, "take")) return assignSelf(context, "assign");
@@ -123,16 +128,16 @@ fn poll(context: *const Context) !void {
     try guard(context, null);
     const state = try statePaths(context);
     try ensureStateDirectory(state.directory);
-    var state_lock = try acquireStateLock(state);
-    defer releaseStateLock(&state_lock);
-    try migrateLegacyState(context, state);
-    var seen = try readLines(context.allocator, state.seen_path);
-    defer seen.deinit();
-    const watermark = try readSmallFile(context.allocator, state.watermark_path);
+    var stored = try loadPollState(context, state);
+    defer deinitLineSet(context.allocator, &stored.seen);
+    defer context.allocator.free(stored.watermark);
+    const watermark = stored.watermark;
+    const seen = &stored.seen;
 
     var result: std.ArrayListUnmanaged(u8) = .{};
     defer result.deinit(context.allocator);
-    var newest: []const u8 = watermark;
+    var newest = try context.allocator.dupe(u8, watermark);
+    defer context.allocator.free(newest);
     var offset: i64 = 0;
     var reached_watermark = false;
 
@@ -153,21 +158,24 @@ fn poll(context: *const Context) !void {
         const tasks = arrayField(parsed.value, "tasks") orelse return error.InvalidResponse;
         for (tasks) |task| {
             const updated = stringField(task, "updatedAt") orelse "";
-            if (updated.len != 0 and (newest.len == 0 or std.mem.order(u8, updated, newest) == .gt)) newest = try context.allocator.dupe(u8, updated);
+            if (updated.len != 0 and (newest.len == 0 or std.mem.order(u8, updated, newest) == .gt)) {
+                const next = try context.allocator.dupe(u8, updated);
+                context.allocator.free(newest);
+                newest = next;
+            }
             if (watermark.len != 0 and updated.len != 0 and std.mem.order(u8, updated, watermark) != .gt) {
                 reached_watermark = true;
                 break;
             }
             const ticket = stringField(task, "ticketNumber") orelse continue;
-            try pollTicket(context, &seen, &result, ticket);
+            try pollTicket(context, seen, &result, ticket);
         }
         if (tasks.len < 100) break;
         offset += @intCast(tasks.len);
     }
 
     if (result.items.len != 0) try output.print(result.items);
-    try writeLineSet(context.allocator, state.seen_path, &seen);
-    if (newest.len != 0 and !std.mem.eql(u8, newest, watermark)) try writeStateFile(context.allocator, state.watermark_path, newest);
+    try commitPollState(context, state, seen, newest);
 }
 
 fn pollTicket(context: *const Context, seen: *std.StringHashMap(void), result: *std.ArrayListUnmanaged(u8), ticket: []const u8) !void {
@@ -192,34 +200,47 @@ fn pollTicket(context: *const Context, seen: *std.StringHashMap(void), result: *
             for (reactions) |reaction| {
                 const reaction_id = integerField(reaction, "id") orelse continue;
                 const reaction_key = try stateKey(context.allocator, ticket, "r:", reaction_id);
-                if (seenContains(seen, ticket, reaction_key, reaction_id, true)) continue;
-                try seen.put(reaction_key, {});
+                if (seenContains(seen, ticket, reaction_key, reaction_id, true)) {
+                    context.allocator.free(reaction_key);
+                    continue;
+                }
+                seen.put(reaction_key, {}) catch |err| {
+                    context.allocator.free(reaction_key);
+                    return err;
+                };
                 if (ours) {
-                    const emoji = stringField(reaction, "emoji") orelse "";
-                    const html = stringField(comment, "text") orelse "";
-                    try result.writer(context.allocator).print("REACTION {s} {s} on your comment: {s}\n", .{
-                        ticket,
-                        try boundedText(context.allocator, emoji, 32),
-                        try boundedText(context.allocator, html, 160),
-                    });
+                    const emoji = try boundedText(context.allocator, stringField(reaction, "emoji") orelse "", 32);
+                    defer context.allocator.free(emoji);
+                    const html = try boundedText(context.allocator, stringField(comment, "text") orelse "", 160);
+                    defer context.allocator.free(html);
+                    try result.writer(context.allocator).print("REACTION {s} {s} on your comment: {s}\n", .{ ticket, emoji, html });
                 }
             }
         }
 
         const key = try stateKey(context.allocator, ticket, "", id);
-        if (seenContains(seen, ticket, key, id, false)) continue;
-        try seen.put(key, {});
+        if (seenContains(seen, ticket, key, id, false)) {
+            context.allocator.free(key);
+            continue;
+        }
+        seen.put(key, {}) catch |err| {
+            context.allocator.free(key);
+            return err;
+        };
         const html = stringField(comment, "text") orelse "";
         const addressed = addressesAgent(html, agent_id, agent_name);
         if (!all and !addressed) continue;
         const creator = objectField(comment, "creator");
-        const author = if (creator) |value| stringField(value, "displayName") orelse "someone" else "someone";
+        const author = try boundedText(context.allocator, if (creator) |value| stringField(value, "displayName") orelse "someone" else "someone", 100);
+        defer context.allocator.free(author);
+        const text = try boundedText(context.allocator, html, 500);
+        defer context.allocator.free(text);
         try result.writer(context.allocator).print("{s} {s} commentId={d} from {s}: {s}\n", .{
             if (addressed) "ADDRESSED" else "fyi",
             ticket,
             id,
-            try boundedText(context.allocator, author, 100),
-            try boundedText(context.allocator, html, 500),
+            author,
+            text,
         });
     }
 }
@@ -229,11 +250,8 @@ fn newTickets(context: *const Context) !void {
     try guard(context, null);
     const state = try statePaths(context);
     try ensureStateDirectory(state.directory);
-    var state_lock = try acquireStateLock(state);
-    defer releaseStateLock(&state_lock);
-    try migrateLegacyState(context, state);
-    var known = try readLines(context.allocator, state.tickets_path);
-    defer known.deinit();
+    var known = try loadLineState(context, state, state.tickets_path);
+    defer deinitLineSet(context.allocator, &known);
 
     const label = context.args.get("label") orelse context.args.positionalAt(2);
     var result: std.ArrayListUnmanaged(u8) = .{};
@@ -257,20 +275,18 @@ fn newTickets(context: *const Context) !void {
             if (label) |wanted| if (!taskHasLabel(task, wanted)) continue;
             const ticket = stringField(task, "ticketNumber") orelse continue;
             if (known.contains(ticket)) continue;
-            try known.put(try context.allocator.dupe(u8, ticket), {});
-            const section = stringField(task, "section") orelse "";
-            const title = stringField(task, "title") orelse "";
-            try result.writer(context.allocator).print("NEW {s} [{s}] {s}\n", .{
-                ticket,
-                try boundedText(context.allocator, section, 100),
-                try boundedText(context.allocator, title, 90),
-            });
+            try putLine(context.allocator, &known, ticket);
+            const section = try boundedText(context.allocator, stringField(task, "section") orelse "", 100);
+            defer context.allocator.free(section);
+            const title = try boundedText(context.allocator, stringField(task, "title") orelse "", 90);
+            defer context.allocator.free(title);
+            try result.writer(context.allocator).print("NEW {s} [{s}] {s}\n", .{ ticket, section, title });
         }
         if (tasks.len < 100) break;
         offset += @intCast(tasks.len);
     }
     if (result.items.len != 0) try output.print(result.items);
-    try writeLineSet(context.allocator, state.tickets_path, &known);
+    try commitLineState(context, state, state.tickets_path, &known);
 }
 
 fn guard(context: *const Context, ticket: ?[]const u8) !void {
@@ -335,12 +351,56 @@ fn releaseStateLock(file: *std.fs.File) void {
     file.close();
 }
 
+fn loadPollState(context: *const Context, state: State) !PollState {
+    var state_lock = try acquireStateLock(state);
+    defer releaseStateLock(&state_lock);
+    try migrateLegacyState(context, state);
+    var seen = try readLines(context.allocator, state.seen_path);
+    errdefer deinitLineSet(context.allocator, &seen);
+    return .{
+        .seen = seen,
+        .watermark = try readSmallFile(context.allocator, state.watermark_path),
+    };
+}
+
+fn loadLineState(context: *const Context, state: State, path: []const u8) !std.StringHashMap(void) {
+    var state_lock = try acquireStateLock(state);
+    defer releaseStateLock(&state_lock);
+    try migrateLegacyState(context, state);
+    return readLines(context.allocator, path);
+}
+
+fn commitPollState(context: *const Context, state: State, seen: *const std.StringHashMap(void), newest: []const u8) !void {
+    var state_lock = try acquireStateLock(state);
+    defer releaseStateLock(&state_lock);
+    var current = try readLines(context.allocator, state.seen_path);
+    defer deinitLineSet(context.allocator, &current);
+    try mergeLineSet(context.allocator, &current, seen);
+    try writeLineSet(context.allocator, state.seen_path, &current);
+
+    const watermark = try readSmallFile(context.allocator, state.watermark_path);
+    defer context.allocator.free(watermark);
+    if (newest.len != 0 and (watermark.len == 0 or std.mem.order(u8, newest, watermark) == .gt)) {
+        try writeStateFile(context.allocator, state.watermark_path, newest);
+    }
+}
+
+fn commitLineState(context: *const Context, state: State, path: []const u8, values: *const std.StringHashMap(void)) !void {
+    var state_lock = try acquireStateLock(state);
+    defer releaseStateLock(&state_lock);
+    var current = try readLines(context.allocator, path);
+    defer deinitLineSet(context.allocator, &current);
+    try mergeLineSet(context.allocator, &current, values);
+    try writeLineSet(context.allocator, path, &current);
+}
+
 fn appendSeen(context: *const Context, state: State, ticket: []const u8, id: i64) !void {
     try ensureStateDirectory(state.directory);
     var state_lock = try acquireStateLock(state);
     defer releaseStateLock(&state_lock);
     try migrateLegacyState(context, state);
     const key = try stateKey(context.allocator, ticket, "", id);
+    defer context.allocator.free(key);
     try appendStateLine(context.allocator, state.seen_path, key);
 }
 
@@ -348,6 +408,7 @@ fn migrateLegacyState(context: *const Context, state: State) !void {
     const home = environment("HOME") orelse return;
     const slug = optionOrEnvironment(context, "slug", "HT_AGENT_SLUG") orelse return;
     const legacy_directory = try std.fs.path.join(context.allocator, &.{ home, ".config", "hypertask-agents" });
+    defer context.allocator.free(legacy_directory);
     const names = [_][2][]const u8{
         .{ "seen", state.seen_path },
         .{ "tickets", state.tickets_path },
@@ -356,10 +417,12 @@ fn migrateLegacyState(context: *const Context, state: State) !void {
     for (names) |entry| {
         if (std.fs.cwd().access(entry[1], .{})) |_| continue else |err| if (err != error.FileNotFound) return err;
         const source = try std.fmt.allocPrint(context.allocator, "{s}/{s}.{s}", .{ legacy_directory, slug, entry[0] });
+        defer context.allocator.free(source);
         const raw = std.fs.cwd().readFileAlloc(context.allocator, source, 16 * 1024 * 1024) catch |err| switch (err) {
             error.FileNotFound => continue,
             else => return err,
         };
+        defer context.allocator.free(raw);
         try writeStateFile(context.allocator, entry[1], std.mem.trimRight(u8, raw, "\r\n"));
     }
 }
@@ -397,26 +460,47 @@ fn writeStateFile(allocator: std.mem.Allocator, path: []const u8, value: []const
     try std.fs.cwd().rename(pending, path);
 }
 
-fn readSmallFile(allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
+fn readSmallFile(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     const raw = std.fs.cwd().readFileAlloc(allocator, path, 1024 * 1024) catch |err| switch (err) {
-        error.FileNotFound => return "",
+        error.FileNotFound => return allocator.dupe(u8, ""),
         else => return err,
     };
-    return std.mem.trim(u8, raw, " \t\r\n");
+    defer allocator.free(raw);
+    return allocator.dupe(u8, std.mem.trim(u8, raw, " \t\r\n"));
 }
 
 fn readLines(allocator: std.mem.Allocator, path: []const u8) !std.StringHashMap(void) {
     var result = std.StringHashMap(void).init(allocator);
+    errdefer deinitLineSet(allocator, &result);
     const raw = std.fs.cwd().readFileAlloc(allocator, path, 16 * 1024 * 1024) catch |err| switch (err) {
         error.FileNotFound => return result,
         else => return err,
     };
+    defer allocator.free(raw);
     var lines = std.mem.splitScalar(u8, raw, '\n');
     while (lines.next()) |line| {
         const trimmed = std.mem.trim(u8, line, " \t\r");
-        if (trimmed.len != 0) try result.put(trimmed, {});
+        if (trimmed.len != 0) try putLine(allocator, &result, trimmed);
     }
     return result;
+}
+
+fn putLine(allocator: std.mem.Allocator, values: *std.StringHashMap(void), value: []const u8) !void {
+    if (values.contains(value)) return;
+    const owned = try allocator.dupe(u8, value);
+    errdefer allocator.free(owned);
+    try values.put(owned, {});
+}
+
+fn mergeLineSet(allocator: std.mem.Allocator, destination: *std.StringHashMap(void), source: *const std.StringHashMap(void)) !void {
+    var iterator = source.keyIterator();
+    while (iterator.next()) |value| try putLine(allocator, destination, value.*);
+}
+
+fn deinitLineSet(allocator: std.mem.Allocator, values: *std.StringHashMap(void)) void {
+    var iterator = values.keyIterator();
+    while (iterator.next()) |value| allocator.free(value.*);
+    values.deinit();
 }
 
 fn stateKey(allocator: std.mem.Allocator, ticket: []const u8, middle: []const u8, id: i64) ![]u8 {
