@@ -22,9 +22,11 @@ hypertask status
 hypertask logout
 ```
 
-Browser login is not available in the native CLI. Obtain a JWT through the Hypertask web app, then pass it to `login --token`.
+Browser login is not available in the native CLI. Obtain a JWT through the Hypertask web app, then pass it to `login --token`. Saved user tokens refresh automatically during their final seven days, including legacy tokens issued before refresh support.
 
 Token lookup supports `--token`, `HT_TOKEN`, `HYPERTASKS_JWT_TOKEN`, and `~/.hypertask/config.json`. API URL lookup supports `--api-url`, `HYPERTASKS_API_URL`, and the saved config.
+
+Do not give users or agents the JWT signing secret. An operator-issued emergency token must have a unique `jti`, a bounded `exp`, the configured issuer in `iss`, and the `mcp-api` audience in `aud`.
 
 ## Polling addressed messages
 
