@@ -12,12 +12,6 @@ const Dependencies = struct {
     fn persist(_: *Dependencies, allocator: std.mem.Allocator, token: []const u8, api_url: []const u8) !void {
         try config.saveToken(allocator, token, api_url);
     }
-
-    fn warnLegacy(_: *Dependencies, allocator: std.mem.Allocator, expires_at: i64) !void {
-        const warning = try legacyWarning(allocator, expires_at);
-        defer allocator.free(warning);
-        std.fs.File.stderr().writeAll(warning) catch {};
-    }
 };
 
 pub fn maybeRefresh(allocator: std.mem.Allocator, cfg: *config.Config) !void {
@@ -26,11 +20,7 @@ pub fn maybeRefresh(allocator: std.mem.Allocator, cfg: *config.Config) !void {
 }
 
 fn maybeRefreshWith(allocator: std.mem.Allocator, cfg: *config.Config, dependencies: anytype, now: i64) !void {
-    const candidate = refreshCandidate(allocator, cfg, now) orelse return;
-    if (!candidate.has_jti) {
-        try dependencies.warnLegacy(allocator, candidate.expires_at);
-        return;
-    }
+    _ = refreshCandidate(allocator, cfg, now) orelse return;
 
     var response = dependencies.request(allocator, cfg) catch return;
     defer response.deinit();
@@ -52,7 +42,6 @@ fn maybeRefreshWith(allocator: std.mem.Allocator, cfg: *config.Config, dependenc
 
 const RefreshCandidate = struct {
     expires_at: i64,
-    has_jti: bool,
 };
 
 fn refreshCandidate(allocator: std.mem.Allocator, cfg: *const config.Config, now: i64) ?RefreshCandidate {
@@ -71,7 +60,6 @@ fn refreshCandidate(allocator: std.mem.Allocator, cfg: *const config.Config, now
 
     const Payload = struct {
         exp: ?i64 = null,
-        jti: ?[]const u8 = null,
     };
     const parsed = std.json.parseFromSlice(Payload, allocator, payload, .{
         .ignore_unknown_fields = true,
@@ -79,30 +67,7 @@ fn refreshCandidate(allocator: std.mem.Allocator, cfg: *const config.Config, now
     defer parsed.deinit();
     const expires_at = parsed.value.exp orelse return null;
     if (expires_at > now + refresh_window_seconds) return null;
-    return .{
-        .expires_at = expires_at,
-        .has_jti = if (parsed.value.jti) |jti| jti.len != 0 else false,
-    };
-}
-
-fn legacyWarning(allocator: std.mem.Allocator, expires_at: i64) ![]u8 {
-    if (expires_at < 0) return error.InvalidExpiration;
-    const epoch_seconds = std.time.epoch.EpochSeconds{ .secs = @intCast(expires_at) };
-    const year_day = epoch_seconds.getEpochDay().calculateYearDay();
-    const month_day = year_day.calculateMonthDay();
-    const day_seconds = epoch_seconds.getDaySeconds();
-    return std.fmt.allocPrint(
-        allocator,
-        "warning: saved token expires {d:0>4}-{d:0>2}-{d:0>2}T{d:0>2}:{d:0>2}:{d:0>2}Z and cannot be refreshed; run `hypertask login --token <jwt>` now\n",
-        .{
-            year_day.year,
-            month_day.month.numeric(),
-            month_day.day_index + 1,
-            day_seconds.getHoursIntoDay(),
-            day_seconds.getMinutesIntoHour(),
-            day_seconds.getSecondsIntoMinute(),
-        },
-    );
+    return .{ .expires_at = expires_at };
 }
 
 fn testToken(allocator: std.mem.Allocator, expires_at: i64, has_jti: bool) ![]u8 {
@@ -122,11 +87,9 @@ const FakeDependencies = struct {
     allocator: std.mem.Allocator,
     request_count: usize = 0,
     persisted_token: ?[]u8 = null,
-    warning: ?[]u8 = null,
 
     fn deinit(self: *FakeDependencies) void {
         if (self.persisted_token) |token| self.allocator.free(token);
-        if (self.warning) |warning| self.allocator.free(warning);
     }
 
     fn request(self: *FakeDependencies, allocator: std.mem.Allocator, _: *const config.Config) !http.Response {
@@ -140,10 +103,6 @@ const FakeDependencies = struct {
 
     fn persist(self: *FakeDependencies, _: std.mem.Allocator, token: []const u8, _: []const u8) !void {
         self.persisted_token = try self.allocator.dupe(u8, token);
-    }
-
-    fn warnLegacy(self: *FakeDependencies, allocator: std.mem.Allocator, expires_at: i64) !void {
-        self.warning = try legacyWarning(allocator, expires_at);
     }
 };
 
@@ -198,7 +157,7 @@ test "newer and non-saved tokens are not refreshed" {
     }
 }
 
-test "a legacy saved token warns with its UTC expiry instead of calling refresh" {
+test "a legacy saved token without jti is sent to the refresh endpoint" {
     const expires_at: i64 = 1_788_614_666;
     const token = try testToken(std.testing.allocator, expires_at, false);
     defer std.testing.allocator.free(token);
@@ -207,16 +166,15 @@ test "a legacy saved token warns with its UTC expiry instead of calling refresh"
         .token = token,
         .token_source = .saved,
     };
+    defer cfg.deinit();
     var dependencies = FakeDependencies{ .allocator = std.testing.allocator };
     defer dependencies.deinit();
 
     try maybeRefreshWith(std.testing.allocator, &cfg, &dependencies, expires_at - 60);
 
-    try std.testing.expectEqual(@as(usize, 0), dependencies.request_count);
-    try std.testing.expectEqualStrings(
-        "warning: saved token expires 2026-09-05T13:24:26Z and cannot be refreshed; run `hypertask login --token <jwt>` now\n",
-        dependencies.warning.?,
-    );
+    try std.testing.expectEqual(@as(usize, 1), dependencies.request_count);
+    try std.testing.expectEqualStrings("replacement-token", dependencies.persisted_token.?);
+    try std.testing.expectEqualStrings("replacement-token", cfg.token);
 }
 
 test "a malformed saved token is not sent to the refresh endpoint" {
