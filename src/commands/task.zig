@@ -180,6 +180,7 @@ fn update(context: *const Context) !void {
         try body.string("description", value);
         if (context.args.has("markdown")) try body.string("content_type", "markdown");
     }
+    if (context.args.get("pull-request")) |value| try body.string("pull_request_url", value);
     if (context.args.has("clear-due")) try body.nullValue("due_date") else if (context.args.get("due")) |value| try body.string("due_date", value);
     if (context.args.get("status")) |value| try body.string("status", value);
     if (context.args.get("priority")) |value| try body.integer("priority", priority(value));
@@ -331,7 +332,7 @@ fn priority(value: []const u8) i64 {
 
 fn hasUpdateOptions(context: *const Context) bool {
     const names = [_][]const u8{
-        "title", "description", "priority", "estimate", "due", "clear-due", "status", "section", "assignee", "labels", "parent-task", "clear-parent",
+        "title", "description", "pull-request", "priority", "estimate", "due", "clear-due", "status", "section", "assignee", "labels", "parent-task", "clear-parent",
     };
     for (names) |name| if (context.args.has(name)) return true;
     return false;

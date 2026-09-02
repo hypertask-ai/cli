@@ -108,6 +108,12 @@ test "command handlers build request bodies and query strings without HTTP" {
         "{\"project_id\":15,\"title\":\"Fix it\",\"priority\":2,\"estimate\":3}",
     );
     try expectRequest(
+        &.{ "task", "update", "HTPR-5899", "--pull-request", "https://github.com/hypertask-ai/hypertask/pull/149" },
+        .POST,
+        "/mcp/tasks/update",
+        "{\"ticket_number\":\"HTPR-5899\",\"pull_request_url\":\"https://github.com/hypertask-ai/hypertask/pull/149\"}",
+    );
+    try expectRequest(
         &.{ "decision", "create", "htpr-123", "--question", "Pick", "--option", "A", "--option", "B" },
         .POST,
         "/mcp/decisions",
