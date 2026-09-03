@@ -11,7 +11,7 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
     if (std.mem.eql(u8, subcommand, "list")) {
         var path = try query.Builder.init(context.allocator, "/mcp/comments");
         defer path.deinit();
-        try addIdentifierQuery(&path, try context.args.requirePositional(2, "ticket"));
+        try addIdentifierQuery(&path, context, try context.args.requirePositional(2, "ticket-or-task-id"));
         var response = try context.fetch(.GET, path.path(), null);
         defer response.deinit();
         const code = @intFromEnum(response.status);
@@ -23,11 +23,11 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
     if (std.mem.eql(u8, subcommand, "add")) {
         if (context.args.get("improve-command") != null and !context.args.has("improve")) return error.InvalidOptions;
         var text = if (context.args.get("file")) |path| try common.readFile(context.allocator, path, 1024 * 1024) else context.args.get("text") orelse context.args.get("body") orelse return error.MissingOption;
-        const ticket = try context.args.requirePositional(2, "ticket");
+        const ticket = try context.args.requirePositional(2, "ticket-or-task-id");
         if (context.args.has("improve")) text = try improve(context, ticket, text);
         var body = try json.Object.init(context.allocator);
         defer body.deinit();
-        try addIdentifierBody(&body, ticket);
+        try addIdentifierBody(&body, context, ticket);
         try body.string("text", text);
         if (context.args.has("markdown")) try body.string("content_type", "markdown");
         const attach_inputs = try common.optionList(context, "attach");
@@ -60,20 +60,12 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
     return error.UnknownCommand;
 }
 
-fn addIdentifierQuery(path: *query.Builder, identifier: []const u8) !void {
-    if (resolve.isNumeric(identifier)) {
-        try path.add("task_id", identifier);
-    } else {
-        try path.add("ticket_number", identifier);
-    }
+fn addIdentifierQuery(path: *query.Builder, context: *const Context, identifier: []const u8) !void {
+    try resolve.addTaskIdentifierQueryForProject(path, context.allocator, identifier, context.args.get("project"));
 }
 
-fn addIdentifierBody(body: *json.Object, identifier: []const u8) !void {
-    if (resolve.isNumeric(identifier)) {
-        try body.integer("task_id", try common.positiveInt(identifier, "task-id"));
-    } else {
-        try body.string("ticket_number", identifier);
-    }
+fn addIdentifierBody(body: *json.Object, context: *const Context, identifier: []const u8) !void {
+    try resolve.addTaskIdentifierBodyForProject(body, context.allocator, identifier, context.args.get("project"));
 }
 
 fn improve(context: *const Context, ticket: []const u8, text: []const u8) ![]const u8 {
@@ -127,12 +119,12 @@ fn addHasMore(allocator: std.mem.Allocator, response_body: []const u8) ![]u8 {
 test "numeric comment identifiers use task_id" {
     var path = try query.Builder.init(std.testing.allocator, "/mcp/comments");
     defer path.deinit();
-    try addIdentifierQuery(&path, "34874");
+    try resolve.addTaskIdentifierQuery(&path, std.testing.allocator, "34874");
     try std.testing.expectEqualStrings("/mcp/comments?task_id=34874", path.path());
 
     var body = try json.Object.init(std.testing.allocator);
     defer body.deinit();
-    try addIdentifierBody(&body, "34874");
+    try resolve.addTaskIdentifierBody(&body, std.testing.allocator, "34874");
     try body.string("text", "x");
     try std.testing.expectEqualStrings("{\"task_id\":34874,\"text\":\"x\"}", try body.finish());
 }
@@ -140,12 +132,12 @@ test "numeric comment identifiers use task_id" {
 test "comment ticket identifiers keep ticket_number" {
     var path = try query.Builder.init(std.testing.allocator, "/mcp/comments");
     defer path.deinit();
-    try addIdentifierQuery(&path, "AEXP-1");
+    try resolve.addTaskIdentifierQuery(&path, std.testing.allocator, "AEXP-1");
     try std.testing.expectEqualStrings("/mcp/comments?ticket_number=AEXP-1", path.path());
 
     var body = try json.Object.init(std.testing.allocator);
     defer body.deinit();
-    try addIdentifierBody(&body, "AEXP-1");
+    try resolve.addTaskIdentifierBody(&body, std.testing.allocator, "AEXP-1");
     try body.string("text", "x");
     try std.testing.expectEqualStrings("{\"ticket_number\":\"AEXP-1\",\"text\":\"x\"}", try body.finish());
 }

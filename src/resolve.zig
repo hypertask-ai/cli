@@ -30,33 +30,64 @@ pub fn normalizedTicket(allocator: std.mem.Allocator, value: []const u8) ![]u8 {
 }
 
 pub fn addTaskIdentifierQuery(path: *query_mod.Builder, allocator: std.mem.Allocator, identifier: []const u8) !void {
-    if (isNumeric(identifier)) return path.add("task_id", identifier);
+    return addTaskIdentifierQueryForProject(path, allocator, identifier, null);
+}
+
+pub fn addTaskIdentifierQueryForProject(path: *query_mod.Builder, allocator: std.mem.Allocator, identifier: []const u8, project: ?[]const u8) !void {
+    if (isNumeric(identifier)) {
+        if (project) |project_id| {
+            _ = try common.positiveInt(identifier, "ticket");
+            _ = try common.positiveInt(project_id, "project");
+            try path.add("unique_index", identifier);
+            return path.add("project_id", project_id);
+        }
+        return path.add("task_id", identifier);
+    }
     const ticket = try normalizedTicket(allocator, identifier);
     defer allocator.free(ticket);
     try path.add("ticket_number", ticket);
+    if (project) |project_id| {
+        _ = try common.positiveInt(project_id, "project");
+        try path.add("project_id", project_id);
+    }
 }
 
 pub fn addTaskIdentifierBody(body: *json.Object, allocator: std.mem.Allocator, identifier: []const u8) !void {
-    if (isNumeric(identifier)) return body.integer("task_id", try common.positiveInt(identifier, "task-id"));
+    return addTaskIdentifierBodyForProject(body, allocator, identifier, null);
+}
+
+pub fn addTaskIdentifierBodyForProject(body: *json.Object, allocator: std.mem.Allocator, identifier: []const u8, project: ?[]const u8) !void {
+    if (isNumeric(identifier)) {
+        if (project) |project_id| {
+            try body.integer("unique_index", try common.positiveInt(identifier, "ticket"));
+            return body.integer("project_id", try common.positiveInt(project_id, "project"));
+        }
+        return body.integer("task_id", try common.positiveInt(identifier, "task-id"));
+    }
     const ticket = try normalizedTicket(allocator, identifier);
     defer allocator.free(ticket);
     try body.string("ticket_number", ticket);
+    if (project) |project_id| try body.integer("project_id", try common.positiveInt(project_id, "project"));
 }
 
 pub fn task(context: *const Context, identifier: []const u8) !Task {
     if (isNumeric(identifier)) {
-        return fetchTask(context, "task_id", identifier);
+        if (context.args.get("project")) |project| {
+            return fetchTask(context, "unique_index", identifier, project);
+        }
+        return fetchTask(context, "task_id", identifier, null);
     }
     const ticket = try normalizedTicket(context.allocator, identifier);
     defer context.allocator.free(ticket);
-    return fetchTask(context, "ticket_number", ticket);
+    return fetchTask(context, "ticket_number", ticket, context.args.get("project"));
 }
 
-fn fetchTask(context: *const Context, key: []const u8, value: []const u8) !Task {
+fn fetchTask(context: *const Context, key: []const u8, value: []const u8, project: ?[]const u8) !Task {
     try context.requireAuth();
     var query = try query_mod.Builder.init(context.allocator, "/mcp/tasks");
     defer query.deinit();
     try query.add(key, value);
+    if (project) |project_id| try query.add("project_id", project_id);
     var response = try http.get(context.allocator, context.cfg, query.path());
     defer response.deinit();
     if (@intFromEnum(response.status) < 200 or @intFromEnum(response.status) >= 300) return error.CommandFailed;
@@ -113,6 +144,16 @@ test "task identifier helpers normalize tickets and reject invalid values" {
     defer ticket_body.deinit();
     try addTaskIdentifierBody(&ticket_body, std.testing.allocator, "HTPR-123");
     try std.testing.expectEqualStrings("{\"ticket_number\":\"HTPR-123\"}", try ticket_body.finish());
+
+    var unique_path = try query_mod.Builder.init(std.testing.allocator, "/mcp/comments");
+    defer unique_path.deinit();
+    try addTaskIdentifierQueryForProject(&unique_path, std.testing.allocator, "5834", "15");
+    try std.testing.expectEqualStrings("/mcp/comments?unique_index=5834&project_id=15", unique_path.path());
+
+    var unique_body = try json.Object.init(std.testing.allocator);
+    defer unique_body.deinit();
+    try addTaskIdentifierBodyForProject(&unique_body, std.testing.allocator, "5834", "15");
+    try std.testing.expectEqualStrings("{\"unique_index\":5834,\"project_id\":15}", try unique_body.finish());
 
     try std.testing.expectError(error.InvalidTicket, normalizedTicket(std.testing.allocator, "not-a-ticket"));
     try std.testing.expectError(error.InvalidTicket, normalizedTicket(std.testing.allocator, "123-4"));

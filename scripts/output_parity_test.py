@@ -256,7 +256,7 @@ def main() -> None:
                 {
                     "method": "GET",
                     "path": "/mcp/tasks",
-                    "query": {"ticket_number": ["HTPR-5787"]},
+                    "query": {"ticket_number": ["HTPR-5787"], "project_id": ["15"]},
                     "body": None,
                 },
             )

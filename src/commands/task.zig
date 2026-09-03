@@ -73,7 +73,7 @@ fn get(context: *const Context) !void {
     const identifier = try context.args.requirePositional(2, "ticket-or-task-id");
     var path = try query.Builder.init(context.allocator, "/mcp/tasks");
     defer path.deinit();
-    try addGetIdentifierQuery(&path, context, identifier);
+    try addIdentifierQuery(&path, context, identifier);
     try context.call(.GET, path.path(), null);
 }
 
@@ -301,24 +301,14 @@ fn searchValue(context: *const Context, value: []const u8) !void {
     try context.print(enriched);
 }
 
-fn addGetIdentifierQuery(path: *query.Builder, context: *const Context, identifier: []const u8) !void {
-    if (!resolve.isNumeric(identifier)) return addIdentifierQuery(path, context, identifier);
-
-    _ = try common.positiveInt(identifier, "ticket");
-    const project = try context.args.require("project");
-    _ = try common.positiveInt(project, "project");
-    try path.add("unique_index", identifier);
-    try path.add("project_id", project);
-}
-
 fn addIdentifierQuery(path: *query.Builder, context: *const Context, identifier: []const u8) !void {
-    try resolve.addTaskIdentifierQuery(path, context.allocator, identifier);
+    try resolve.addTaskIdentifierQueryForProject(path, context.allocator, identifier, context.args.get("project"));
 }
 
 fn identifierBody(context: *const Context, identifier: []const u8) !json.Object {
     var body = try json.Object.init(context.allocator);
     errdefer body.deinit();
-    try resolve.addTaskIdentifierBody(&body, context.allocator, identifier);
+    try resolve.addTaskIdentifierBodyForProject(&body, context.allocator, identifier, context.args.get("project"));
     return body;
 }
 

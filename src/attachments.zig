@@ -33,7 +33,7 @@ pub fn upload(context: *const Context, ticket: []const u8, comment_id: ?i64, inp
 
     var body = try json.Object.init(context.allocator);
     defer body.deinit();
-    try addIdentifierBody(&body, ticket);
+    try resolve.addTaskIdentifierBodyForProject(&body, context.allocator, ticket, context.args.get("project"));
     if (comment_id) |id| try body.integer("comment_id", id);
     try body.raw("files", files.items);
     var response = try context.fetch(.POST, "/mcp/tasks/attachments", try body.finish());
@@ -44,14 +44,6 @@ pub fn upload(context: *const Context, ticket: []const u8, comment_id: ?i64, inp
         return error.CommandFailed;
     }
     return context.allocator.dupe(u8, response.body);
-}
-
-fn addIdentifierBody(body: *json.Object, identifier: []const u8) !void {
-    if (resolve.isNumeric(identifier)) {
-        try body.integer("task_id", try common.positiveInt(identifier, "task-id"));
-    } else {
-        try body.string("ticket_number", identifier);
-    }
 }
 
 fn isUrl(value: []const u8) bool {
@@ -103,7 +95,7 @@ test "attachment MIME detection uses extensions and file signatures" {
 test "numeric comment attachment identifiers use task_id" {
     var body = try json.Object.init(std.testing.allocator);
     defer body.deinit();
-    try addIdentifierBody(&body, "34874");
+    try resolve.addTaskIdentifierBody(&body, std.testing.allocator, "34874");
     try body.integer("comment_id", 7);
     try std.testing.expectEqualStrings("{\"task_id\":34874,\"comment_id\":7}", try body.finish());
 }
@@ -111,7 +103,7 @@ test "numeric comment attachment identifiers use task_id" {
 test "comment attachment ticket identifiers keep ticket_number" {
     var body = try json.Object.init(std.testing.allocator);
     defer body.deinit();
-    try addIdentifierBody(&body, "AEXP-1");
+    try resolve.addTaskIdentifierBody(&body, std.testing.allocator, "AEXP-1");
     try body.integer("comment_id", 7);
     try std.testing.expectEqualStrings("{\"ticket_number\":\"AEXP-1\",\"comment_id\":7}", try body.finish());
 }
