@@ -170,8 +170,17 @@ fn writeConfig(allocator: std.mem.Allocator, token: []const u8, management_key: 
     const path = try configPath(allocator);
     defer allocator.free(path);
     const directory = std.fs.path.dirname(path) orelse return error.NoHome;
-    std.fs.makeDirAbsolute(directory) catch |err| if (err != error.PathAlreadyExists) return err;
+    try secureConfigDirectory(directory);
     try writeConfigFile(allocator, path, token, management_key, api_url);
+}
+
+fn secureConfigDirectory(path: []const u8) !void {
+    std.fs.makeDirAbsolute(path) catch |err| if (err != error.PathAlreadyExists) return err;
+    if (comptime std.fs.has_executable_bit) {
+        var directory = try std.fs.openDirAbsolute(path, .{ .iterate = true, .no_follow = true });
+        defer directory.close();
+        try directory.chmod(0o700);
+    }
 }
 
 fn writeConfigFile(allocator: std.mem.Allocator, path: []const u8, token: []const u8, management_key: []const u8, api_url: []const u8) !void {
@@ -182,10 +191,20 @@ fn writeConfigFile(allocator: std.mem.Allocator, path: []const u8, token: []cons
     try object.string("apiUrl", api_url);
     const body = try object.finish();
 
-    var file = try std.fs.cwd().createFile(path, .{ .truncate = true, .mode = 0o600 });
-    defer file.close();
+    const temporary_path = try std.fmt.allocPrint(allocator, "{s}.tmp-{x}", .{ path, std.crypto.random.int(u64) });
+    defer allocator.free(temporary_path);
+    errdefer std.fs.deleteFileAbsolute(temporary_path) catch {};
+
+    var file = try std.fs.cwd().createFile(temporary_path, .{ .exclusive = true, .mode = 0o600 });
+    var file_open = true;
+    defer if (file_open) file.close();
+    if (comptime std.fs.has_executable_bit) try file.chmod(0o600);
     try file.writeAll(body);
     try file.writeAll("\n");
+    try file.sync();
+    file.close();
+    file_open = false;
+    try std.fs.renameAbsolute(temporary_path, path);
 }
 
 test "config file round trips saved values" {
@@ -204,6 +223,39 @@ test "config file round trips saved values" {
     try std.testing.expectEqualStrings("saved-token", loaded.token);
     try std.testing.expectEqualStrings("management-key", loaded.management_key);
     try std.testing.expectEqualStrings("https://example.test/api", loaded.api_url);
+}
+
+test "config writes repair permissive file and directory modes" {
+    if (comptime !std.fs.has_executable_bit) return;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(root);
+    const directory_path = try std.fs.path.join(std.testing.allocator, &.{ root, ".hypertask" });
+    defer std.testing.allocator.free(directory_path);
+    const config_path = try std.fs.path.join(std.testing.allocator, &.{ directory_path, "config.json" });
+    defer std.testing.allocator.free(config_path);
+
+    try std.fs.makeDirAbsolute(directory_path);
+    var permissive_directory = try std.fs.openDirAbsolute(directory_path, .{ .iterate = true });
+    try permissive_directory.chmod(0o777);
+    permissive_directory.close();
+    var permissive_file = try std.fs.cwd().createFile(config_path, .{ .mode = 0o666 });
+    try permissive_file.chmod(0o666);
+    permissive_file.close();
+
+    try secureConfigDirectory(directory_path);
+    try writeConfigFile(std.testing.allocator, config_path, "saved-token", "management-key", default_api_url);
+
+    var secured_directory = try std.fs.openDirAbsolute(directory_path, .{ .iterate = true });
+    defer secured_directory.close();
+    const directory_stat = try secured_directory.stat();
+    var secured_file = try std.fs.openFileAbsolute(config_path, .{});
+    defer secured_file.close();
+    const file_stat = try secured_file.stat();
+    try std.testing.expectEqual(@as(std.fs.File.Mode, 0o700), directory_stat.mode & 0o777);
+    try std.testing.expectEqual(@as(std.fs.File.Mode, 0o600), file_stat.mode & 0o777);
 }
 
 test "environment overrides ignore empty values" {
