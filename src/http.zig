@@ -22,6 +22,14 @@ fn requestPayload(method: std.http.Method, body: ?[]const u8) ?[]const u8 {
     return if (method.requestHasBody()) "" else null;
 }
 
+fn requestHeaders() std.http.Client.Request.Headers {
+    return .{
+        // Avoid std.http's automatic decompressor, whose fixed history buffer
+        // can panic while rebasing a compressed response.
+        .accept_encoding = .{ .override = "identity" },
+    };
+}
+
 fn buildRequestHeaders(authorization: []const u8, body: ?[]const u8) RequestHeaders {
     var result: RequestHeaders = undefined;
     result.headers[0] = .{ .name = "Authorization", .value = authorization };
@@ -69,6 +77,7 @@ pub fn requestWithToken(
         .location = .{ .url = url },
         .method = method,
         .payload = payload,
+        .headers = requestHeaders(),
         .extra_headers = headers.headers[0..headers.count],
         .response_writer = &response_buffer.writer,
     });
@@ -116,4 +125,11 @@ test "request headers identify htz with and without a JSON body" {
     try std.testing.expectEqualStrings("User-Agent", with_body.headers[2].name);
     try std.testing.expectEqualStrings("htz/0.2.0", with_body.headers[2].value);
     try std.testing.expectEqualStrings("Content-Type", with_body.headers[3].name);
+}
+
+test "requests opt out of automatic response decompression" {
+    switch (requestHeaders().accept_encoding) {
+        .override => |value| try std.testing.expectEqualStrings("identity", value),
+        else => return error.UnexpectedAcceptEncoding,
+    }
 }
