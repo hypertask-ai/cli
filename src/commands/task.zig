@@ -260,7 +260,7 @@ fn searchValue(context: *const Context, value: []const u8) !void {
     var path = try query.Builder.init(context.allocator, "/mcp/tasks/search");
     defer path.deinit();
     try path.add("q", value);
-    try path.add("limit", context.args.get("limit") orelse "20");
+    try path.add("limit", context.args.get("limit") orelse "10");
     if (context.args.get("project")) |project| try path.add("project_id", project);
 
     var response = try context.fetch(.GET, path.path(), null);

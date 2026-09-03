@@ -96,6 +96,9 @@ class Handler(BaseHTTPRequestHandler):
                 "offset": maximum if overflow_case else 0,
             }, separators=(",", ":")))
             return
+        if route == ("GET", "/mcp/tasks/search"):
+            self.respond(200, fixture("search-empty.json"))
+            return
         if route == ("GET", "/mcp/tasks"):
             if request["query"].get("ticket_number") == ["HTPR-404"]:
                 self.respond(404, '{"success":false,"error":"Task not found"}')
@@ -224,6 +227,22 @@ def main() -> None:
             overflow_comments = run(binary, token, api_url, home, "comment", "list", "HTPR-2")
             expect(overflow_comments.returncode == 0, f"large offset crashed: {overflow_comments.stderr}")
             expect(json.loads(overflow_comments.stdout).get("has_more") is False, overflow_comments.stdout)
+
+            expect_command(
+                binary, token, api_url, home,
+                ("search", "HTPR-5783", "--project", "15"),
+                "search-empty.json", 0,
+                {
+                    "method": "GET",
+                    "path": "/mcp/tasks/search",
+                    "query": {
+                        "q": ["HTPR-5783"],
+                        "limit": ["10"],
+                        "project_id": ["15"],
+                    },
+                    "body": None,
+                },
+            )
 
             missing = run(binary, token, api_url, home, "tasks", "get", "HTPR-404")
             expect(missing.returncode == 4, f"not-found exit was {missing.returncode}")
