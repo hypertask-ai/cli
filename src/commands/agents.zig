@@ -31,6 +31,9 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
         defer body.deinit();
         try body.string("agent_id", try context.args.require("id"));
         try context.callWithToken(token, .DELETE, "/mcp/admin/agents", try body.finish());
+    } else if (std.mem.eql(u8, subcommand, "archive")) {
+        const path = try agentArchivePath(context.allocator, try context.args.require("id"));
+        try context.callWithToken(token, .POST, path, null);
     } else if (std.mem.eql(u8, subcommand, "delete")) {
         try requireDeleteConfirmation(context.args.has("confirm"));
         const path = try agentPath(context.allocator, try context.args.require("id"));
@@ -111,6 +114,10 @@ fn agentPath(allocator: std.mem.Allocator, id: []const u8) ![]u8 {
     return std.fmt.allocPrint(allocator, "/mcp/agents/{s}", .{id});
 }
 
+fn agentArchivePath(allocator: std.mem.Allocator, id: []const u8) ![]u8 {
+    return std.fmt.allocPrint(allocator, "/mcp/agents/{s}/archive", .{id});
+}
+
 test "agent project updates normalize IDs and reject unsafe changes" {
     const add = [_][]const u8{ "339", "0339", "42" };
     const remove = [_][]const u8{"2312"};
@@ -147,4 +154,8 @@ test "agent mutations use the owned-agent endpoint" {
     const path = try agentPath(std.testing.allocator, "agent-id");
     defer std.testing.allocator.free(path);
     try std.testing.expectEqualStrings("/mcp/agents/agent-id", path);
+
+    const archive_path = try agentArchivePath(std.testing.allocator, "agent-id");
+    defer std.testing.allocator.free(archive_path);
+    try std.testing.expectEqualStrings("/mcp/agents/agent-id/archive", archive_path);
 }
