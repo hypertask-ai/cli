@@ -68,6 +68,7 @@ class Handler(BaseHTTPRequestHandler):
             "path": target.path,
             "query": parse_qs(target.query, keep_blank_values=True),
             "body": json.loads(raw_body) if raw_body else None,
+            "accept_encoding": self.headers.get("Accept-Encoding"),
         }
         with self.lock:
             self.requests.append(request)
@@ -174,9 +175,13 @@ def expect_command(
         f"{' '.join(args)} made {len(requests)} requests, expected {expected_count}: {requests}"
     ))
     if expected_request is not None:
-        expect(requests[0] == expected_request, (
+        actual_request = dict(requests[0])
+        expect(actual_request.pop("accept_encoding") == "identity", (
+            f"{' '.join(args)} requested response compression: {requests[0]}"
+        ))
+        expect(actual_request == expected_request, (
             f"{' '.join(args)} request mismatch\n"
-            f"actual: {requests[0]}\nexpected: {expected_request}"
+            f"actual: {actual_request}\nexpected: {expected_request}"
         ))
 
 
