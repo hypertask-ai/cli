@@ -112,6 +112,9 @@ class Handler(BaseHTTPRequestHandler):
         if route == ("POST", "/mcp/comments"):
             self.respond(400, fixture("comment-add-error.json"))
             return
+        if route == ("POST", "/mcp/agents/00000000-0000-0000-0000-000000000000/archive"):
+            self.respond(404, fixture("agent-archive-not-found.json"))
+            return
         self.respond(500, json.dumps({
             "success": False,
             "error": f"unexpected request: {self.command} {self.path}",
@@ -316,6 +319,20 @@ def main() -> None:
                         "text": "<p>Offline comment</p>",
                         "content_type": "markdown",
                     },
+                },
+            )
+            expect_command(
+                binary, token, api_url, home,
+                (
+                    "agents", "archive", "--id",
+                    "00000000-0000-0000-0000-000000000000",
+                ),
+                "agent-archive-not-found.json", 4,
+                {
+                    "method": "POST",
+                    "path": "/mcp/agents/00000000-0000-0000-0000-000000000000/archive",
+                    "query": {},
+                    "body": None,
                 },
             )
     finally:

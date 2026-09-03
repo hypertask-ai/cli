@@ -79,6 +79,8 @@ hypertask tasks get 5726 --project 15
 hypertask tasks move HTPR-5726 --section "In Progress"
 hypertask comment add HTPR-5726 --text "<p>...</p>"
 hypertask agents update --id <agent-id> --add-project 339
+hypertask agents archive --id <agent-id>
+hypertask agents delete --id <agent-id> --confirm
 hypertask search "query" --project 15
 ```
 
