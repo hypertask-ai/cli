@@ -50,6 +50,13 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
     }
     const id = try context.args.requirePositional(2, "id");
     const path = try std.fmt.allocPrint(context.allocator, "/mcp/comments/{s}", .{id});
+    if (std.mem.eql(u8, subcommand, "react") or std.mem.eql(u8, subcommand, "unreact")) {
+        var body = try json.Object.init(context.allocator);
+        defer body.deinit();
+        try body.string("emoji", try context.args.require("emoji"));
+        try body.boolean("active", std.mem.eql(u8, subcommand, "react"));
+        return context.call(.POST, try std.fmt.allocPrint(context.allocator, "{s}/reactions", .{path}), try body.finish());
+    }
     if (std.mem.eql(u8, subcommand, "update")) {
         var body = try json.Object.init(context.allocator);
         defer body.deinit();

@@ -37,6 +37,17 @@ hypertask messages poll
 hypertask messages poll --since 123
 ```
 
+## Reacting to comments
+
+Add or remove your own emoji reaction without posting another comment:
+
+```bash
+hypertask comment react 216402 --emoji '✅'
+hypertask comment unreact 216402 --emoji '✅'
+```
+
+Both commands call `POST /api/mcp/comments/{comment_id}/reactions` with `{"emoji":"✅","active":true|false}`. The server derives the reacting user from the bearer token and checks access to the comment's board.
+
 ## Correcting time entries
 
 Use a negative log to subtract minutes from your latest completed whole-minute entry for a task. An exact subtraction deletes that entry; ambiguous partial-minute and oversized corrections are rejected.
