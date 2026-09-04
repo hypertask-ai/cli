@@ -435,9 +435,14 @@ fn addSearchTaskLink(allocator: std.mem.Allocator, task: *std.json.Value) !void 
     const ticket_value = task.object.get("ticketNumber") orelse return;
     const project_value = task.object.get("projectId") orelse return;
     if (ticket_value != .string or project_value != .integer) return;
-    const separator = std.mem.lastIndexOfScalar(u8, ticket_value.string, '-') orelse return;
-    if (separator + 1 >= ticket_value.string.len) return;
-    const unique_index = std.fmt.parseInt(i64, ticket_value.string[separator + 1 ..], 10) catch return;
+    const unique_index = if (task.object.get("uniqueIndex")) |value| blk: {
+        if (value != .integer) return;
+        break :blk value.integer;
+    } else blk: {
+        const separator = std.mem.lastIndexOfScalar(u8, ticket_value.string, '-') orelse return;
+        if (separator + 1 >= ticket_value.string.len) return;
+        break :blk std.fmt.parseInt(i64, ticket_value.string[separator + 1 ..], 10) catch return;
+    };
     if (unique_index <= 0 or project_value.integer <= 0) return;
 
     const url = try std.fmt.allocPrint(
@@ -484,4 +489,18 @@ test "write responses include the control task link shape" {
     try std.testing.expectEqualStrings("https://app.hypertask.ai/detail/project-15/5827", link.get("url").?.string);
     try std.testing.expectEqualStrings("https://app.hypertask.ai/detail/project-{projectId}/{uniqueIndex}", link.get("format").?.string);
     try std.testing.expectEqualStrings("https://app.hypertask.ai/detail/project-15/5827", link.get("example").?.string);
+}
+
+test "task links prefer the unique index after a board move" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const body = try addTaskLinkToResponse(allocator,
+        \\{"success":true,"task":{"ticketNumber":"INAI-19","uniqueIndex":1668,"projectId":339}}
+    );
+    const parsed = try std.json.parseFromSliceLeaky(std.json.Value, allocator, body, .{});
+    const link = parsed.object.get("task").?.object.get("link").?.object;
+    try std.testing.expectEqualStrings("https://app.hypertask.ai/detail/project-339/1668", link.get("url").?.string);
+    try std.testing.expectEqualStrings("https://app.hypertask.ai/detail/project-339/1668", link.get("example").?.string);
 }
