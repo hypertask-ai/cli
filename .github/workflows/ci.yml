@@ -25,8 +25,8 @@ jobs:
         with:
           version: 0.15.2
 
-      - name: Install Node CLI
-        run: npm install --prefix "$RUNNER_TEMP/node-cli" @hypertask/hypertask_cli
+      - name: Install parity-reference Node CLI
+        run: npm install --prefix "$RUNNER_TEMP/node-cli" @hypertask/hypertask_cli@2.0.6
 
       - name: Test auto-merge gate
         run: python3 scripts/automerge_workflow_test.py
