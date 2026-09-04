@@ -116,6 +116,12 @@ class Handler(BaseHTTPRequestHandler):
         if route == ("POST", "/mcp/comments"):
             self.respond(400, fixture("comment-add-error.json"))
             return
+        if route == ("POST", "/mcp/comments/216402/reactions"):
+            self.respond(200, fixture("comment-react.json"))
+            return
+        if route == ("POST", "/mcp/comments/404/reactions"):
+            self.respond(404, fixture("comment-reaction-not-found.json"))
+            return
         if route == ("POST", "/mcp/agents/00000000-0000-0000-0000-000000000000/archive"):
             self.respond(404, fixture("agent-archive-not-found.json"))
             return
@@ -343,6 +349,28 @@ def main() -> None:
                         "text": "<p>Offline comment</p>",
                         "content_type": "markdown",
                     },
+                },
+            )
+            expect_command(
+                binary, token, api_url, home,
+                ("comment", "react", "216402", "--emoji", "✅"),
+                "comment-react.json", 0,
+                {
+                    "method": "POST",
+                    "path": "/mcp/comments/216402/reactions",
+                    "query": {},
+                    "body": {"emoji": "✅", "active": True},
+                },
+            )
+            expect_command(
+                binary, token, api_url, home,
+                ("comment", "unreact", "404", "--emoji", "✅"),
+                "comment-reaction-not-found.json", 4,
+                {
+                    "method": "POST",
+                    "path": "/mcp/comments/404/reactions",
+                    "query": {},
+                    "body": {"emoji": "✅", "active": False},
                 },
             )
             expect_command(

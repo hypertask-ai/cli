@@ -181,4 +181,21 @@ test "command handlers build request bodies and query strings without HTTP" {
         "/mcp/comments",
         "{\"ticket_number\":\"HTPR-123\",\"text\":\"Hello\",\"content_type\":\"markdown\"}",
     );
+    try expectRequest(
+        &.{ "comment", "react", "216402", "--emoji", "✅" },
+        .POST,
+        "/mcp/comments/216402/reactions",
+        "{\"emoji\":\"✅\",\"active\":true}",
+    );
+    try expectRequest(
+        &.{ "comment", "unreact", "216402", "--emoji", "✅" },
+        .POST,
+        "/mcp/comments/216402/reactions",
+        "{\"emoji\":\"✅\",\"active\":false}",
+    );
+}
+
+test "comment reactions require an emoji" {
+    try expectDispatchError(error.MissingOption, &.{ "comment", "react", "216402" });
+    try expectDispatchError(error.MissingOption, &.{ "comment", "unreact", "216402" });
 }
