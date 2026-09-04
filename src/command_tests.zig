@@ -105,6 +105,15 @@ test "messages poll rejects invalid cursors before making a request" {
     try expectDispatchError(error.InvalidInteger, &.{ "messages", "poll", "--since", "not-a-number" });
 }
 
+test "webhook configure passes server-owned event names through" {
+    try expectRequest(
+        &.{ "webhook", "configure", "--event", "comment.mention", "--event", "task.assigned", "--event", "task.unassigned", "--event", "comment.created", "--event", "task.updated", "--event", "task.created", "--event", "chat.message" },
+        .POST,
+        "/mcp/webhooks",
+        "{\"action\":\"configure\",\"agent_id\":\"self\",\"events\":[\"comment.mention\",\"task.assigned\",\"task.unassigned\",\"comment.created\",\"task.updated\",\"task.created\",\"chat.message\"]}",
+    );
+}
+
 test "command handlers build request bodies and query strings without HTTP" {
     try expectRequest(
         &.{ "task", "create", "--project", "15", "--title", "Fix it", "--priority", "high", "--estimate", "3" },
