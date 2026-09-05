@@ -73,16 +73,51 @@ pub fn requestWithToken(
     const payload = requestPayload(method, body);
     const headers = buildRequestHeaders(authorization, payload);
 
-    const result = try client.fetch(.{
-        .location = .{ .url = url },
-        .method = method,
-        .payload = payload,
+    // Drive the request manually instead of client.fetch: fetch's error
+    // mapping unwraps a null body error on mid-body connection resets
+    // (undefined behavior in ReleaseFast builds) and treats a clean early
+    // close before Content-Length is satisfied as success, silently
+    // returning a truncated body.
+    const uri = try std.Uri.parse(url);
+    const redirect_buffer = try allocator.alloc(u8, 8 * 1024);
+    defer allocator.free(redirect_buffer);
+    var req = try client.request(method, uri, .{
+        .redirect_behavior = if (payload == null) @enumFromInt(3) else .unhandled,
         .headers = requestHeaders(),
         .extra_headers = headers.headers[0..headers.count],
-        .response_writer = &response_buffer.writer,
     });
+    defer req.deinit();
+    if (payload) |value| {
+        req.transfer_encoding = .{ .content_length = value.len };
+        var body_writer = try req.sendBodyUnflushed(&.{});
+        try body_writer.writer.writeAll(value);
+        try body_writer.end();
+        try req.connection.?.flush();
+    } else {
+        try req.sendBodiless();
+    }
+    var response = try req.receiveHead(redirect_buffer);
+    const content_encoding = response.head.content_encoding;
+    const expected_length = response.head.content_length;
+    const decompress_buffer: []u8 = switch (content_encoding) {
+        .identity => &.{},
+        .zstd => try allocator.alloc(u8, std.compress.zstd.default_window_len),
+        .deflate, .gzip => try allocator.alloc(u8, std.compress.flate.max_window_len),
+        .compress => return error.UnsupportedCompressionMethod,
+    };
+    defer if (decompress_buffer.len != 0) allocator.free(decompress_buffer);
+    var transfer_buffer: [64]u8 = undefined;
+    var decompress: std.http.Decompress = undefined;
+    const reader = response.readerDecompressing(&transfer_buffer, &decompress, decompress_buffer);
+    const written = reader.streamRemaining(&response_buffer.writer) catch |err| switch (err) {
+        error.ReadFailed => return response.bodyErr() orelse error.HttpTransferFailed,
+        else => |e| return e,
+    };
+    if (content_encoding == .identity) {
+        if (expected_length) |expected| if (written < expected) return error.HttpRequestTruncated;
+    }
     return .{
-        .status = result.status,
+        .status = response.head.status,
         .body = try allocator.dupe(u8, response_buffer.written()),
         .allocator = allocator,
     };

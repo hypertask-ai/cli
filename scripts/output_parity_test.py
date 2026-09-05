@@ -2,6 +2,8 @@
 import base64
 import json
 import os
+import socket
+import struct
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import subprocess
@@ -140,6 +142,52 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, format: str, *args: object) -> None:
         pass
+
+
+class TransportFailureHandler(BaseHTTPRequestHandler):
+    """Sends malformed transport responses: a body shorter than the declared
+    Content-Length, either closed cleanly (truncation) or reset mid-body."""
+
+    def do_GET(self) -> None:
+        length = int(self.headers.get("Content-Length", "0"))
+        if length:
+            self.rfile.read(length)
+        body = b'{"success":true,"tasks":[{"id":1}'
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body) * 2))
+        self.end_headers()
+        self.wfile.write(body[: len(body) // 2])
+        if urlsplit(self.path).path.endswith("/reset"):
+            self.connection.setsockopt(
+                socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0)
+            )
+        self.close_connection = True
+
+    def log_message(self, format: str, *args: object) -> None:
+        pass
+
+
+def expect_transport_failure(
+    binary: str,
+    token: str,
+    api_url: str,
+    home: str,
+    suffix: str,
+    expected_errors: tuple[str, ...],
+) -> None:
+    # A mid-body reset races against the truncation check: depending on how
+    # much the client already read before the RST lands, either error is a
+    # correct "clean failure, no crash" outcome.
+    result = run(binary, token, api_url + suffix, home, "tasks", "list", "--project", "15")
+    expect(result.returncode == 1, (
+        f"{suffix} exited {result.returncode}, expected clean error 1\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    ))
+    expect(any(err in result.stderr for err in expected_errors), (
+        f"{suffix} stderr missing one of {expected_errors}: {result.stderr!r}"
+    ))
+    expect(result.stdout == "", f"{suffix} leaked partial stdout: {result.stdout!r}")
 
 
 def expect(condition: bool, message: str) -> None:
@@ -387,6 +435,22 @@ def main() -> None:
                     "body": None,
                 },
             )
+            transport = ThreadingHTTPServer(("127.0.0.1", 0), TransportFailureHandler)
+            transport_thread = threading.Thread(target=transport.serve_forever, daemon=True)
+            transport_thread.start()
+            transport_url = f"http://127.0.0.1:{transport.server_port}"
+            try:
+                expect_transport_failure(
+                    binary, token, transport_url, home, "/trunc", ("HttpRequestTruncated",)
+                )
+                expect_transport_failure(
+                    binary, token, transport_url, home, "/reset",
+                    ("HttpTransferFailed", "HttpRequestTruncated"),
+                )
+            finally:
+                transport.shutdown()
+                transport.server_close()
+                transport_thread.join()
     finally:
         server.shutdown()
         server.server_close()
