@@ -95,6 +95,12 @@ hypertask agents delete --id <agent-id> --confirm
 hypertask search "query" --project 15
 ```
 
+Task identifiers come in three forms. `HTPR-5726` is the full ticket number and works
+anywhere. A bare `5726` is the ticket number inside one board, so it needs `--project 15`;
+without a project it is refused, because ticket numbers repeat across boards and internal
+task ids share the same range. `id:37799` is the internal task id printed as `id` in JSON
+output.
+
 ## Managed agent identity commands
 
 The native CLI replaces the former `ht-agent` shell wrapper for agent-authored comments, assignment, lifecycle moves, handoffs, and durable polling:

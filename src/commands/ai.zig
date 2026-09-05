@@ -37,8 +37,7 @@ fn write(context: *const Context) !void {
     if (context.args.get("task")) |ticket| {
         var path = try query.Builder.init(context.allocator, "/mcp/tasks");
         defer path.deinit();
-        try resolve.addTaskIdentifierQuery(&path, context.allocator, ticket);
-        if (context.args.get("project")) |value| try path.add("project_id", value);
+        try resolve.addTaskIdentifierQueryForProject(&path, context.allocator, ticket, context.args.get("project"));
         var task_response = try context.fetch(.GET, path.path(), null);
         defer task_response.deinit();
         const task_document = try std.json.parseFromSlice(std.json.Value, context.allocator, task_response.body, .{});

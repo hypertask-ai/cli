@@ -123,17 +123,26 @@ fn addHasMore(allocator: std.mem.Allocator, response_body: []const u8) ![]u8 {
     );
 }
 
-test "numeric comment identifiers use task_id" {
+test "explicit internal comment identifiers use task_id" {
     var path = try query.Builder.init(std.testing.allocator, "/mcp/comments");
     defer path.deinit();
-    try resolve.addTaskIdentifierQuery(&path, std.testing.allocator, "34874");
+    try resolve.addTaskIdentifierQuery(&path, std.testing.allocator, "id:34874");
     try std.testing.expectEqualStrings("/mcp/comments?task_id=34874", path.path());
 
     var body = try json.Object.init(std.testing.allocator);
     defer body.deinit();
-    try resolve.addTaskIdentifierBody(&body, std.testing.allocator, "34874");
+    try resolve.addTaskIdentifierBody(&body, std.testing.allocator, "id:34874");
     try body.string("text", "x");
     try std.testing.expectEqualStrings("{\"task_id\":34874,\"text\":\"x\"}", try body.finish());
+}
+
+test "bare numeric comment identifiers refuse to guess a board" {
+    var body = try json.Object.init(std.testing.allocator);
+    defer body.deinit();
+    try std.testing.expectError(
+        error.AmbiguousTaskIdentifier,
+        resolve.addTaskIdentifierBody(&body, std.testing.allocator, "6162"),
+    );
 }
 
 test "comment ticket identifiers keep ticket_number" {

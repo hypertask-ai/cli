@@ -93,11 +93,13 @@ test "task get distinguishes internal ids from project ticket indexes" {
         null,
     );
     try expectRequest(
-        &.{ "tasks", "get", "35672" },
+        &.{ "tasks", "get", "id:35672" },
         .GET,
         "/mcp/tasks?task_id=35672",
         null,
     );
+    try expectDispatchError(error.AmbiguousTaskIdentifier, &.{ "tasks", "get", "6162" });
+    try expectDispatchError(error.AmbiguousTaskIdentifier, &.{ "comment", "add", "6162", "--text", "hi" });
 }
 
 test "messages poll rejects invalid cursors before making a request" {
@@ -158,10 +160,16 @@ test "command handlers build request bodies and query strings without HTTP" {
         null,
     );
     try expectRequest(
-        &.{ "draft", "create", "123", "--text", "Hello", "--comment" },
+        &.{ "draft", "create", "id:123", "--text", "Hello", "--comment" },
         .POST,
         "/mcp/drafts",
         "{\"task_id\":123,\"text\":\"Hello\",\"draft_type\":\"comment\"}",
+    );
+    try expectRequest(
+        &.{ "draft", "create", "6162", "--project", "15", "--text", "Hello", "--comment" },
+        .POST,
+        "/mcp/drafts",
+        "{\"unique_index\":6162,\"project_id\":15,\"text\":\"Hello\",\"draft_type\":\"comment\"}",
     );
     try expectRequest(
         &.{ "pages", "get", "7", "--format", "html" },
