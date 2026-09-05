@@ -16,6 +16,26 @@ pub fn isNumeric(value: []const u8) bool {
     return true;
 }
 
+pub const internal_id_prefix = "id:";
+
+/// An explicit internal task id, as printed in JSON output: `id:37799`.
+pub fn internalId(value: []const u8) ?[]const u8 {
+    if (!std.mem.startsWith(u8, value, internal_id_prefix)) return null;
+    const digits = value[internal_id_prefix.len..];
+    return if (isNumeric(digits)) digits else null;
+}
+
+/// A bare number means the ticket index inside one project, so without a project
+/// it names nothing: internal task ids and per-project ticket numbers overlap, and
+/// guessing sent commands to an unrelated task on another board.
+fn ambiguousIdentifier(identifier: []const u8) anyerror {
+    std.debug.print(
+        "{s} is ambiguous: pass --project <id> to read it as a ticket number, use the full ticket (PREFIX-{s}), or id:{s} for the internal task id\n",
+        .{ identifier, identifier, identifier },
+    );
+    return error.AmbiguousTaskIdentifier;
+}
+
 pub fn normalizedTicket(allocator: std.mem.Allocator, value: []const u8) ![]u8 {
     const trimmed = std.mem.trim(u8, value, " \t\r\n");
     const separator = std.mem.indexOfScalar(u8, trimmed, '-') orelse return error.InvalidTicket;
@@ -34,14 +54,16 @@ pub fn addTaskIdentifierQuery(path: *query_mod.Builder, allocator: std.mem.Alloc
 }
 
 pub fn addTaskIdentifierQueryForProject(path: *query_mod.Builder, allocator: std.mem.Allocator, identifier: []const u8, project: ?[]const u8) !void {
+    if (internalId(identifier)) |task_id| {
+        _ = try common.positiveInt(task_id, "task-id");
+        return path.add("task_id", task_id);
+    }
     if (isNumeric(identifier)) {
-        if (project) |project_id| {
-            _ = try common.positiveInt(identifier, "ticket");
-            _ = try common.positiveInt(project_id, "project");
-            try path.add("unique_index", identifier);
-            return path.add("project_id", project_id);
-        }
-        return path.add("task_id", identifier);
+        const project_id = project orelse return ambiguousIdentifier(identifier);
+        _ = try common.positiveInt(identifier, "ticket");
+        _ = try common.positiveInt(project_id, "project");
+        try path.add("unique_index", identifier);
+        return path.add("project_id", project_id);
     }
     const ticket = try normalizedTicket(allocator, identifier);
     defer allocator.free(ticket);
@@ -57,12 +79,13 @@ pub fn addTaskIdentifierBody(body: *json.Object, allocator: std.mem.Allocator, i
 }
 
 pub fn addTaskIdentifierBodyForProject(body: *json.Object, allocator: std.mem.Allocator, identifier: []const u8, project: ?[]const u8) !void {
+    if (internalId(identifier)) |task_id| {
+        return body.integer("task_id", try common.positiveInt(task_id, "task-id"));
+    }
     if (isNumeric(identifier)) {
-        if (project) |project_id| {
-            try body.integer("unique_index", try common.positiveInt(identifier, "ticket"));
-            return body.integer("project_id", try common.positiveInt(project_id, "project"));
-        }
-        return body.integer("task_id", try common.positiveInt(identifier, "task-id"));
+        const project_id = project orelse return ambiguousIdentifier(identifier);
+        try body.integer("unique_index", try common.positiveInt(identifier, "ticket"));
+        return body.integer("project_id", try common.positiveInt(project_id, "project"));
     }
     const ticket = try normalizedTicket(allocator, identifier);
     defer allocator.free(ticket);
@@ -71,11 +94,10 @@ pub fn addTaskIdentifierBodyForProject(body: *json.Object, allocator: std.mem.Al
 }
 
 pub fn task(context: *const Context, identifier: []const u8) !Task {
+    if (internalId(identifier)) |task_id| return fetchTask(context, "task_id", task_id, null);
     if (isNumeric(identifier)) {
-        if (context.args.get("project")) |project| {
-            return fetchTask(context, "unique_index", identifier, project);
-        }
-        return fetchTask(context, "task_id", identifier, null);
+        const project = context.args.get("project") orelse return ambiguousIdentifier(identifier);
+        return fetchTask(context, "unique_index", identifier, project);
     }
     const ticket = try normalizedTicket(context.allocator, identifier);
     defer context.allocator.free(ticket);
@@ -132,8 +154,22 @@ pub fn sectionId(context: *const Context, project_id: i64, value: []const u8) !i
 test "task identifier helpers normalize tickets and reject invalid values" {
     var numeric_path = try query_mod.Builder.init(std.testing.allocator, "/mcp/drafts");
     defer numeric_path.deinit();
-    try addTaskIdentifierQuery(&numeric_path, std.testing.allocator, "123");
+    try addTaskIdentifierQuery(&numeric_path, std.testing.allocator, "id:123");
     try std.testing.expectEqualStrings("/mcp/drafts?task_id=123", numeric_path.path());
+
+    var bare_path = try query_mod.Builder.init(std.testing.allocator, "/mcp/drafts");
+    defer bare_path.deinit();
+    try std.testing.expectError(
+        error.AmbiguousTaskIdentifier,
+        addTaskIdentifierQuery(&bare_path, std.testing.allocator, "123"),
+    );
+
+    var bare_body = try json.Object.init(std.testing.allocator);
+    defer bare_body.deinit();
+    try std.testing.expectError(
+        error.AmbiguousTaskIdentifier,
+        addTaskIdentifierBody(&bare_body, std.testing.allocator, "123"),
+    );
 
     var ticket_path = try query_mod.Builder.init(std.testing.allocator, "/mcp/drafts");
     defer ticket_path.deinit();

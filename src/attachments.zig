@@ -92,10 +92,10 @@ test "attachment MIME detection uses extensions and file signatures" {
     try std.testing.expect(sniffMime("plain text") == null);
 }
 
-test "numeric comment attachment identifiers use task_id" {
+test "explicit internal comment attachment identifiers use task_id" {
     var body = try json.Object.init(std.testing.allocator);
     defer body.deinit();
-    try resolve.addTaskIdentifierBody(&body, std.testing.allocator, "34874");
+    try resolve.addTaskIdentifierBody(&body, std.testing.allocator, "id:34874");
     try body.integer("comment_id", 7);
     try std.testing.expectEqualStrings("{\"task_id\":34874,\"comment_id\":7}", try body.finish());
 }

@@ -36,7 +36,7 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
         const ticket = try context.args.requirePositional(2, "ticket-or-task-id");
         var path = try query.Builder.init(context.allocator, "/mcp/tasks");
         defer path.deinit();
-        try resolve.addTaskIdentifierQuery(&path, context.allocator, ticket);
+        try resolve.addTaskIdentifierQueryForProject(&path, context.allocator, ticket, context.args.get("project"));
         return context.call(.GET, path.path(), null);
     }
     if (std.mem.eql(u8, subcommand, "delete")) {
