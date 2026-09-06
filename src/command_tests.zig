@@ -207,3 +207,13 @@ test "comment reactions require an emoji" {
     try expectDispatchError(error.MissingOption, &.{ "comment", "react", "216402" });
     try expectDispatchError(error.MissingOption, &.{ "comment", "unreact", "216402" });
 }
+
+test "the local agent dev loop refuses to guess an agent or a handler URL" {
+    // `--agent` has no default on purpose: a stray `agent dev` in the wrong
+    // shell must not be able to repoint a live agent's webhook.
+    try expectDispatchError(error.MissingOption, &.{ "agent", "dev", "--port", "3000" });
+    try expectDispatchError(error.MissingOption, &.{ "agent", "dev", "--agent", "a1" });
+    try expectDispatchError(error.InvalidOptions, &.{ "agent", "dev", "--agent", "a1", "--port", "3000", "--path", "hook" });
+    try expectDispatchError(error.MissingOption, &.{ "agent", "replay", "run_1" });
+    try expectDispatchError(error.InvalidOptions, &.{ "agent", "replay", "run_1", "--url", "file:///etc/passwd" });
+}
