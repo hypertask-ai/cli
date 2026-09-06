@@ -61,17 +61,30 @@ pub fn requestWithToken(
     path_and_query: []const u8,
     body: ?[]const u8,
 ) !Response {
-    var client = std.http.Client{ .allocator = allocator };
-    defer client.deinit();
     const url = try std.fmt.allocPrint(allocator, "{s}{s}", .{ api_url, path_and_query });
     defer allocator.free(url);
     const authorization = try std.fmt.allocPrint(allocator, "Bearer {s}", .{token});
     defer allocator.free(authorization);
+    const headers = buildRequestHeaders(authorization, requestPayload(method, body));
+    return send(allocator, method, url, headers.headers[0..headers.count], body);
+}
+
+/// Drive one request against an absolute URL with caller-owned headers. The
+/// Hypertask bearer token is never added here, so a command can post to a
+/// handler running on the author's own machine without leaking credentials.
+pub fn send(
+    allocator: std.mem.Allocator,
+    method: std.http.Method,
+    url: []const u8,
+    extra_headers: []const std.http.Header,
+    body: ?[]const u8,
+) !Response {
+    var client = std.http.Client{ .allocator = allocator };
+    defer client.deinit();
     var response_buffer: std.Io.Writer.Allocating = .init(allocator);
     defer response_buffer.deinit();
 
     const payload = requestPayload(method, body);
-    const headers = buildRequestHeaders(authorization, payload);
 
     // Drive the request manually instead of client.fetch: fetch's error
     // mapping unwraps a null body error on mid-body connection resets
@@ -84,7 +97,7 @@ pub fn requestWithToken(
     var req = try client.request(method, uri, .{
         .redirect_behavior = if (payload == null) @enumFromInt(3) else .unhandled,
         .headers = requestHeaders(),
-        .extra_headers = headers.headers[0..headers.count],
+        .extra_headers = extra_headers,
     });
     defer req.deinit();
     if (payload) |value| {

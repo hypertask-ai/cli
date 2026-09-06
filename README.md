@@ -122,6 +122,28 @@ hypertask agent new-tickets --label Bug
 
 `--token`, `HT_TOKEN`, and `HYPERTASKS_JWT_TOKEN` are also accepted. Ticket capability environment variables are checked before any request. Without `HT_AGENT_STATE_DIR`, durable state is isolated by API endpoint, project, and agent identity. On first use, seen, ticket, and watermark files migrate from `~/.config/hypertask-agents/<slug>.*` when present.
 
+## Local agent development loop
+
+Run an agent handler on this machine, receive real webhooks, and re-send a run you already recorded. Both commands need the `htpr-6124-agent-dev-loop` flag switched on for the account that owns the agent.
+
+```bash
+export WEBHOOK_SECRET='<the secret hypertask webhook configure printed>'
+
+# Borrow the agent's webhook for one session. Ctrl-C puts the old URL back.
+hypertask agent dev --agent <agent-id> --port 3000
+
+# Re-send one recorded run to the handler, signed the way the server signs.
+hypertask agent replay <run-id> --url http://localhost:3000/
+```
+
+`agent dev` starts a `cloudflared` quick tunnel, or reuses your own public tunnel with `--tunnel-url https://...`. It saves the agent's previous webhook URL before changing anything and restores it on Ctrl-C, when the tunnel exits, or on the next `agent dev` after a crash. It restores only while the live URL is still the one it installed, so a change made elsewhere in the meantime is never overwritten.
+
+The tunnel exposes the whole port, not just `--path`. Serve only the agent handler on it, never a general development server.
+
+The webhook secret is read from `HYPERTASK_WEBHOOK_SECRET` or `WEBHOOK_SECRET` and never from an argument, because argv is readable by any process and lands in shell history. `agent replay` reads the agent's last 25 recorded deliveries; if a run reaches that edge it says so with `"partial": true` instead of pretending a suffix is the whole run.
+
+Preview mode is an SDK option, not a CLI flag: set `dryRun: true` on `createAgent`, or run the handler with `HYPERTASK_DRY_RUN=1`, and every ticket write is printed and skipped.
+
 ## Pull request checks
 
 Every pull request to `main` runs ReleaseFast unit tests, installer tests, capability and architecture checks, and live read-only parity. The repository's auto-merge evaluator merges eligible same-repository changes only after the current `test` check passes.

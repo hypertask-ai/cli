@@ -7,6 +7,7 @@ const json = @import("../json_util.zig");
 const output = @import("../output.zig");
 const query = @import("../query.zig");
 const resolve = @import("../resolve.zig");
+const agent_dev = @import("agent_dev.zig");
 
 const State = struct {
     directory: []const u8,
@@ -63,6 +64,7 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
     if (std.mem.eql(u8, subcommand, "poll")) return poll(context);
     if (std.mem.eql(u8, subcommand, "new-tickets")) return newTickets(context);
     if (std.mem.eql(u8, subcommand, "hand")) return hand(context);
+    if (std.mem.eql(u8, subcommand, "dev") or std.mem.eql(u8, subcommand, "replay")) return agent_dev.run(context, subcommand);
     return error.UnknownCommand;
 }
 
