@@ -1,6 +1,7 @@
 //! The local agent development loop: point a live agent's webhook at a tunnel
 //! to this machine, and re-send a recorded run to a handler running here.
 const std = @import("std");
+const builtin = @import("builtin");
 const common = @import("../command_context.zig");
 const Context = common.Context;
 const http = @import("../http.zig");
@@ -489,6 +490,15 @@ fn spawnTunnel(context: *const Context, port: i64, log_path: []const u8) !struct
 }
 
 fn dev(context: *const Context) !void {
+    // The tunnel needs a shell to spawn cloudflared, POSIX signals to restore
+    // the webhook on Ctrl-C, and waitpid to notice the tunnel dying. A
+    // comptime branch keeps that half out of the Windows build entirely.
+    if (builtin.os.tag == .windows) {
+        return fail("`hypertask agent dev` is not available on Windows yet. Run it from WSL or a POSIX shell; `hypertask agent replay` works everywhere.", .{}, error.UnknownCommand);
+    } else return devPosix(context);
+}
+
+fn devPosix(context: *const Context) !void {
     // --agent is required and never defaults to "self": a stray command in the
     // wrong shell must not be able to repoint a live agent's webhook.
     const agent_id = try context.args.require("agent");
