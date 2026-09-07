@@ -16,6 +16,12 @@ const DELIVERY_WINDOW = 25;
 const TUNNEL_WAIT_MS = 30_000;
 const TUNNEL_POLL_MS = 200;
 
+/// A brand-new quick tunnel hostname is not in public DNS yet when cloudflared
+/// prints it, and the server refuses a webhook URL it cannot resolve. Measured
+/// on 2026-09-07: the server accepted the same URL 10 seconds later.
+const INSTALL_WAIT_MS = 120_000;
+const INSTALL_RETRY_MS = 3_000;
+
 pub fn run(context: *const Context, subcommand: []const u8) !void {
     if (std.mem.eql(u8, subcommand, "replay")) return replay(context);
     if (std.mem.eql(u8, subcommand, "dev")) return dev(context);
@@ -361,19 +367,72 @@ fn currentUrl(context: *const Context, agent_id: []const u8) !?[]u8 {
     return subscriptionUrl(document.value, context.allocator);
 }
 
-fn configureUrl(context: *const Context, agent_id: []const u8, url: []const u8) !void {
+fn postConfigure(context: *const Context, agent_id: []const u8, url: []const u8) !http.Response {
     var body = try json.Object.init(context.allocator);
     defer body.deinit();
     try body.string("action", "configure");
     try body.string("agent_id", agent_id);
     try body.string("url", url);
-    var response = try context.fetch(.POST, "/mcp/webhooks", try body.finish());
+    return context.fetch(.POST, "/mcp/webhooks", try body.finish());
+}
+
+fn configureUrl(context: *const Context, agent_id: []const u8, url: []const u8) !void {
+    var response = try postConfigure(context, agent_id, url);
     defer response.deinit();
     const code = @intFromEnum(response.status);
     if (code < 200 or code >= 300) {
         try output.print(response.body);
         return error.ApiFailure;
     }
+}
+
+/// The server checks DNS before it stores a webhook URL, and it is the only
+/// rejection worth waiting out: the tunnel is fine, the hostname is simply not
+/// visible to the server's resolver yet. Read the parsed `error` field rather
+/// than the raw body, so a proxy error page that happens to carry the same
+/// words is never mistaken for it and retried for two minutes.
+pub fn hostNotResolvedYet(allocator: std.mem.Allocator, status: u16, body: []const u8) bool {
+    if (status != 400) return false;
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch return false;
+    defer parsed.deinit();
+    const message = stringField(parsed.value, "error") orelse return false;
+    return std.mem.indexOf(u8, message, "could not be resolved") != null or
+        std.mem.indexOf(u8, message, "did not resolve") != null;
+}
+
+/// Install the tunnel URL, waiting out that one transient rejection. Returns
+/// false when Ctrl-C arrived first, which means nothing was ever changed.
+fn installUrl(context: *const Context, agent_id: []const u8, url: []const u8) !bool {
+    var waited: u64 = 0;
+    var announced = false;
+    while (!stop_requested.load(.seq_cst)) {
+        var response = try postConfigure(context, agent_id, url);
+        defer response.deinit();
+        const code: u16 = @intFromEnum(response.status);
+        if (code >= 200 and code < 300) return true;
+        if (!hostNotResolvedYet(context.allocator, code, response.body)) {
+            try output.print(response.body);
+            // A 4xx is the server refusing the URL, so it provably stored
+            // nothing. Anything else may have been applied before the reply
+            // went missing, and the caller must keep the recovery record.
+            return if (code < 500) error.ApiInvalidInput else error.ApiFailure;
+        }
+        if (waited >= INSTALL_WAIT_MS) {
+            try output.print(response.body);
+            return fail(
+                "Hypertask still could not resolve {s} after {d} seconds. Check the tunnel is up, or pass --tunnel-url with a hostname that already resolves.",
+                .{ url, INSTALL_WAIT_MS / 1000 },
+                error.ApiInvalidInput,
+            );
+        }
+        if (!announced) {
+            note("waiting for {s} to appear in public DNS; Hypertask refuses a webhook URL it cannot resolve", .{url});
+            announced = true;
+        }
+        std.Thread.sleep(INSTALL_RETRY_MS * std.time.ns_per_ms);
+        waited += INSTALL_RETRY_MS;
+    }
+    return false;
 }
 
 /// Put the saved URL back, but only while the live URL is still the one this
@@ -541,9 +600,23 @@ fn devPosix(context: *const Context) !void {
     // Save before changing anything, so a crash between here and the next line
     // still leaves the old URL recoverable.
     try writeState(context.allocator, state_path, .{ .previous = previous, .installed = installed });
-    defer restore(context, agent_id, state_path, installed, previous);
 
-    try configureUrl(context, agent_id, installed);
+    // Arm the restore only once the URL is actually live. Armed earlier, a
+    // failed install makes restore find the untouched URL, call that "changed
+    // while this session ran", and bury the real error.
+    const installed_live = installUrl(context, agent_id, installed) catch |err| {
+        // Only a 4xx proves the URL was never stored. A transport failure or a
+        // 5xx can land after the server applied it, and the state file is then
+        // the only record of what to put back.
+        if (err == error.ApiInvalidInput) std.fs.cwd().deleteFile(state_path) catch {};
+        return err;
+    };
+    if (!installed_live) {
+        std.fs.cwd().deleteFile(state_path) catch {};
+        note("stopped before the webhook URL changed; {s} is untouched", .{previous});
+        return;
+    }
+    defer restore(context, agent_id, state_path, installed, previous);
 
     var summary = try json.Object.init(context.allocator);
     defer summary.deinit();
@@ -700,4 +773,32 @@ test "a state file left by a live process is not treated as a crash" {
     try std.testing.expect(processIsAlive(std.posix.system.getpid()));
     try std.testing.expect(!processIsAlive(0));
     try std.testing.expect(!processIsAlive(-1));
+}
+
+test "only the resolver's own rejection is waited out" {
+    const allocator = std.testing.allocator;
+    // The exact body the server returned on 2026-09-07 for a quick tunnel URL
+    // that cloudflared had just printed.
+    try std.testing.expect(hostNotResolvedYet(allocator, 400,
+        \\{"success":false,"error":"url host could not be resolved","field":"url"}
+    ));
+    try std.testing.expect(hostNotResolvedYet(allocator, 400,
+        \\{"success":false,"error":"url host did not resolve","field":"url"}
+    ));
+    // Everything else is a real failure and must surface immediately.
+    try std.testing.expect(!hostNotResolvedYet(allocator, 400,
+        \\{"success":false,"error":"url host resolves to a private or reserved address","field":"url"}
+    ));
+    try std.testing.expect(!hostNotResolvedYet(allocator, 400,
+        \\{"success":false,"error":"url must use HTTPS","field":"url"}
+    ));
+    try std.testing.expect(!hostNotResolvedYet(allocator, 404,
+        \\{"success":false,"error":"Agent not found or access denied"}
+    ));
+    // A proxy error page carrying the same words is not this rejection, and
+    // retrying it for two minutes would hide a real outage.
+    try std.testing.expect(!hostNotResolvedYet(allocator, 502,
+        \\<html><body>502: the host could not be resolved</body></html>
+    ));
+    try std.testing.expect(!hostNotResolvedYet(allocator, 400, "not json at all"));
 }
