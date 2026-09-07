@@ -216,10 +216,19 @@ fn update(context: *const Context) !void {
 }
 
 fn assign(context: *const Context, intent: []const u8) !void {
-    const assignee = try context.args.require("assignee");
+    const self_flag = context.args.has("self");
+    const assignee = context.args.get("assignee");
+    if (self_flag and assignee != null) output.fail("Error: use either --self or --assignee, not both");
+    if (!self_flag and assignee == null) output.fail("Error: provide --assignee <id> or --self");
     var body = try identifierBody(context, try context.args.requirePositional(2, "ticket-or-task-id"));
     defer body.deinit();
-    if (resolve.isNumeric(assignee)) try body.integer("user_id", try common.positiveInt(assignee, "assignee")) else try body.string("agent_id", assignee);
+    if (self_flag) {
+        try body.boolean("assign_self", true);
+    } else if (resolve.isNumeric(assignee.?)) {
+        try body.integer("user_id", try common.positiveInt(assignee.?, "assignee"));
+    } else {
+        try body.string("agent_id", assignee.?);
+    }
     try body.string("intent", intent);
     try context.call(.POST, "/mcp/assignees/assign", try body.finish());
 }
