@@ -105,12 +105,11 @@ pub fn task(context: *const Context, identifier: []const u8) !Task {
 }
 
 fn fetchTask(context: *const Context, key: []const u8, value: []const u8, project: ?[]const u8) !Task {
-    try context.requireAuth();
     var query = try query_mod.Builder.init(context.allocator, "/mcp/tasks");
     defer query.deinit();
     try query.add(key, value);
     if (project) |project_id| try query.add("project_id", project_id);
-    var response = try http.get(context.allocator, context.cfg, query.path());
+    var response = try context.fetch(.GET, query.path(), null);
     defer response.deinit();
     if (@intFromEnum(response.status) < 200 or @intFromEnum(response.status) >= 300) return error.CommandFailed;
     const parsed = try std.json.parseFromSlice(std.json.Value, context.allocator, response.body, .{});

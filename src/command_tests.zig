@@ -5,6 +5,10 @@ const config = @import("config.zig");
 const router = @import("router.zig");
 
 fn expectRequest(argv: []const []const u8, method: std.http.Method, path: []const u8, body: ?[]const u8) !void {
+    return expectRequestWithResponses(argv, &.{}, method, path, body);
+}
+
+fn expectRequestWithResponses(argv: []const []const u8, responses: []const []const u8, method: std.http.Method, path: []const u8, body: ?[]const u8) !void {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -15,6 +19,7 @@ fn expectRequest(argv: []const []const u8, method: std.http.Method, path: []cons
     defer cfg.deinit();
     var recorder = command_context.RequestRecorder.init(allocator);
     defer recorder.deinit();
+    recorder.responses = responses;
     const context = command_context.Context{
         .allocator = allocator,
         .args = &parsed,
@@ -128,6 +133,20 @@ test "command handlers build request bodies and query strings without HTTP" {
         .POST,
         "/mcp/tasks/update",
         "{\"ticket_number\":\"HTPR-5899\",\"pull_request_url\":\"https://github.com/hypertask-ai/hypertask/pull/149\"}",
+    );
+    try expectRequestWithResponses(
+        &.{ "task", "update", "HTPR-6234", "--project", "15", "--add-labels", "QA ✅" },
+        &.{ "{\"tasks\":[{\"id\":35007,\"projectId\":15}]}", "{\"projects\":[{\"id\":15,\"labels\":[{\"id\":\"qa-label-id\",\"name\":\"QA ✅\"}]}]}" },
+        .POST,
+        "/mcp/tasks/update",
+        "{\"ticket_number\":\"HTPR-6234\",\"project_id\":15,\"add_labels\":[\"qa-label-id\"]}",
+    );
+    try expectRequestWithResponses(
+        &.{ "task", "update", "HTPR-6234", "--project", "15", "--remove-labels", "11111111-2222-4333-8444-555555555555", "--add-labels", "CLI" },
+        &.{ "{\"tasks\":[{\"id\":35007,\"projectId\":15}]}", "{\"projects\":[{\"id\":15,\"labels\":[{\"id\":\"cli-label-id\",\"name\":\"CLI\"}]}]}", "{\"projects\":[{\"id\":15,\"labels\":[]}]}" },
+        .POST,
+        "/mcp/tasks/update",
+        "{\"ticket_number\":\"HTPR-6234\",\"project_id\":15,\"add_labels\":[\"cli-label-id\"],\"remove_labels\":[\"11111111-2222-4333-8444-555555555555\"]}",
     );
     try expectRequest(
         &.{ "decision", "create", "htpr-123", "--question", "Pick", "--option", "A", "--option", "B" },
