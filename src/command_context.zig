@@ -9,6 +9,9 @@ pub const RequestRecorder = struct {
     method: ?std.http.Method = null,
     path: ?[]u8 = null,
     body: ?[]u8 = null,
+    // Scripted response bodies handed back one per fetch; "{}" once exhausted.
+    responses: []const []const u8 = &.{},
+    responses_index: usize = 0,
 
     pub fn init(allocator: std.mem.Allocator) RequestRecorder {
         return .{ .allocator = allocator };
@@ -25,7 +28,9 @@ pub const RequestRecorder = struct {
         errdefer self.allocator.free(next_path);
         const next_body = if (body) |value| try self.allocator.dupe(u8, value) else null;
         errdefer if (next_body) |value| self.allocator.free(value);
-        const response_body = try self.allocator.dupe(u8, "{}");
+        const scripted = if (self.responses_index < self.responses.len) self.responses[self.responses_index] else "{}";
+        self.responses_index += 1;
+        const response_body = try self.allocator.dupe(u8, scripted);
         errdefer self.allocator.free(response_body);
 
         if (self.path) |value| self.allocator.free(value);

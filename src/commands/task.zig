@@ -192,10 +192,22 @@ fn update(context: *const Context) !void {
     }
     if (context.args.has("clear-parent")) try body.nullValue("parent_task_id") else if (context.args.get("parent-task")) |value| try body.integer("parent_task_id", (try resolve.task(context, value)).id);
     const label_inputs = try common.optionList(context, "labels");
-    if (label_inputs.len != 0) {
+    const add_label_inputs = try common.optionList(context, "add-labels");
+    const remove_label_inputs = try common.optionList(context, "remove-labels");
+    if (label_inputs.len != 0 or add_label_inputs.len != 0 or remove_label_inputs.len != 0) {
         const task_row = try resolve.task(context, ticket);
-        const labels = try resolveLabelIds(context, label_inputs, task_row.project_id, true);
-        try body.identifiers("labels", labels);
+        if (label_inputs.len != 0) {
+            const labels = try resolveLabelIds(context, label_inputs, task_row.project_id, true);
+            try body.identifiers("labels", labels);
+        }
+        if (add_label_inputs.len != 0) {
+            const labels = try resolveLabelIds(context, add_label_inputs, task_row.project_id, true);
+            try body.identifiers("add_labels", labels);
+        }
+        if (remove_label_inputs.len != 0) {
+            const labels = try resolveLabelIds(context, remove_label_inputs, task_row.project_id, true);
+            try body.identifiers("remove_labels", labels);
+        }
     }
     const assignees = try common.optionList(context, "assignee");
     if (assignees.len != 0) try body.integers("assignee", assignees);
@@ -331,7 +343,7 @@ fn priority(value: []const u8) i64 {
 
 fn hasUpdateOptions(context: *const Context) bool {
     const names = [_][]const u8{
-        "title", "description", "pull-request", "priority", "estimate", "due", "clear-due", "status", "section", "assignee", "labels", "parent-task", "clear-parent",
+        "title", "description", "pull-request", "priority", "estimate", "due", "clear-due", "status", "section", "assignee", "labels", "add-labels", "remove-labels", "parent-task", "clear-parent",
     };
     for (names) |name| if (context.args.has(name)) return true;
     return false;
