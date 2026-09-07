@@ -217,3 +217,12 @@ test "the local agent dev loop refuses to guess an agent or a handler URL" {
     try expectDispatchError(error.MissingOption, &.{ "agent", "replay", "run_1" });
     try expectDispatchError(error.InvalidOptions, &.{ "agent", "replay", "run_1", "--url", "file:///etc/passwd" });
 }
+
+test "task assign --self sends assign_self without requiring --assignee" {
+    try expectRequest(
+        &.{ "task", "assign", "HTPR-6136", "--self" },
+        .POST,
+        "/mcp/assignees/assign",
+        "{\"ticket_number\":\"HTPR-6136\",\"assign_self\":true,\"intent\":\"assign\"}",
+    );
+}
