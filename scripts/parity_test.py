@@ -177,7 +177,19 @@ def capabilities(node_cli: list[str], zig_cli: list[str]) -> None:
     node = leaf_catalog(run_json(node_cli, ["capabilities", "--json"], "Node capabilities"))
     zig = leaf_catalog(run_json(zig_cli, ["capabilities", "--json"], "Zig capabilities"))
     missing = sorted(node.keys() - zig.keys())
-    changed = sorted(name for name in node.keys() & zig.keys() if node[name] != zig[name])
+    # The Node CLI is retired, so the Zig CLI is the living catalog: every
+    # Node option must still exist in Zig, but Zig-only options (added after
+    # the frozen 2.0.6 reference, e.g. task update --add-labels) are progress,
+    # not drift.
+    changed = []
+    supersets = 0
+    for name in node.keys() & zig.keys():
+        node_arguments, node_options = node[name]
+        zig_arguments, zig_options = zig[name]
+        if node_arguments != zig_arguments or not set(node_options) <= set(zig_options):
+            changed.append(name)
+        elif node_options != zig_options:
+            supersets += 1
     if missing or changed:
         raise AssertionError(
             "capability catalogs differ\n"
@@ -186,7 +198,8 @@ def capabilities(node_cli: list[str], zig_cli: list[str]) -> None:
         )
     print(
         f"capability parity passed ({len(node)} Node leaves, "
-        f"{len(zig) - len(node)} additional Zig leaves)"
+        f"{len(zig) - len(node)} additional Zig leaves, "
+        f"{supersets} Zig-option supersets)"
     )
 
 
