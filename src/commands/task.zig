@@ -232,7 +232,11 @@ fn assign(context: *const Context, intent: []const u8) !void {
     const assignee = context.args.get("assignee");
     if (self_flag and assignee != null) output.fail("Error: use either --self or --assignee, not both");
     if (!self_flag and assignee == null) output.fail("Error: provide --assignee <id> or --self");
-    var body = try identifierBody(context, try context.args.requirePositional(2, "ticket-or-task-id"));
+    const identifier = try context.args.requirePositional(2, "ticket-or-task-id");
+    if (!self_flag and std.mem.eql(u8, intent, "unassign") and resolve.isNumeric(assignee.?)) {
+        return unassignById(context, identifier, assignee.?);
+    }
+    var body = try identifierBody(context, identifier);
     defer body.deinit();
     if (self_flag) {
         try body.boolean("assign_self", true);
@@ -242,7 +246,183 @@ fn assign(context: *const Context, intent: []const u8) !void {
         try body.string("agent_id", assignee.?);
     }
     try body.string("intent", intent);
-    try context.call(.POST, "/mcp/assignees/assign", try body.finish());
+    var response = try context.fetch(.POST, "/mcp/assignees/assign", try body.finish());
+    defer response.deinit();
+    const code = @intFromEnum(response.status);
+    if (code < 200 or code >= 300) return context.finish(&response);
+    // HTPR-6311: an agent id request must be confirmed by that exact agent id
+    // in the resulting assignees, so a wrong or stuck attachment cannot pass
+    // silently (the response's top-level `agent` field is the calling session,
+    // not the assignee, and must never be read as one).
+    if (!self_flag and assignee != null and !resolve.isNumeric(assignee.?)) {
+        var arena = std.heap.ArenaAllocator.init(context.allocator);
+        defer arena.deinit();
+        const present = agentInAssignees(arena.allocator(), response.body, assignee.?);
+        if (std.mem.eql(u8, intent, "assign")) {
+            if (present != true) return unconfirmedAgent(assignee.?);
+        } else {
+            if (present == true) return stuckAssigneeAgent(assignee.?);
+        }
+    }
+    try context.print(response.body);
+}
+
+const AssigneeTarget = union(enum) {
+    agent_id: []const u8,
+    user_id: i64,
+};
+
+/// HTPR-6311: `tasks get` shows every assignee row under its numeric user id,
+/// but a user_id unassign only matches plain rows and silently no-ops on
+/// agent-linked rows. Unassign each displayed row with the id that actually
+/// identifies it: agent-linked rows via their agent id, plain rows via user_id.
+fn unassignById(context: *const Context, identifier: []const u8, user_id_text: []const u8) !void {
+    const user_id = try common.positiveInt(user_id_text, "assignee");
+    var list_path = try query.Builder.init(context.allocator, "/mcp/tasks");
+    defer list_path.deinit();
+    try addIdentifierQuery(&list_path, context, identifier);
+    var list_response = try context.fetch(.GET, list_path.path(), null);
+    defer list_response.deinit();
+    const list_code = @intFromEnum(list_response.status);
+    if (list_code < 200 or list_code >= 300) return context.finish(&list_response);
+
+    var arena = std.heap.ArenaAllocator.init(context.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    const document = std.json.parseFromSliceLeaky(std.json.Value, allocator, list_response.body, .{}) catch return error.InvalidResponse;
+    var agent_ids: std.ArrayListUnmanaged([]const u8) = .{};
+    var has_plain = false;
+    if (document == .object) {
+        if (document.object.get("tasks")) |tasks_value| {
+            if (tasks_value == .array and tasks_value.array.items.len > 0 and tasks_value.array.items[0] == .object) {
+                if (tasks_value.array.items[0].object.get("assignees")) |assignees_value| {
+                    if (assignees_value == .array) {
+                        for (assignees_value.array.items) |row| {
+                            if (row != .object) continue;
+                            if (rowUserId(row)) |row_user| {
+                                if (row_user != user_id) continue;
+                                if (agentIdOfRow(row)) |agent_id| {
+                                    try agent_ids.append(allocator, agent_id);
+                                } else {
+                                    has_plain = true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    var final_body: ?[]const u8 = null;
+    for (agent_ids.items) |agent_id| {
+        final_body = try postAssigneeMutation(context, allocator, identifier, .{ .agent_id = agent_id });
+    }
+    if (has_plain or agent_ids.items.len == 0) {
+        // No displayed row matched (or a plain row matched): the plain call is
+        // either the removal itself or the old idempotent no-op.
+        final_body = try postAssigneeMutation(context, allocator, identifier, .{ .user_id = user_id });
+    }
+    const body = final_body orelse return;
+    for (agent_ids.items) |agent_id| {
+        if (agentInAssignees(allocator, body, agent_id) == true) return stuckAssigneeAgent(agent_id);
+    }
+    if (has_plain and userRowInAssignees(allocator, body, user_id) == true) {
+        return stuckAssigneeUser(user_id);
+    }
+    try context.print(body);
+}
+
+fn postAssigneeMutation(
+    context: *const Context,
+    allocator: std.mem.Allocator,
+    identifier: []const u8,
+    target: AssigneeTarget,
+) ![]const u8 {
+    var body = try identifierBody(context, identifier);
+    defer body.deinit();
+    switch (target) {
+        .agent_id => |value| try body.string("agent_id", value),
+        .user_id => |value| try body.integer("user_id", value),
+    }
+    try body.string("intent", "unassign");
+    var response = try context.fetch(.POST, "/mcp/assignees/assign", try body.finish());
+    defer response.deinit();
+    const code = @intFromEnum(response.status);
+    if (code < 200 or code >= 300) {
+        try context.finish(&response);
+        return error.CommandFailed;
+    }
+    return allocator.dupe(u8, response.body);
+}
+
+/// True when the response's assignees list contains a row linked to `agent_id`.
+/// Null when the response carries no readable assignees list, so a shape
+/// change degrades to the old pass-through instead of a false failure.
+fn agentInAssignees(allocator: std.mem.Allocator, response_body: []const u8, agent_id: []const u8) ?bool {
+    const document = std.json.parseFromSliceLeaky(std.json.Value, allocator, response_body, .{}) catch return null;
+    const assignees = assigneesOfDocument(document) orelse return null;
+    for (assignees) |row| {
+        if (agentIdOfRow(row)) |row_agent| {
+            if (std.mem.eql(u8, row_agent, agent_id)) return true;
+        }
+    }
+    return false;
+}
+
+/// True when the response still shows a plain (not agent-linked) row for `user_id`.
+fn userRowInAssignees(allocator: std.mem.Allocator, response_body: []const u8, user_id: i64) ?bool {
+    const document = std.json.parseFromSliceLeaky(std.json.Value, allocator, response_body, .{}) catch return null;
+    const assignees = assigneesOfDocument(document) orelse return null;
+    for (assignees) |row| {
+        if (agentIdOfRow(row) != null) continue;
+        if (rowUserId(row)) |row_user| {
+            if (row_user == user_id) return true;
+        }
+    }
+    return false;
+}
+
+fn assigneesOfDocument(document: std.json.Value) ?[]std.json.Value {
+    if (document != .object) return null;
+    const assignees = document.object.get("assignees") orelse return null;
+    if (assignees != .array) return null;
+    return assignees.array.items;
+}
+
+/// Assignee rows use `userId` in mutation responses and `id` (the user id) in
+/// task rows from GET /mcp/tasks.
+fn rowUserId(row: std.json.Value) ?i64 {
+    if (row != .object) return null;
+    var field = row.object.get("userId");
+    if (field == null) field = row.object.get("id");
+    const value = field orelse return null;
+    if (value != .integer) return null;
+    return value.integer;
+}
+
+fn agentIdOfRow(row: std.json.Value) ?[]const u8 {
+    if (row != .object) return null;
+    const agent = row.object.get("agent") orelse return null;
+    if (agent != .object) return null;
+    const id = agent.object.get("id") orelse return null;
+    if (id != .string or id.string.len == 0) return null;
+    return id.string;
+}
+
+fn unconfirmedAgent(agent_id: []const u8) error{AssigneeNotConfirmed} {
+    std.debug.print("Error: response did not confirm agent {s} in the task assignees\n", .{agent_id});
+    return error.AssigneeNotConfirmed;
+}
+
+fn stuckAssigneeAgent(agent_id: []const u8) error{AssigneeNotRemoved} {
+    std.debug.print("Error: agent {s} is still in the task assignees after unassign\n", .{agent_id});
+    return error.AssigneeNotRemoved;
+}
+
+fn stuckAssigneeUser(user_id: i64) error{AssigneeNotRemoved} {
+    std.debug.print("Error: user {d} is still in the task assignees after unassign\n", .{user_id});
+    return error.AssigneeNotRemoved;
 }
 
 fn moveToInbox(context: *const Context) !void {
