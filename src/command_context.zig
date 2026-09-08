@@ -85,7 +85,7 @@ pub const Context = struct {
 
     pub fn callWithToken(self: *const Context, token: []const u8, method: std.http.Method, path: []const u8, body: ?[]const u8) !void {
         if (token.len == 0) return error.NoToken;
-        var response = try http.requestWithToken(self.allocator, self.cfg.api_url, token, method, path, body);
+        var response = if (self.request_recorder) |recorder| try recorder.fetch(method, path, body) else try http.requestWithToken(self.allocator, self.cfg.api_url, token, method, path, body);
         defer response.deinit();
         try self.finish(&response);
     }

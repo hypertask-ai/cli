@@ -245,3 +245,56 @@ test "task assign --self sends assign_self without requiring --assignee" {
         "{\"ticket_number\":\"HTPR-6136\",\"assign_self\":true,\"intent\":\"assign\"}",
     );
 }
+
+test "agents update --visibility sends a visibility-only body" {
+    try expectRequest(
+        &.{ "agents", "update", "--id", "agent-1", "--visibility", "TEAM" },
+        .PATCH,
+        "/mcp/agents/agent-1",
+        "{\"visibility\":\"TEAM\"}",
+    );
+    try expectRequest(
+        &.{ "agents", "update", "--id", "agent-1", "--visibility", "PRIVATE" },
+        .PATCH,
+        "/mcp/agents/agent-1",
+        "{\"visibility\":\"PRIVATE\"}",
+    );
+}
+
+test "agents update refuses to mix visibility with project changes or an unknown value" {
+    try expectDispatchError(
+        error.InvalidOptions,
+        &.{ "agents", "update", "--id", "agent-1", "--visibility", "TEAM", "--add-project", "15" },
+    );
+    try expectDispatchError(
+        error.InvalidOptions,
+        &.{ "agents", "update", "--id", "agent-1", "--visibility", "PUBLIC" },
+    );
+}
+
+// The refused-sharing answer the user actually reads is the server's error
+// body, so assert it reaches stdout before the exit code is chosen.
+test "a refused visibility change prints the server error body" {
+    const posix = std.posix;
+    const http = @import("http.zig");
+    const output = @import("output.zig");
+
+    var body_storage =
+        ("{\"success\":false,\"error\":\"Enable a provider key before sharing this agent with the team (TEAM_VISIBILITY_KEY_REQUIRED)\"}").*;
+    var response = http.Response{ .status = .conflict, .body = &body_storage, .allocator = std.testing.allocator };
+
+    const pipe = try posix.pipe();
+    const saved_stdout = try posix.dup(1);
+    try posix.dup2(pipe[1], 1);
+    const result = output.finish(&response);
+    try posix.dup2(saved_stdout, 1);
+    posix.close(saved_stdout);
+    posix.close(pipe[1]);
+
+    try std.testing.expectError(error.ApiFailure, result);
+    var captured: [512]u8 = undefined;
+    const printed = try posix.read(pipe[0], &captured);
+    posix.close(pipe[0]);
+    try std.testing.expect(std.mem.indexOf(u8, captured[0..printed], "TEAM_VISIBILITY_KEY_REQUIRED") != null);
+}
+
