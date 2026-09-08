@@ -35,8 +35,8 @@ fn run() !void {
         try std.fs.File.stdout().writeAll("hypertask " ++ version ++ "\n");
         return;
     }
-    if (parsed.has("help")) return router.printHelp();
-    if (parsed.positional.len == 0) return router.printHelp();
+    if (parsed.has("help")) return router.printHelp(allocator, parsed.positional);
+    if (parsed.positional.len == 0) return router.printHelp(allocator, &.{});
 
     var cfg = try config.load(allocator, parsed.get("token"), parsed.get("api-url"), parsed.get("management-key"));
     defer cfg.deinit();
