@@ -148,7 +148,7 @@ fn create(context: *const Context) !void {
     defer body.deinit();
     try body.integer("project_id", project);
     try body.string("title", try context.args.require("title"));
-    if (context.args.get("description")) |value| {
+    if (try descriptionValue(context)) |value| {
         try body.string("description", value);
         if (context.args.has("markdown")) try body.string("content_type", "markdown");
     }
@@ -176,7 +176,7 @@ fn update(context: *const Context) !void {
     var body = try identifierBody(context, ticket);
     defer body.deinit();
     if (context.args.get("title")) |value| try body.string("title", value);
-    if (context.args.get("description")) |value| {
+    if (try descriptionValue(context)) |value| {
         try body.string("description", value);
         if (context.args.has("markdown")) try body.string("content_type", "markdown");
     }
@@ -343,10 +343,16 @@ fn priority(value: []const u8) i64 {
 
 fn hasUpdateOptions(context: *const Context) bool {
     const names = [_][]const u8{
-        "title", "description", "pull-request", "priority", "estimate", "due", "clear-due", "status", "section", "assignee", "labels", "add-labels", "remove-labels", "parent-task", "clear-parent",
+        "title", "description", "description-file", "pull-request", "priority", "estimate", "due", "clear-due", "status", "section", "assignee", "labels", "add-labels", "remove-labels", "parent-task", "clear-parent",
     };
     for (names) |name| if (context.args.has(name)) return true;
     return false;
+}
+
+/// Reads --description-file if given (taking precedence), otherwise returns --description.
+fn descriptionValue(context: *const Context) !?[]const u8 {
+    if (context.args.get("description-file")) |path| return try common.readFile(context.allocator, path, 2 * 1024 * 1024);
+    return context.args.get("description");
 }
 
 fn responseTicket(context: *const Context, body: []const u8) ![]const u8 {
