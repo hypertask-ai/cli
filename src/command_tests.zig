@@ -256,6 +256,23 @@ test "task assign --self sends assign_self without requiring --assignee" {
     );
 }
 
+test "task update --description-file reads the file and takes precedence over --description" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(.{ .sub_path = "description.html", .data = "<p>from file</p>" });
+    const directory = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(directory);
+    const path = try std.fs.path.join(std.testing.allocator, &.{ directory, "description.html" });
+    defer std.testing.allocator.free(path);
+
+    try expectRequest(
+        &.{ "task", "update", "HTPR-6136", "--description", "ignored", "--description-file", path },
+        .POST,
+        "/mcp/tasks/update",
+        "{\"ticket_number\":\"HTPR-6136\",\"description\":\"<p>from file</p>\"}",
+    );
+}
+
 test "agents update --visibility sends a visibility-only body" {
     try expectRequest(
         &.{ "agents", "update", "--id", "agent-1", "--visibility", "TEAM" },
