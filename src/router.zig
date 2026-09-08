@@ -26,7 +26,7 @@ const view = @import("commands/view.zig");
 const webhook = @import("commands/webhook.zig");
 
 pub fn dispatch(context: *const Context) !void {
-    const root = context.args.positionalAt(0) orelse return printHelp();
+    const root = context.args.positionalAt(0) orelse return printHelp(context.allocator, &.{});
     if (std.mem.eql(u8, root, "login")) return auth.login(context);
     if (std.mem.eql(u8, root, "logout")) return auth.logout(context);
     if (std.mem.eql(u8, root, "status")) return auth.status(context);
@@ -70,12 +70,132 @@ pub fn dispatch(context: *const Context) !void {
     return error.UnknownCommand;
 }
 
-pub fn printHelp() !void {
-    try output.print(
+pub fn printHelp(allocator: std.mem.Allocator, path: []const []const u8) !void {
+    const help = try renderHelp(allocator, path);
+    defer allocator.free(help);
+    try output.print(help);
+}
+
+fn renderHelp(allocator: std.mem.Allocator, path: []const []const u8) ![]u8 {
+    if (path.len == 0) return allocator.dupe(u8,
         \\hypertask 0.2.0 (zig), native Hypertask CLI
         \\
         \\Usage: hypertask [--json] [--token <jwt>] [--api-url <url>] <command> ...
         \\
         \\Run `hypertask capabilities --json` for the complete command and option catalog.
     );
+
+    const catalog = @embedFile("capabilities.json");
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, catalog, .{});
+    defer parsed.deinit();
+
+    var command = parsed.value;
+    var canonical_path: std.ArrayListUnmanaged([]const u8) = .{};
+    defer canonical_path.deinit(allocator);
+    for (path) |segment| {
+        command = findCommand(command, segment) orelse {
+            if ((try arrayField(command, "commands")).len == 0) break;
+            return error.UnknownCommand;
+        };
+        try canonical_path.append(allocator, try stringField(command, "name"));
+    }
+
+    var result: std.ArrayListUnmanaged(u8) = .{};
+    errdefer result.deinit(allocator);
+    const writer = result.writer(allocator);
+
+    try writer.print("{s}\n\nUsage: hypertask", .{try stringField(command, "description")});
+    for (canonical_path.items) |segment| try writer.print(" {s}", .{segment});
+
+    const arguments = try arrayField(command, "arguments");
+    for (arguments) |argument| {
+        const name = try stringField(argument, "name");
+        const required = try boolField(argument, "required");
+        const variadic = try boolField(argument, "variadic");
+        if (required) {
+            try writer.print(" <{s}{s}>", .{ name, if (variadic) "..." else "" });
+        } else {
+            try writer.print(" [{s}{s}]", .{ name, if (variadic) "..." else "" });
+        }
+    }
+
+    const options = try arrayField(command, "options");
+    if (options.len != 0) try writer.writeAll(" [options]");
+    const commands = try arrayField(command, "commands");
+    if (commands.len != 0) try writer.writeAll(" <command>");
+    try writer.writeByte('\n');
+
+    if (options.len != 0) {
+        try writer.writeAll("\nOptions:\n");
+        for (options) |option| {
+            try writer.print("  {s}\n      {s}\n", .{
+                try stringField(option, "flags"),
+                try stringField(option, "description"),
+            });
+        }
+    }
+
+    if (commands.len != 0) {
+        try writer.writeAll("\nCommands:\n");
+        for (commands) |subcommand| {
+            try writer.print("  {s}\n      {s}\n", .{
+                try stringField(subcommand, "name"),
+                try stringField(subcommand, "description"),
+            });
+        }
+    }
+
+    try writer.writeAll("\n  -h, --help\n      Show help\n");
+    return result.toOwnedSlice(allocator);
+}
+
+fn findCommand(parent: std.json.Value, name: []const u8) ?std.json.Value {
+    const commands = arrayField(parent, "commands") catch return null;
+    for (commands) |command| {
+        if (std.mem.eql(u8, stringField(command, "name") catch continue, name)) return command;
+        const aliases = arrayField(command, "aliases") catch continue;
+        for (aliases) |alias| {
+            if (alias == .string and std.mem.eql(u8, alias.string, name)) return command;
+        }
+    }
+    return null;
+}
+
+fn stringField(value: std.json.Value, name: []const u8) ![]const u8 {
+    if (value != .object) return error.InvalidCapabilities;
+    const field = value.object.get(name) orelse return error.InvalidCapabilities;
+    if (field != .string) return error.InvalidCapabilities;
+    return field.string;
+}
+
+fn boolField(value: std.json.Value, name: []const u8) !bool {
+    if (value != .object) return error.InvalidCapabilities;
+    const field = value.object.get(name) orelse return error.InvalidCapabilities;
+    if (field != .bool) return error.InvalidCapabilities;
+    return field.bool;
+}
+
+fn arrayField(value: std.json.Value, name: []const u8) ![]const std.json.Value {
+    if (value != .object) return error.InvalidCapabilities;
+    const field = value.object.get(name) orelse return error.InvalidCapabilities;
+    if (field != .array) return error.InvalidCapabilities;
+    return field.array.items;
+}
+
+test "subcommand help renders command-specific options" {
+    const assign_help = try renderHelp(std.testing.allocator, &.{ "tasks", "assign" });
+    defer std.testing.allocator.free(assign_help);
+    try std.testing.expect(std.mem.indexOf(u8, assign_help, "Usage: hypertask task assign <ticket> [options]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, assign_help, "--assignee <id>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, assign_help, "--self") != null);
+
+    const assign_with_ticket_help = try renderHelp(std.testing.allocator, &.{ "tasks", "assign", "HTPR-6276" });
+    defer std.testing.allocator.free(assign_with_ticket_help);
+    try std.testing.expectEqualStrings(assign_help, assign_with_ticket_help);
+
+    const unassign_help = try renderHelp(std.testing.allocator, &.{ "tasks", "unassign" });
+    defer std.testing.allocator.free(unassign_help);
+    try std.testing.expect(std.mem.indexOf(u8, unassign_help, "Usage: hypertask task unassign <ticket> [options]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, unassign_help, "--assignee <id>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, unassign_help, "--self") == null);
 }
