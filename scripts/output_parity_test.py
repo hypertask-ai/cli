@@ -37,10 +37,17 @@ def run(
     api_url: str,
     home: str,
     *args: str,
+    strip_identity: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["HOME"] = home
-    for name in ("HT_TOKEN", "HYPERTASKS_JWT_TOKEN", "HYPERTASKS_API_URL"):
+    names = ["HT_TOKEN", "HYPERTASKS_JWT_TOKEN", "HYPERTASKS_API_URL"]
+    if strip_identity:
+        # HTPR-6313: agent identity must come only from the caller so the
+        # error path is deterministic regardless of the invoking shell.
+        names += ["HT_AGENT_SLUG", "HT_AGENT_ID", "HT_AGENT_STATE_DIR",
+                  "HT_CAPABILITY_AGENT_SLUG", "HT_CAPABILITY_TICKET", "HT_CAPABILITY_EXPIRES_AT"]
+    for name in names:
         env.pop(name, None)
     return subprocess.run(
         [binary, "--token", token, "--api-url", api_url, *args, "--json"],
@@ -307,6 +314,22 @@ def main() -> None:
             expect(missing.returncode == 4, f"not-found exit was {missing.returncode}")
             expect(missing.stderr == "", f"error leaked to stderr: {missing.stderr!r}")
             expect(json.loads(missing.stdout)["error"] == "Task not found", missing.stdout)
+
+            # HTPR-6313: an agent command run without any agent identity must
+            # fail loudly — non-zero exit, error on stderr, nothing on stdout,
+            # no network call — so a caller checking $? never sees success.
+            identity_args = ("agent", "new-tickets", "--project", "4874"), ("agent", "poll", "--project", "4874")
+            with Handler.lock:
+                before = len(Handler.requests)
+            for args in identity_args:
+                result = run(binary, token, api_url, home, *args, strip_identity=True)
+                expect(result.returncode != 0, f"{' '.join(args)} exited 0 without agent identity")
+                expect(result.stdout == "", f"{' '.join(args)} printed to stdout: {result.stdout!r}")
+                expect("MissingAgentIdentity" in result.stderr, (
+                    f"{' '.join(args)} stderr missing MissingAgentIdentity: {result.stderr!r}"
+                ))
+            with Handler.lock:
+                expect(len(Handler.requests) == before, "identity error made network requests")
 
             expect_command(
                 binary, token, api_url, home,

@@ -37,6 +37,9 @@ jobs:
       - name: Build ReleaseFast CLI
         run: zig build -Doptimize=ReleaseFast
 
+      - name: Test error-path output contract
+        run: python3 scripts/output_parity_test.py zig-out/bin/hypertask
+
       - name: Test customer installers
         run: |
           ./scripts/install_test.sh
