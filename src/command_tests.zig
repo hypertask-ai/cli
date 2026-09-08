@@ -39,6 +39,10 @@ fn expectRequestWithResponses(argv: []const []const u8, responses: []const []con
 }
 
 fn expectDispatchError(expected: anyerror, argv: []const []const u8) !void {
+    return expectDispatchErrorWithResponses(argv, &.{}, expected);
+}
+
+fn expectDispatchErrorWithResponses(argv: []const []const u8, responses: []const []const u8, expected: anyerror) !void {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -47,11 +51,15 @@ fn expectDispatchError(expected: anyerror, argv: []const []const u8) !void {
     defer parsed.deinit();
     var cfg = config.Config{ .allocator = allocator, .token = "test-token" };
     defer cfg.deinit();
+    var recorder = command_context.RequestRecorder.init(allocator);
+    defer recorder.deinit();
+    recorder.responses = responses;
     const context = command_context.Context{
         .allocator = allocator,
         .args = &parsed,
         .cfg = &cfg,
         .json = true,
+        .request_recorder = &recorder,
     };
 
     try std.testing.expectError(expected, router.dispatch(&context));
@@ -253,6 +261,88 @@ test "task assign --self sends assign_self without requiring --assignee" {
         .POST,
         "/mcp/assignees/assign",
         "{\"ticket_number\":\"HTPR-6136\",\"assign_self\":true,\"intent\":\"assign\"}",
+    );
+}
+
+test "task assign --assignee <agent-uuid> is confirmed by that exact agent in the response" {
+    try expectRequestWithResponses(
+        &.{ "task", "assign", "HTPR-6136", "--assignee", "agent-1" },
+        &.{"{\"assignees\":[{\"userId\":6,\"agent\":{\"id\":\"agent-1\"}}]}"},
+        .POST,
+        "/mcp/assignees/assign",
+        "{\"ticket_number\":\"HTPR-6136\",\"agent_id\":\"agent-1\",\"intent\":\"assign\"}",
+    );
+}
+
+test "task assign --assignee <agent-uuid> fails when the response shows a different agent" {
+    try expectDispatchErrorWithResponses(
+        &.{ "task", "assign", "HTPR-6136", "--assignee", "agent-1" },
+        &.{"{\"assignees\":[{\"userId\":6,\"agent\":{\"id\":\"agent-2\"}}]}"},
+        error.AssigneeNotConfirmed,
+    );
+}
+
+test "task unassign --assignee <agent-uuid> succeeds when the row is gone" {
+    try expectRequestWithResponses(
+        &.{ "task", "unassign", "HTPR-6136", "--assignee", "agent-1" },
+        &.{"{\"assignees\":[{\"userId\":6}]}"},
+        .POST,
+        "/mcp/assignees/assign",
+        "{\"ticket_number\":\"HTPR-6136\",\"agent_id\":\"agent-1\",\"intent\":\"unassign\"}",
+    );
+}
+
+test "task unassign --assignee <agent-uuid> fails when the agent row survives" {
+    try expectDispatchErrorWithResponses(
+        &.{ "task", "unassign", "HTPR-6136", "--assignee", "agent-1" },
+        &.{"{\"assignees\":[{\"userId\":6,\"agent\":{\"id\":\"agent-1\"}}]}"},
+        error.AssigneeNotRemoved,
+    );
+}
+
+test "task unassign --assignee <user-id> removes agent-linked rows via their agent id" {
+    // HTPR-6311: `tasks get` shows this row under user id 6, but a user_id
+    // unassign silently no-ops on agent-linked rows.
+    try expectRequestWithResponses(
+        &.{ "task", "unassign", "HTPR-6136", "--assignee", "6" },
+        &.{ "{\"tasks\":[{\"id\":38870,\"assignees\":[{\"id\":6,\"agent\":{\"id\":\"agent-1\"}}]}]}", "{}" },
+        .POST,
+        "/mcp/assignees/assign",
+        "{\"ticket_number\":\"HTPR-6136\",\"agent_id\":\"agent-1\",\"intent\":\"unassign\"}",
+    );
+}
+
+test "task unassign --assignee <user-id> removes a plain row via user_id" {
+    try expectRequestWithResponses(
+        &.{ "task", "unassign", "HTPR-6136", "--assignee", "6" },
+        &.{ "{\"tasks\":[{\"id\":38870,\"assignees\":[{\"id\":6}]}]}", "{}" },
+        .POST,
+        "/mcp/assignees/assign",
+        "{\"ticket_number\":\"HTPR-6136\",\"user_id\":6,\"intent\":\"unassign\"}",
+    );
+}
+
+test "task unassign --assignee <user-id> removes plain and agent rows, then verifies" {
+    try expectRequestWithResponses(
+        &.{ "task", "unassign", "HTPR-6136", "--assignee", "6" },
+        &.{
+            "{\"tasks\":[{\"id\":38870,\"assignees\":[{\"id\":6,\"agent\":{\"id\":\"agent-1\"}},{\"id\":6}]}]}",
+            "{}",
+            "{\"assignees\":[]}",
+        },
+        .POST,
+        "/mcp/assignees/assign",
+        "{\"ticket_number\":\"HTPR-6136\",\"user_id\":6,\"intent\":\"unassign\"}",
+    );
+}
+
+test "task unassign --assignee <user-id> with no matching rows stays an idempotent no-op" {
+    try expectRequestWithResponses(
+        &.{ "task", "unassign", "HTPR-6136", "--assignee", "6" },
+        &.{ "{\"tasks\":[{\"id\":38870,\"assignees\":[{\"id\":7}]}]}", "{}" },
+        .POST,
+        "/mcp/assignees/assign",
+        "{\"ticket_number\":\"HTPR-6136\",\"user_id\":6,\"intent\":\"unassign\"}",
     );
 }
 
