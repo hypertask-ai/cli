@@ -16,16 +16,25 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
         try body.string("role", context.args.get("role") orelse "write");
         try context.callWithToken(token, .POST, "/mcp/admin/agents", try body.finish());
     } else if (std.mem.eql(u8, subcommand, "update")) {
-        const add_inputs = try common.optionList(context, "add-project");
-        const remove_inputs = try common.optionList(context, "remove-project");
-        var changes = try parseProjectChanges(context.allocator, add_inputs, remove_inputs);
-        defer changes.deinit(context.allocator);
-
-        var body = try json.Object.init(context.allocator);
-        defer body.deinit();
-        try writeProjectChanges(&body, &changes);
         const path = try agentPath(context.allocator, try context.args.require("id"));
-        try context.callWithToken(token, .PATCH, path, try body.finish());
+        defer context.allocator.free(path);
+        if (context.args.get("visibility")) |visibility| {
+            try requireVisibilityOnly(context, visibility);
+            var body = try json.Object.init(context.allocator);
+            defer body.deinit();
+            try body.string("visibility", visibility);
+            try context.callWithToken(token, .PATCH, path, try body.finish());
+        } else {
+            const add_inputs = try common.optionList(context, "add-project");
+            const remove_inputs = try common.optionList(context, "remove-project");
+            var changes = try parseProjectChanges(context.allocator, add_inputs, remove_inputs);
+            defer changes.deinit(context.allocator);
+
+            var body = try json.Object.init(context.allocator);
+            defer body.deinit();
+            try writeProjectChanges(&body, &changes);
+            try context.callWithToken(token, .PATCH, path, try body.finish());
+        }
     } else if (std.mem.eql(u8, subcommand, "revoke")) {
         var body = try json.Object.init(context.allocator);
         defer body.deinit();
@@ -108,6 +117,21 @@ fn uniqueProjectIds(
 
 fn requireDeleteConfirmation(confirmed: bool) !void {
     if (!confirmed) return error.ConfirmationRequired;
+}
+
+// The server accepts a visibility change only as a visibility-only body, so
+// mixing it with project changes is refused up front instead of failing later.
+fn requireVisibilityOnly(context: *const Context, visibility: []const u8) !void {
+    const add_inputs = try common.optionList(context, "add-project");
+    const remove_inputs = try common.optionList(context, "remove-project");
+    if (add_inputs.len != 0 or remove_inputs.len != 0) {
+        std.debug.print("--visibility cannot be combined with --add-project/--remove-project; run two commands\n", .{});
+        return error.InvalidOptions;
+    }
+    if (!std.mem.eql(u8, visibility, "TEAM") and !std.mem.eql(u8, visibility, "PRIVATE")) {
+        std.debug.print("--visibility must be TEAM or PRIVATE\n", .{});
+        return error.InvalidOptions;
+    }
 }
 
 fn agentPath(allocator: std.mem.Allocator, id: []const u8) ![]u8 {
