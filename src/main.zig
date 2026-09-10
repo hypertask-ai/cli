@@ -63,6 +63,7 @@ test {
     _ = @import("commands/task.zig");
     _ = @import("commands/agent.zig");
     _ = @import("commands/agent_dev.zig");
+    _ = @import("commands/inbox.zig");
     _ = @import("commands/messages.zig");
     _ = @import("command_tests.zig");
 }
