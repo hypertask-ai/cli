@@ -181,10 +181,13 @@ fn textOf(value: ?std.json.Value) ?[]const u8 {
 
 fn writeTextCell(writer: anytype, value: []const u8) !void {
     for (value) |byte| {
-        try writer.writeByte(switch (byte) {
-            '\t', '\r', '\n' => ' ',
-            else => byte,
-        });
+        // Replace C0 controls and DEL (including ESC) so ticket/project strings
+        // cannot inject ANSI/OSC sequences into a terminal TSV pipe.
+        if (byte < 0x20 or byte == 0x7f) {
+            try writer.writeByte(' ');
+            continue;
+        }
+        try writer.writeByte(byte);
     }
 }
 
@@ -246,6 +249,18 @@ test "inbox JSON omits agent_notifications when the API did not send it" {
     defer parsed.deinit();
     try std.testing.expect(parsed.value.object.get("user_notifications") != null);
     try std.testing.expect(parsed.value.object.get("structuredData") != null);
+}
+
+test "inbox human mode strips control bytes from TSV cells" {
+    const body =
+        \\{"success":true,"user_notifications":[{"id":1,"type":"Comment","seen":false,"status":"Normal","createdAt":"t","project":{"title":"Bo\u001bard"},"task":{"ticketNumber":"HT\tPR"}}],"agent_notifications":[]}
+    ;
+    const formatted = try formatInboxTsv(std.testing.allocator, body);
+    defer std.testing.allocator.free(formatted);
+    try std.testing.expect(std.mem.indexOf(u8, formatted, "\x1b") == null);
+    try std.testing.expect(std.mem.indexOf(u8, formatted, "\tPR") == null);
+    try std.testing.expect(std.mem.indexOf(u8, formatted, "Bo ard") != null);
+    try std.testing.expect(std.mem.indexOf(u8, formatted, "HT PR") != null);
 }
 
 test "inbox human mode prints one TSV row per notification" {
