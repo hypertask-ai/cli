@@ -185,14 +185,25 @@ fn textOf(value: ?std.json.Value) ?[]const u8 {
 }
 
 fn writeTextCell(writer: anytype, value: []const u8) !void {
-    for (value) |byte| {
-        // Replace C0 controls and DEL (including ESC) so ticket/project strings
-        // cannot inject ANSI/OSC sequences into a terminal TSV pipe.
-        if (byte < 0x20 or byte == 0x7f) {
+    var index: usize = 0;
+    while (index < value.len) {
+        const sequence_length = std.unicode.utf8ByteSequenceLength(value[index]) catch 1;
+        const end = index + sequence_length;
+        const codepoint = if (end <= value.len) std.unicode.utf8Decode(value[index..end]) catch null else null;
+        if (codepoint == null) {
             try writer.writeByte(' ');
+            index += 1;
             continue;
         }
-        try writer.writeByte(byte);
+        // Replace C0, DEL, and Unicode C1 controls so titles cannot inject
+        // ANSI/OSC sequences (including UTF-8-encoded CSI/OSC).
+        const decoded = codepoint.?;
+        if (decoded < 0x20 or decoded == 0x7f or (decoded >= 0x80 and decoded <= 0x9f)) {
+            try writer.writeByte(' ');
+        } else {
+            try writer.writeAll(value[index..end]);
+        }
+        index = end;
     }
 }
 
@@ -258,13 +269,14 @@ test "inbox JSON omits agent_notifications when the API did not send it" {
 
 test "inbox human mode strips control bytes from TSV cells" {
     const body =
-        \\{"success":true,"user_notifications":[{"id":1,"type":"Comment","seen":false,"status":"Normal","createdAt":"t","project":{"title":"Bo\u001bard"},"task":{"ticketNumber":"HT\tPR"}}],"agent_notifications":[]}
+        \\{"success":true,"user_notifications":[{"id":1,"type":"Comment","seen":false,"status":"Normal","createdAt":"t","project":{"title":"Bo\u001b\u009bard"},"task":{"ticketNumber":"HT\tPR"}}],"agent_notifications":[]}
     ;
     const formatted = try formatInboxTsv(std.testing.allocator, body);
     defer std.testing.allocator.free(formatted);
     try std.testing.expect(std.mem.indexOf(u8, formatted, "\x1b") == null);
+    try std.testing.expect(std.mem.indexOf(u8, formatted, "\xc2\x9b") == null);
     try std.testing.expect(std.mem.indexOf(u8, formatted, "\tPR") == null);
-    try std.testing.expect(std.mem.indexOf(u8, formatted, "Bo ard") != null);
+    try std.testing.expect(std.mem.indexOf(u8, formatted, "Bo  ard") != null);
     try std.testing.expect(std.mem.indexOf(u8, formatted, "HT PR") != null);
 }
 
