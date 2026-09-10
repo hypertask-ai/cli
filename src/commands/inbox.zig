@@ -96,15 +96,20 @@ fn formatInboxTsv(allocator: std.mem.Allocator, body: []const u8) ![]u8 {
     if (parsed.value != .object) return error.InvalidResponse;
 
     const root = parsed.value.object;
+    const user_rows = notificationArray(root, "user_notifications") orelse
+        notificationArray(root, "notifications");
+    const agent_rows = notificationArray(root, "agent_notifications");
+    if (user_rows == null and agent_rows == null) return error.InvalidResponse;
+
     var out: std.ArrayListUnmanaged(u8) = .{};
     errdefer out.deinit(allocator);
     const writer = out.writer(allocator);
     try writer.writeAll("id\ttype\tticket\tproject\tcreatedAt\tseen\tstatus\n");
 
-    if (notificationArray(root, "user_notifications") orelse notificationArray(root, "notifications")) |rows| {
+    if (user_rows) |rows| {
         try writeNotificationRows(writer, rows.array.items);
     }
-    if (notificationArray(root, "agent_notifications")) |rows| {
+    if (agent_rows) |rows| {
         try writeNotificationRows(writer, rows.array.items);
     }
     return out.toOwnedSlice(allocator);
