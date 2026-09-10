@@ -96,15 +96,20 @@ fn formatInboxTsv(allocator: std.mem.Allocator, body: []const u8) ![]u8 {
     if (parsed.value != .object) return error.InvalidResponse;
 
     const root = parsed.value.object;
+    const user_rows = notificationArray(root, "user_notifications") orelse
+        notificationArray(root, "notifications");
+    const agent_rows = notificationArray(root, "agent_notifications");
+    if (user_rows == null and agent_rows == null) return error.InvalidResponse;
+
     var out: std.ArrayListUnmanaged(u8) = .{};
     errdefer out.deinit(allocator);
     const writer = out.writer(allocator);
     try writer.writeAll("id\ttype\tticket\tproject\tcreatedAt\tseen\tstatus\n");
 
-    if (notificationArray(root, "user_notifications") orelse notificationArray(root, "notifications")) |rows| {
+    if (user_rows) |rows| {
         try writeNotificationRows(writer, rows.array.items);
     }
-    if (notificationArray(root, "agent_notifications")) |rows| {
+    if (agent_rows) |rows| {
         try writeNotificationRows(writer, rows.array.items);
     }
     return out.toOwnedSlice(allocator);
@@ -180,11 +185,25 @@ fn textOf(value: ?std.json.Value) ?[]const u8 {
 }
 
 fn writeTextCell(writer: anytype, value: []const u8) !void {
-    for (value) |byte| {
-        try writer.writeByte(switch (byte) {
-            '\t', '\r', '\n' => ' ',
-            else => byte,
-        });
+    var index: usize = 0;
+    while (index < value.len) {
+        const sequence_length = std.unicode.utf8ByteSequenceLength(value[index]) catch 1;
+        const end = index + sequence_length;
+        const codepoint = if (end <= value.len) std.unicode.utf8Decode(value[index..end]) catch null else null;
+        if (codepoint == null) {
+            try writer.writeByte(' ');
+            index += 1;
+            continue;
+        }
+        // Replace C0, DEL, and Unicode C1 controls so titles cannot inject
+        // ANSI/OSC sequences (including UTF-8-encoded CSI/OSC).
+        const decoded = codepoint.?;
+        if (decoded < 0x20 or decoded == 0x7f or (decoded >= 0x80 and decoded <= 0x9f)) {
+            try writer.writeByte(' ');
+        } else {
+            try writer.writeAll(value[index..end]);
+        }
+        index = end;
     }
 }
 
@@ -246,6 +265,19 @@ test "inbox JSON omits agent_notifications when the API did not send it" {
     defer parsed.deinit();
     try std.testing.expect(parsed.value.object.get("user_notifications") != null);
     try std.testing.expect(parsed.value.object.get("structuredData") != null);
+}
+
+test "inbox human mode strips control bytes from TSV cells" {
+    const body =
+        \\{"success":true,"user_notifications":[{"id":1,"type":"Comment","seen":false,"status":"Normal","createdAt":"t","project":{"title":"Bo\u001b\u009bard"},"task":{"ticketNumber":"HT\tPR"}}],"agent_notifications":[]}
+    ;
+    const formatted = try formatInboxTsv(std.testing.allocator, body);
+    defer std.testing.allocator.free(formatted);
+    try std.testing.expect(std.mem.indexOf(u8, formatted, "\x1b") == null);
+    try std.testing.expect(std.mem.indexOf(u8, formatted, "\xc2\x9b") == null);
+    try std.testing.expect(std.mem.indexOf(u8, formatted, "\tPR") == null);
+    try std.testing.expect(std.mem.indexOf(u8, formatted, "Bo  ard") != null);
+    try std.testing.expect(std.mem.indexOf(u8, formatted, "HT PR") != null);
 }
 
 test "inbox human mode prints one TSV row per notification" {
