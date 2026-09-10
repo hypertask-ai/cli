@@ -66,11 +66,9 @@ fn formatInboxJson(allocator: std.mem.Allocator, body: []const u8) ![]u8 {
     } else {
         try writer.writeAll("[]");
     }
-    try writer.writeAll(",\"agent_notifications\":");
     if (agent_rows) |rows| {
+        try writer.writeAll(",\"agent_notifications\":");
         try writeJsonValue(allocator, writer, rows.*);
-    } else {
-        try writer.writeAll("[]");
     }
 
     var iterator = root.iterator();
@@ -235,6 +233,19 @@ test "inbox JSON puts notification rows before tab indexes" {
     const rows = parsed.value.object.get("user_notifications").?.array;
     try std.testing.expectEqual(@as(usize, 1), rows.items.len);
     try std.testing.expectEqual(@as(i64, 9), rows.items[0].object.get("id").?.integer);
+}
+
+test "inbox JSON omits agent_notifications when the API did not send it" {
+    const body =
+        \\{"success":true,"structuredData":{"tabs":[{"idx":0}],"data":[[0]]},"user_notifications":[{"id":9,"type":"Comment"}],"splitsNoImportant":[],"showImportantSplit":false}
+    ;
+    const formatted = try formatInboxJson(std.testing.allocator, body);
+    defer std.testing.allocator.free(formatted);
+    try std.testing.expect(std.mem.indexOf(u8, formatted, "\"agent_notifications\"") == null);
+    const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, formatted, .{});
+    defer parsed.deinit();
+    try std.testing.expect(parsed.value.object.get("user_notifications") != null);
+    try std.testing.expect(parsed.value.object.get("structuredData") != null);
 }
 
 test "inbox human mode prints one TSV row per notification" {
