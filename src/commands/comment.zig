@@ -68,10 +68,20 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
 }
 
 fn addIdentifierQuery(path: *query.Builder, context: *const Context, identifier: []const u8) !void {
+    if (resolve.isNumeric(identifier) and resolve.internalId(identifier) == null and context.args.get("project") != null) {
+        const found = try resolve.task(context, identifier);
+        try path.addInt("task_id", found.id);
+        return;
+    }
     try resolve.addTaskIdentifierQueryForProject(path, context.allocator, identifier, context.args.get("project"));
 }
 
 fn addIdentifierBody(body: *json.Object, context: *const Context, identifier: []const u8) !void {
+    if (resolve.isNumeric(identifier) and resolve.internalId(identifier) == null and context.args.get("project") != null) {
+        const found = try resolve.task(context, identifier);
+        try body.integer("task_id", found.id);
+        return;
+    }
     try resolve.addTaskIdentifierBodyForProject(body, context.allocator, identifier, context.args.get("project"));
 }
 
@@ -136,13 +146,12 @@ test "explicit internal comment identifiers use task_id" {
     try std.testing.expectEqualStrings("{\"task_id\":34874,\"text\":\"x\"}", try body.finish());
 }
 
-test "bare numeric comment identifiers refuse to guess a board" {
+test "bare numeric comment identifiers use task_id without a project" {
     var body = try json.Object.init(std.testing.allocator);
     defer body.deinit();
-    try std.testing.expectError(
-        error.AmbiguousTaskIdentifier,
-        resolve.addTaskIdentifierBody(&body, std.testing.allocator, "6162"),
-    );
+    try resolve.addTaskIdentifierBody(&body, std.testing.allocator, "6162");
+    try body.string("text", "x");
+    try std.testing.expectEqualStrings("{\"task_id\":6162,\"text\":\"x\"}", try body.finish());
 }
 
 test "comment ticket identifiers keep ticket_number" {

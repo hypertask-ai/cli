@@ -25,17 +25,6 @@ pub fn internalId(value: []const u8) ?[]const u8 {
     return if (isNumeric(digits)) digits else null;
 }
 
-/// A bare number means the ticket index inside one project, so without a project
-/// it names nothing: internal task ids and per-project ticket numbers overlap, and
-/// guessing sent commands to an unrelated task on another board.
-fn ambiguousIdentifier(identifier: []const u8) anyerror {
-    std.debug.print(
-        "{s} is ambiguous: pass --project <id> to read it as a ticket number, use the full ticket (PREFIX-{s}), or id:{s} for the internal task id\n",
-        .{ identifier, identifier, identifier },
-    );
-    return error.AmbiguousTaskIdentifier;
-}
-
 pub fn normalizedTicket(allocator: std.mem.Allocator, value: []const u8) ![]u8 {
     const trimmed = std.mem.trim(u8, value, " \t\r\n");
     const separator = std.mem.indexOfScalar(u8, trimmed, '-') orelse return error.InvalidTicket;
@@ -59,11 +48,16 @@ pub fn addTaskIdentifierQueryForProject(path: *query_mod.Builder, allocator: std
         return path.add("task_id", task_id);
     }
     if (isNumeric(identifier)) {
-        const project_id = project orelse return ambiguousIdentifier(identifier);
-        _ = try common.positiveInt(identifier, "ticket");
-        _ = try common.positiveInt(project_id, "project");
-        try path.add("unique_index", identifier);
-        return path.add("project_id", project_id);
+        // Bare digits are the internal list `id`. Board indexes need --project and
+        // go through resolve.task (dual lookup); pure encoders with --project keep
+        // unique_index for callers that have not resolved yet.
+        _ = try common.positiveInt(identifier, "task-id");
+        if (project) |project_id| {
+            _ = try common.positiveInt(project_id, "project");
+            try path.add("unique_index", identifier);
+            return path.add("project_id", project_id);
+        }
+        return path.add("task_id", identifier);
     }
     const ticket = try normalizedTicket(allocator, identifier);
     defer allocator.free(ticket);
@@ -83,9 +77,11 @@ pub fn addTaskIdentifierBodyForProject(body: *json.Object, allocator: std.mem.Al
         return body.integer("task_id", try common.positiveInt(task_id, "task-id"));
     }
     if (isNumeric(identifier)) {
-        const project_id = project orelse return ambiguousIdentifier(identifier);
-        try body.integer("unique_index", try common.positiveInt(identifier, "ticket"));
-        return body.integer("project_id", try common.positiveInt(project_id, "project"));
+        if (project) |project_id| {
+            try body.integer("unique_index", try common.positiveInt(identifier, "ticket"));
+            return body.integer("project_id", try common.positiveInt(project_id, "project"));
+        }
+        return body.integer("task_id", try common.positiveInt(identifier, "task-id"));
     }
     const ticket = try normalizedTicket(allocator, identifier);
     defer allocator.free(ticket);
@@ -93,29 +89,89 @@ pub fn addTaskIdentifierBodyForProject(body: *json.Object, allocator: std.mem.Al
     if (project) |project_id| try body.integer("project_id", try common.positiveInt(project_id, "project"));
 }
 
+/// Resolve an identifier to one internal task. Bare digits without --project are
+/// the list `id`. With --project, unique_index and task_id are both read; a
+/// collision or project mismatch fails closed.
 pub fn task(context: *const Context, identifier: []const u8) !Task {
-    if (internalId(identifier)) |task_id| return fetchTask(context, "task_id", task_id, null);
+    if (internalId(identifier)) |task_id| return fetchTaskRequired(context, "task_id", task_id, null);
     if (isNumeric(identifier)) {
-        const project = context.args.get("project") orelse return ambiguousIdentifier(identifier);
-        return fetchTask(context, "unique_index", identifier, project);
+        _ = try common.positiveInt(identifier, "task-id");
+        if (context.args.get("project")) |project| {
+            const project_id = try common.positiveInt(project, "project");
+            return resolveBareWithProject(context, identifier, project, project_id);
+        }
+        return fetchTaskRequired(context, "task_id", identifier, null);
     }
     const ticket = try normalizedTicket(context.allocator, identifier);
     defer context.allocator.free(ticket);
-    return fetchTask(context, "ticket_number", ticket, context.args.get("project"));
+    return fetchTaskRequired(context, "ticket_number", ticket, context.args.get("project"));
 }
 
-fn fetchTask(context: *const Context, key: []const u8, value: []const u8, project: ?[]const u8) !Task {
+fn resolveBareWithProject(context: *const Context, identifier: []const u8, project: []const u8, project_id: i64) !Task {
+    const by_index = try fetchTaskOptional(context, "unique_index", identifier, project);
+    const by_id = try fetchTaskOptional(context, "task_id", identifier, null);
+
+    const by_id_in_project: ?Task = if (by_id) |found|
+        if (found.project_id == project_id) found else null
+    else
+        null;
+
+    if (by_index) |index_task| {
+        if (by_id_in_project) |id_task| {
+            if (index_task.id != id_task.id) return collidingIdentifiers(identifier, project, index_task.id, id_task.id);
+            return index_task;
+        }
+        return index_task;
+    }
+    if (by_id_in_project) |id_task| return id_task;
+    if (by_id) |found| {
+        std.debug.print(
+            "{s} is task id {d} on project {d}, not project {s}\n",
+            .{ identifier, found.id, found.project_id, project },
+        );
+        return error.InvalidProject;
+    }
+    return error.TaskNotFound;
+}
+
+fn collidingIdentifiers(identifier: []const u8, project: []const u8, unique_task_id: i64, list_task_id: i64) error{AmbiguousTaskIdentifier}!Task {
+    std.debug.print(
+        "{s} with --project {s} matches unique_index task id {d} and list id {d}; use PREFIX-{s} or id:{d}\n",
+        .{ identifier, project, unique_task_id, list_task_id, identifier, list_task_id },
+    );
+    return error.AmbiguousTaskIdentifier;
+}
+
+fn fetchTaskRequired(context: *const Context, key: []const u8, value: []const u8, project: ?[]const u8) !Task {
+    return (try fetchTaskOptional(context, key, value, project)) orelse error.TaskNotFound;
+}
+
+/// Read-only lookup. Empty success payloads become null. Auth, 5xx, and other
+/// transport failures propagate so callers never fall back after a soft error.
+fn fetchTaskOptional(context: *const Context, key: []const u8, value: []const u8, project: ?[]const u8) !?Task {
+    try context.requireAuth();
     var query = try query_mod.Builder.init(context.allocator, "/mcp/tasks");
     defer query.deinit();
     try query.add(key, value);
     if (project) |project_id| try query.add("project_id", project_id);
     var response = try context.fetch(.GET, query.path(), null);
     defer response.deinit();
-    if (@intFromEnum(response.status) < 200 or @intFromEnum(response.status) >= 300) return error.CommandFailed;
+    const code = @intFromEnum(response.status);
+    if (code == 404) return null;
+    if (code < 200 or code >= 300) return error.CommandFailed;
     const parsed = try std.json.parseFromSlice(std.json.Value, context.allocator, response.body, .{});
     defer parsed.deinit();
-    const tasks = parsed.value.object.get("tasks") orelse return error.TaskNotFound;
-    if (tasks != .array or tasks.array.items.len == 0) return error.TaskNotFound;
+    if (parsed.value != .object) return error.InvalidResponse;
+    if (parsed.value.object.get("success")) |success| {
+        if (success == .bool and success.bool == false) {
+            if (parsed.value.object.get("error")) |err_value| {
+                if (err_value == .string and std.mem.indexOf(u8, err_value.string, "not found") != null) return null;
+            }
+            return error.CommandFailed;
+        }
+    }
+    const tasks = parsed.value.object.get("tasks") orelse return null;
+    if (tasks != .array or tasks.array.items.len == 0) return null;
     const row = tasks.array.items[0];
     const id = jsonInteger(row, "id") orelse return error.InvalidResponse;
     const project_id = jsonInteger(row, "projectId") orelse jsonInteger(row, "project_id") orelse return error.InvalidResponse;
@@ -150,7 +206,7 @@ pub fn sectionId(context: *const Context, project_id: i64, value: []const u8) !i
     return error.SectionNotFound;
 }
 
-test "task identifier helpers normalize tickets and reject invalid values" {
+test "task identifier helpers normalize tickets and accept bare list ids" {
     var numeric_path = try query_mod.Builder.init(std.testing.allocator, "/mcp/drafts");
     defer numeric_path.deinit();
     try addTaskIdentifierQuery(&numeric_path, std.testing.allocator, "id:123");
@@ -158,17 +214,13 @@ test "task identifier helpers normalize tickets and reject invalid values" {
 
     var bare_path = try query_mod.Builder.init(std.testing.allocator, "/mcp/drafts");
     defer bare_path.deinit();
-    try std.testing.expectError(
-        error.AmbiguousTaskIdentifier,
-        addTaskIdentifierQuery(&bare_path, std.testing.allocator, "123"),
-    );
+    try addTaskIdentifierQuery(&bare_path, std.testing.allocator, "123");
+    try std.testing.expectEqualStrings("/mcp/drafts?task_id=123", bare_path.path());
 
     var bare_body = try json.Object.init(std.testing.allocator);
     defer bare_body.deinit();
-    try std.testing.expectError(
-        error.AmbiguousTaskIdentifier,
-        addTaskIdentifierBody(&bare_body, std.testing.allocator, "123"),
-    );
+    try addTaskIdentifierBody(&bare_body, std.testing.allocator, "123");
+    try std.testing.expectEqualStrings("{\"task_id\":123}", try bare_body.finish());
 
     var ticket_path = try query_mod.Builder.init(std.testing.allocator, "/mcp/drafts");
     defer ticket_path.deinit();
@@ -192,4 +244,11 @@ test "task identifier helpers normalize tickets and reject invalid values" {
 
     try std.testing.expectError(error.InvalidTicket, normalizedTicket(std.testing.allocator, "not-a-ticket"));
     try std.testing.expectError(error.InvalidTicket, normalizedTicket(std.testing.allocator, "123-4"));
+}
+
+test "colliding bare identifiers refuse to guess" {
+    try std.testing.expectError(
+        error.AmbiguousTaskIdentifier,
+        collidingIdentifiers("5834", "15", 100, 200),
+    );
 }

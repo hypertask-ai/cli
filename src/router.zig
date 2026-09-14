@@ -195,7 +195,9 @@ test "subcommand help renders command-specific options" {
 
     const unassign_help = try renderHelp(std.testing.allocator, &.{ "tasks", "unassign" });
     defer std.testing.allocator.free(unassign_help);
-    try std.testing.expect(std.mem.indexOf(u8, unassign_help, "Usage: hypertask task unassign <ticket> [options]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, unassign_help, "Usage: hypertask task unassign") != null);
     try std.testing.expect(std.mem.indexOf(u8, unassign_help, "--assignee <id>") != null);
-    try std.testing.expect(std.mem.indexOf(u8, unassign_help, "--self") == null);
+    try std.testing.expect(std.mem.indexOf(u8, unassign_help, "--all") != null);
+    try std.testing.expect(std.mem.indexOf(u8, unassign_help, "--project <id>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, unassign_help, "--self") != null);
 }

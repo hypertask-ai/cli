@@ -103,11 +103,33 @@ test "tasks list resolves --labels into a labels query filter" {
 }
 
 test "task get distinguishes internal ids from project ticket indexes" {
-    try expectRequest(
+    try expectRequestWithResponses(
         &.{ "tasks", "get", "5661", "--project", "15" },
+        &.{
+            "{\"success\":true,\"tasks\":[{\"id\":9001,\"projectId\":15}]}",
+            "{\"success\":true,\"tasks\":[]}",
+        },
         .GET,
-        "/mcp/tasks?unique_index=5661&project_id=15",
+        "/mcp/tasks?task_id=9001",
         null,
+    );
+    try expectRequestWithResponses(
+        &.{ "tasks", "get", "40451", "--project", "15" },
+        &.{
+            "{\"success\":true,\"tasks\":[]}",
+            "{\"success\":true,\"tasks\":[{\"id\":40451,\"projectId\":15}]}",
+        },
+        .GET,
+        "/mcp/tasks?task_id=40451",
+        null,
+    );
+    try expectDispatchErrorWithResponses(
+        &.{ "tasks", "get", "5834", "--project", "15" },
+        &.{
+            "{\"success\":true,\"tasks\":[{\"id\":100,\"projectId\":15}]}",
+            "{\"success\":true,\"tasks\":[{\"id\":200,\"projectId\":15}]}",
+        },
+        error.AmbiguousTaskIdentifier,
     );
     try expectRequest(
         &.{ "tasks", "get", "htpr-5661" },
@@ -121,8 +143,18 @@ test "task get distinguishes internal ids from project ticket indexes" {
         "/mcp/tasks?task_id=35672",
         null,
     );
-    try expectDispatchError(error.AmbiguousTaskIdentifier, &.{ "tasks", "get", "6162" });
-    try expectDispatchError(error.AmbiguousTaskIdentifier, &.{ "comment", "add", "6162", "--text", "hi" });
+    try expectRequest(
+        &.{ "tasks", "get", "6162" },
+        .GET,
+        "/mcp/tasks?task_id=6162",
+        null,
+    );
+    try expectRequest(
+        &.{ "comment", "add", "6162", "--text", "hi" },
+        .POST,
+        "/mcp/comments",
+        "{\"task_id\":6162,\"text\":\"hi\"}",
+    );
 }
 
 test "messages poll rejects invalid cursors before making a request" {

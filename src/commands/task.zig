@@ -232,6 +232,12 @@ fn assign(context: *const Context, intent: []const u8) !void {
     const assignee = context.args.get("assignee");
     if (self_flag and assignee != null) output.fail("Error: use either --self or --assignee, not both");
     if (!self_flag and assignee == null) output.fail("Error: provide --assignee <id> or --self");
+    if (context.args.has("all")) {
+        if (!std.mem.eql(u8, intent, "unassign")) output.fail("Error: --all is only valid for tasks unassign");
+        if (context.args.positionalAt(2) != null) output.fail("Error: --all cannot be combined with a ticket argument");
+        if (context.args.get("project") == null) output.fail("Error: --all requires --project <id>");
+        return unassignAll(context);
+    }
     const identifier = try context.args.requirePositional(2, "ticket-or-task-id");
     if (!self_flag and std.mem.eql(u8, intent, "unassign") and resolve.isNumeric(assignee.?)) {
         return unassignById(context, identifier, assignee.?);
@@ -267,16 +273,22 @@ fn assign(context: *const Context, intent: []const u8) !void {
     try context.print(response.body);
 }
 
-const AssigneeTarget = union(enum) {
-    agent_id: []const u8,
-    user_id: i64,
-};
+fn unassignById(context: *const Context, identifier: []const u8, user_id_text: []const u8) !void {
+    var arena = std.heap.ArenaAllocator.init(context.allocator);
+    defer arena.deinit();
+    const body = try unassignByIdCore(context, arena.allocator(), identifier, user_id_text);
+    try context.print(body);
+}
+
+fn unassignByIdQuiet(context: *const Context, allocator: std.mem.Allocator, identifier: []const u8, user_id_text: []const u8) !void {
+    _ = try unassignByIdCore(context, allocator, identifier, user_id_text);
+}
 
 /// HTPR-6311: `tasks get` shows every assignee row under its numeric user id,
 /// but a user_id unassign only matches plain rows and silently no-ops on
 /// agent-linked rows. Unassign each displayed row with the id that actually
 /// identifies it: agent-linked rows via their agent id, plain rows via user_id.
-fn unassignById(context: *const Context, identifier: []const u8, user_id_text: []const u8) !void {
+fn unassignByIdCore(context: *const Context, allocator: std.mem.Allocator, identifier: []const u8, user_id_text: []const u8) ![]const u8 {
     const user_id = try common.positiveInt(user_id_text, "assignee");
     var list_path = try query.Builder.init(context.allocator, "/mcp/tasks");
     defer list_path.deinit();
@@ -284,11 +296,8 @@ fn unassignById(context: *const Context, identifier: []const u8, user_id_text: [
     var list_response = try context.fetch(.GET, list_path.path(), null);
     defer list_response.deinit();
     const list_code = @intFromEnum(list_response.status);
-    if (list_code < 200 or list_code >= 300) return context.finish(&list_response);
+    if (list_code < 200 or list_code >= 300) return error.CommandFailed;
 
-    var arena = std.heap.ArenaAllocator.init(context.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
     const document = std.json.parseFromSliceLeaky(std.json.Value, allocator, list_response.body, .{}) catch return error.InvalidResponse;
     var agent_ids: std.ArrayListUnmanaged([]const u8) = .{};
     var has_plain = false;
@@ -323,15 +332,72 @@ fn unassignById(context: *const Context, identifier: []const u8, user_id_text: [
         // either the removal itself or the old idempotent no-op.
         final_body = try postAssigneeMutation(context, allocator, identifier, .{ .user_id = user_id });
     }
-    const body = final_body orelse return;
+    const body = final_body orelse return error.CommandFailed;
     for (agent_ids.items) |agent_id| {
         if (agentInAssignees(allocator, body, agent_id) == true) return stuckAssigneeAgent(agent_id);
     }
     if (has_plain and userRowInAssignees(allocator, body, user_id) == true) {
         return stuckAssigneeUser(user_id);
     }
-    try context.print(body);
+    return body;
 }
+
+fn postAssigneeMutationQuiet(
+    context: *const Context,
+    allocator: std.mem.Allocator,
+    identifier: []const u8,
+    target: BulkAssigneeTarget,
+) !void {
+    var body = try identifierBody(context, identifier);
+    defer body.deinit();
+    switch (target) {
+        .assign_self => try body.boolean("assign_self", true),
+        .agent_id => |value| try body.string("agent_id", value),
+        .user_id => |value| try body.integer("user_id", value),
+    }
+    try body.string("intent", "unassign");
+    var response = try context.fetch(.POST, "/mcp/assignees/assign", try body.finish());
+    defer response.deinit();
+    const code = @intFromEnum(response.status);
+    if (code < 200 or code >= 300) return error.CommandFailed;
+    try requireAssigneeSuccess(allocator, response.body);
+    switch (target) {
+        .agent_id => |value| if (agentInAssignees(allocator, response.body, value) != false) return stuckAssigneeAgent(value),
+        .assign_self => if (selfStillAssigned(allocator, response.body)) return error.AssigneeNotRemoved,
+        .user_id => |value| if (userRowInAssignees(allocator, response.body, value) == true) return stuckAssigneeUser(value),
+    }
+}
+
+fn requireAssigneeSuccess(allocator: std.mem.Allocator, response_body: []const u8) !void {
+    const document = std.json.parseFromSliceLeaky(std.json.Value, allocator, response_body, .{}) catch return error.InvalidResponse;
+    if (document != .object) return error.InvalidResponse;
+    if (document.object.get("success")) |success| {
+        if (success == .bool and success.bool == false) return error.CommandFailed;
+    }
+}
+
+fn selfStillAssigned(allocator: std.mem.Allocator, response_body: []const u8) bool {
+    // assign_self unassign should leave no row whose agent matches the calling
+    // session. When assignees are missing from the payload, fail closed.
+    const document = std.json.parseFromSliceLeaky(std.json.Value, allocator, response_body, .{}) catch return true;
+    if (document != .object) return true;
+    const agent = document.object.get("agent") orelse return true;
+    if (agent != .object) return true;
+    const agent_id_value = agent.object.get("id") orelse return true;
+    if (agent_id_value != .string) return true;
+    return agentInAssignees(allocator, response_body, agent_id_value.string) != false;
+}
+
+const BulkAssigneeTarget = union(enum) {
+    assign_self,
+    agent_id: []const u8,
+    user_id: i64,
+};
+
+const AssigneeTarget = union(enum) {
+    agent_id: []const u8,
+    user_id: i64,
+};
 
 fn postAssigneeMutation(
     context: *const Context,
@@ -503,14 +569,139 @@ fn searchValue(context: *const Context, value: []const u8) !void {
 }
 
 fn addIdentifierQuery(path: *query.Builder, context: *const Context, identifier: []const u8) !void {
+    // Bare digits with --project need a read-only dual lookup before encoding so
+    // list `id` and board indexes cannot silently collide on a mutation.
+    if (resolve.isNumeric(identifier) and resolve.internalId(identifier) == null and context.args.get("project") != null) {
+        const found = try resolve.task(context, identifier);
+        try path.addInt("task_id", found.id);
+        return;
+    }
     try resolve.addTaskIdentifierQueryForProject(path, context.allocator, identifier, context.args.get("project"));
 }
 
 fn identifierBody(context: *const Context, identifier: []const u8) !json.Object {
     var body = try json.Object.init(context.allocator);
     errdefer body.deinit();
+    if (resolve.isNumeric(identifier) and resolve.internalId(identifier) == null and context.args.get("project") != null) {
+        const found = try resolve.task(context, identifier);
+        try body.integer("task_id", found.id);
+        return body;
+    }
     try resolve.addTaskIdentifierBodyForProject(&body, context.allocator, identifier, context.args.get("project"));
     return body;
+}
+
+const bulk_unassign_statuses = [_][]const u8{ "Normal", "Archive", "Deleted" };
+const bulk_unassign_page_size: usize = 100;
+
+fn unassignAll(context: *const Context) !void {
+    const project = try context.args.require("project");
+    _ = try common.positiveInt(project, "project");
+    const self_flag = context.args.has("self");
+    const assignee = context.args.get("assignee");
+
+    var arena = std.heap.ArenaAllocator.init(context.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const assigned_to = if (self_flag) "me" else assignee.?;
+    var task_ids: std.ArrayListUnmanaged(i64) = .{};
+    var seen = std.AutoHashMap(i64, void).init(allocator);
+    for (bulk_unassign_statuses) |status| {
+        try collectAssignedTaskIds(context, allocator, &task_ids, &seen, project, assigned_to, status);
+    }
+
+    var succeeded: usize = 0;
+    var failed: usize = 0;
+    var failures: std.ArrayListUnmanaged([]const u8) = .{};
+    for (task_ids.items) |task_id| {
+        // id:N keeps --project from dual-resolving a board index that shares digits.
+        const id_text = try std.fmt.allocPrint(allocator, "id:{d}", .{task_id});
+        var task_arena = std.heap.ArenaAllocator.init(context.allocator);
+        defer task_arena.deinit();
+        const task_allocator = task_arena.allocator();
+        const unassign_result: anyerror!void = blk: {
+            if (!self_flag and resolve.isNumeric(assignee.?)) {
+                break :blk unassignByIdQuiet(context, task_allocator, id_text, assignee.?);
+            }
+            const target: BulkAssigneeTarget = if (self_flag)
+                .assign_self
+            else if (resolve.isNumeric(assignee.?))
+                .{ .user_id = try common.positiveInt(assignee.?, "assignee") }
+            else
+                .{ .agent_id = assignee.? };
+            break :blk postAssigneeMutationQuiet(context, task_allocator, id_text, target);
+        };
+        unassign_result catch |err| {
+            failed += 1;
+            try failures.append(allocator, try std.fmt.allocPrint(allocator, "{d}:{s}", .{ task_id, @errorName(err) }));
+            continue;
+        };
+        succeeded += 1;
+    }
+
+    var summary = try json.Object.init(context.allocator);
+    defer summary.deinit();
+    try summary.boolean("success", failed == 0);
+    try summary.integer("attempted", @intCast(task_ids.items.len));
+    try summary.integer("succeeded", @intCast(succeeded));
+    try summary.integer("failed", @intCast(failed));
+    if (failures.items.len != 0) try summary.strings("failures", failures.items);
+    try context.print(try summary.finish());
+    if (failed != 0) return error.CommandFailed;
+}
+
+fn collectAssignedTaskIds(
+    context: *const Context,
+    allocator: std.mem.Allocator,
+    task_ids: *std.ArrayListUnmanaged(i64),
+    seen: *std.AutoHashMap(i64, void),
+    project: []const u8,
+    assigned_to: []const u8,
+    status: []const u8,
+) !void {
+    var offset: usize = 0;
+    while (true) {
+        var path = try query.Builder.init(context.allocator, "/mcp/tasks");
+        defer path.deinit();
+        try path.add("project_id", project);
+        try path.add("assigned_to", assigned_to);
+        try path.add("status", status);
+        const limit_text = try std.fmt.allocPrint(allocator, "{d}", .{bulk_unassign_page_size});
+        const offset_text = try std.fmt.allocPrint(allocator, "{d}", .{offset});
+        try path.add("limit", limit_text);
+        try path.add("offset", offset_text);
+        var response = try context.fetch(.GET, path.path(), null);
+        defer response.deinit();
+        const code = @intFromEnum(response.status);
+        if (code < 200 or code >= 300) return error.CommandFailed;
+
+        var page_arena = std.heap.ArenaAllocator.init(context.allocator);
+        defer page_arena.deinit();
+        const page_allocator = page_arena.allocator();
+        const document = std.json.parseFromSliceLeaky(std.json.Value, page_allocator, response.body, .{}) catch return error.InvalidResponse;
+        const tasks = if (document == .object) document.object.get("tasks") else null;
+        if (tasks == null or tasks.? != .array) return error.InvalidResponse;
+        if (tasks.?.array.items.len == 0) break;
+        for (tasks.?.array.items) |row| {
+            const id = jsonIntegerField(row, "id") orelse return error.InvalidResponse;
+            const entry = try seen.getOrPut(id);
+            if (entry.found_existing) continue;
+            try task_ids.append(allocator, id);
+        }
+        if (tasks.?.array.items.len < bulk_unassign_page_size) break;
+        offset += tasks.?.array.items.len;
+    }
+}
+
+fn jsonIntegerField(value: std.json.Value, key: []const u8) ?i64 {
+    if (value != .object) return null;
+    const field = value.object.get(key) orelse return null;
+    return switch (field) {
+        .integer => |number| number,
+        .string => |text| std.fmt.parseInt(i64, text, 10) catch null,
+        else => null,
+    };
 }
 
 fn priority(value: []const u8) i64 {
