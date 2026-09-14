@@ -4,3 +4,4 @@ zig-out/
 hypertask
 __pycache__/
 dist/
+GATES-htpr-*.md

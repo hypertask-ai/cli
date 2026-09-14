@@ -95,11 +95,22 @@ hypertask agents delete --id <agent-id> --confirm
 hypertask search "query" --project 15
 ```
 
-Task identifiers come in three forms. `HTPR-5726` is the full ticket number and works
-anywhere. A bare `5726` is the ticket number inside one board, so it needs `--project 15`;
-without a project it is refused, because ticket numbers repeat across boards and internal
-task ids share the same range. `id:37799` is the internal task id printed as `id` in JSON
-output.
+Task identifiers come in three forms:
+
+- `HTPR-5726` is the full ticket number and works anywhere.
+- A bare `37799` is the internal task `id` from `tasks list` / JSON (`id: 37799`).
+  With `--project`, the CLI also tries that number as the board index (`uniqueIndex`)
+  and refuses to guess when both forms point at different tasks.
+- `id:37799` forces the internal task id.
+
+Board-wide unassign:
+
+```bash
+hypertask tasks unassign --project 15 --assignee 6 --all
+```
+
+That snapshots Normal, Archive, and Deleted tasks assigned to that person, then
+unassigns each one. The command exits nonzero if any task fails.
 
 ## Managed agent identity commands
 
