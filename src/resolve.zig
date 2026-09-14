@@ -161,6 +161,7 @@ fn fetchTaskOptional(context: *const Context, key: []const u8, value: []const u8
     if (code < 200 or code >= 300) return error.CommandFailed;
     const parsed = try std.json.parseFromSlice(std.json.Value, context.allocator, response.body, .{});
     defer parsed.deinit();
+    if (parsed.value != .object) return error.InvalidResponse;
     if (parsed.value.object.get("success")) |success| {
         if (success == .bool and success.bool == false) {
             if (parsed.value.object.get("error")) |err_value| {

@@ -360,10 +360,32 @@ fn postAssigneeMutationQuiet(
     defer response.deinit();
     const code = @intFromEnum(response.status);
     if (code < 200 or code >= 300) return error.CommandFailed;
+    try requireAssigneeSuccess(allocator, response.body);
     switch (target) {
-        .agent_id => |value| if (agentInAssignees(allocator, response.body, value) == true) return stuckAssigneeAgent(value),
-        else => {},
+        .agent_id => |value| if (agentInAssignees(allocator, response.body, value) != false) return stuckAssigneeAgent(value),
+        .assign_self => if (selfStillAssigned(allocator, response.body)) return error.AssigneeNotRemoved,
+        .user_id => |value| if (userRowInAssignees(allocator, response.body, value) == true) return stuckAssigneeUser(value),
     }
+}
+
+fn requireAssigneeSuccess(allocator: std.mem.Allocator, response_body: []const u8) !void {
+    const document = std.json.parseFromSliceLeaky(std.json.Value, allocator, response_body, .{}) catch return error.InvalidResponse;
+    if (document != .object) return error.InvalidResponse;
+    if (document.object.get("success")) |success| {
+        if (success == .bool and success.bool == false) return error.CommandFailed;
+    }
+}
+
+fn selfStillAssigned(allocator: std.mem.Allocator, response_body: []const u8) bool {
+    // assign_self unassign should leave no row whose agent matches the calling
+    // session. When assignees are missing from the payload, fail closed.
+    const document = std.json.parseFromSliceLeaky(std.json.Value, allocator, response_body, .{}) catch return true;
+    if (document != .object) return true;
+    const agent = document.object.get("agent") orelse return true;
+    if (agent != .object) return true;
+    const agent_id_value = agent.object.get("id") orelse return true;
+    if (agent_id_value != .string) return true;
+    return agentInAssignees(allocator, response_body, agent_id_value.string) != false;
 }
 
 const BulkAssigneeTarget = union(enum) {
@@ -642,13 +664,19 @@ fn collectAssignedTaskIds(
         try path.add("project_id", project);
         try path.add("assigned_to", assigned_to);
         try path.add("status", status);
-        try path.add("limit", try std.fmt.allocPrint(allocator, "{d}", .{bulk_unassign_page_size}));
-        try path.add("offset", try std.fmt.allocPrint(allocator, "{d}", .{offset}));
+        const limit_text = try std.fmt.allocPrint(allocator, "{d}", .{bulk_unassign_page_size});
+        const offset_text = try std.fmt.allocPrint(allocator, "{d}", .{offset});
+        try path.add("limit", limit_text);
+        try path.add("offset", offset_text);
         var response = try context.fetch(.GET, path.path(), null);
         defer response.deinit();
         const code = @intFromEnum(response.status);
         if (code < 200 or code >= 300) return error.CommandFailed;
-        const document = std.json.parseFromSliceLeaky(std.json.Value, allocator, response.body, .{}) catch return error.InvalidResponse;
+
+        var page_arena = std.heap.ArenaAllocator.init(context.allocator);
+        defer page_arena.deinit();
+        const page_allocator = page_arena.allocator();
+        const document = std.json.parseFromSliceLeaky(std.json.Value, page_allocator, response.body, .{}) catch return error.InvalidResponse;
         const tasks = if (document == .object) document.object.get("tasks") else null;
         if (tasks == null or tasks.? != .array) return error.InvalidResponse;
         if (tasks.?.array.items.len == 0) break;
