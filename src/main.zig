@@ -2,6 +2,7 @@ const std = @import("std");
 const args_mod = @import("args.zig");
 const config = @import("config.zig");
 const Context = @import("command_context.zig").Context;
+const option_validate = @import("option_validate.zig");
 const output = @import("output.zig");
 const router = @import("router.zig");
 const token_refresh = @import("token_refresh.zig");
@@ -37,6 +38,7 @@ fn run() !void {
     }
     if (parsed.has("help")) return router.printHelp(allocator, parsed.positional);
     if (parsed.positional.len == 0) return router.printHelp(allocator, &.{});
+    try option_validate.rejectUnknownOptions(allocator, &parsed);
 
     var cfg = try config.load(allocator, parsed.get("token"), parsed.get("api-url"), parsed.get("management-key"));
     defer cfg.deinit();
@@ -57,6 +59,7 @@ test {
     _ = @import("args.zig");
     _ = @import("http.zig");
     _ = @import("json_util.zig");
+    _ = @import("option_validate.zig");
     _ = @import("query.zig");
     _ = @import("token_refresh.zig");
     _ = @import("commands/project.zig");
