@@ -32,13 +32,13 @@ fn run() !void {
 
     var parsed = try args_mod.parse(allocator, raw.items);
     defer parsed.deinit();
+    try option_validate.rejectUnknownOptions(allocator, &parsed);
     if (parsed.has("version")) {
         try std.fs.File.stdout().writeAll("hypertask " ++ version ++ "\n");
         return;
     }
     if (parsed.has("help")) return router.printHelp(allocator, parsed.positional);
     if (parsed.positional.len == 0) return router.printHelp(allocator, &.{});
-    try option_validate.rejectUnknownOptions(allocator, &parsed);
 
     var cfg = try config.load(allocator, parsed.get("token"), parsed.get("api-url"), parsed.get("management-key"));
     defer cfg.deinit();
