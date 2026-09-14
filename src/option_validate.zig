@@ -112,7 +112,7 @@ test "global human is allowed" {
 }
 
 test "unknown option is rejected even with only globals present" {
-    const argv = [_][]const u8{"--zzznotaflag"};
+    const argv = [_][]const u8{ "--zzznotaflag", "x" };
     var parsed = try args_mod.parse(std.testing.allocator, &argv);
     defer parsed.deinit();
     try std.testing.expectError(error.UnknownOption, rejectUnknownOptions(std.testing.allocator, &parsed));
