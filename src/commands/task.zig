@@ -617,9 +617,12 @@ fn unassignAll(context: *const Context) !void {
     for (task_ids.items) |task_id| {
         // id:N keeps --project from dual-resolving a board index that shares digits.
         const id_text = try std.fmt.allocPrint(allocator, "id:{d}", .{task_id});
+        var task_arena = std.heap.ArenaAllocator.init(context.allocator);
+        defer task_arena.deinit();
+        const task_allocator = task_arena.allocator();
         const unassign_result: anyerror!void = blk: {
             if (!self_flag and resolve.isNumeric(assignee.?)) {
-                break :blk unassignByIdQuiet(context, allocator, id_text, assignee.?);
+                break :blk unassignByIdQuiet(context, task_allocator, id_text, assignee.?);
             }
             const target: BulkAssigneeTarget = if (self_flag)
                 .assign_self
@@ -627,7 +630,7 @@ fn unassignAll(context: *const Context) !void {
                 .{ .user_id = try common.positiveInt(assignee.?, "assignee") }
             else
                 .{ .agent_id = assignee.? };
-            break :blk postAssigneeMutationQuiet(context, allocator, id_text, target);
+            break :blk postAssigneeMutationQuiet(context, task_allocator, id_text, target);
         };
         unassign_result catch |err| {
             failed += 1;
