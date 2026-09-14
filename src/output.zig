@@ -39,6 +39,7 @@ pub fn exitCode(err: anyerror) u8 {
         error.InvalidInteger,
         error.InvalidOptions,
         error.InvalidProject,
+        error.UnknownOption,
         error.ApiInvalidInput,
         => 2,
         error.UnknownCommand => 1,
@@ -61,6 +62,7 @@ pub fn responseBodyWasPrinted(err: anyerror) bool {
         error.ApiAuthentication,
         error.ApiNotFound,
         error.ApiFailure,
+        error.UnknownOption,
         => true,
         else => false,
     };

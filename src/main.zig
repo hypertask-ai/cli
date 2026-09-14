@@ -2,6 +2,7 @@ const std = @import("std");
 const args_mod = @import("args.zig");
 const config = @import("config.zig");
 const Context = @import("command_context.zig").Context;
+const option_validate = @import("option_validate.zig");
 const output = @import("output.zig");
 const router = @import("router.zig");
 const token_refresh = @import("token_refresh.zig");
@@ -31,6 +32,7 @@ fn run() !void {
 
     var parsed = try args_mod.parse(allocator, raw.items);
     defer parsed.deinit();
+    try option_validate.rejectUnknownOptions(allocator, &parsed);
     if (parsed.has("version")) {
         try std.fs.File.stdout().writeAll("hypertask " ++ version ++ "\n");
         return;
@@ -57,6 +59,7 @@ test {
     _ = @import("args.zig");
     _ = @import("http.zig");
     _ = @import("json_util.zig");
+    _ = @import("option_validate.zig");
     _ = @import("query.zig");
     _ = @import("token_refresh.zig");
     _ = @import("commands/project.zig");
