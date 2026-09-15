@@ -161,8 +161,11 @@ def leaf_catalog(document: dict[str, Any]) -> dict[str, tuple[tuple[str, ...], t
             for child in children:
                 visit(child, path)
             return
+        # Compare names and variadic only. Zig may loosen required=True to
+        # False when a flag mode (e.g. task unassign --all) makes the
+        # positional optional; that is still a Node-compatible catalog.
         arguments = tuple(
-            f"{arg['name']}:{arg['required']}:{arg['variadic']}"
+            f"{arg['name']}:{arg['variadic']}"
             for arg in command.get("arguments", [])
         )
         options = tuple(option["flags"] for option in command.get("options", []))
