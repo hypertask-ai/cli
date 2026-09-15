@@ -158,7 +158,7 @@ Preview mode is an SDK option, not a CLI flag: set `dryRun: true` on `createAgen
 
 ## Pull request checks
 
-Every pull request to `main` runs ReleaseFast unit tests, installer tests, capability and architecture checks, and live read-only parity. The repository's auto-merge evaluator merges eligible same-repository changes only after the current `test` check passes.
+Every pull request to `main` runs ReleaseFast unit tests, installer tests, capability and architecture checks, and live read-only parity. Live parity authenticates with `HYPERTASK_PARITY_TOKEN`, which must be a non-expiring agent JWT with read access to board 15 (`hypertask agents create --name 'CLI Live Parity' --project 15 --role read`). The repository's auto-merge evaluator merges eligible same-repository changes only after the current `test` check passes.
 
 ## Verification
 
