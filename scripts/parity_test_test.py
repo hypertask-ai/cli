@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import base64
 import contextlib
 import importlib.util
 import io
@@ -78,6 +79,30 @@ class ParityTest(unittest.TestCase):
         with mock.patch.object(parity_test, "write_round_trip", side_effect=[node, zig]):
             with self.assertRaisesRegex(AssertionError, "create: JSON shape differs"):
                 parity_test.write_parity(["node"], ["zig"], "token")
+
+    def test_live_parity_token_requires_a_non_expiring_agent_jwt(self) -> None:
+        agent = (
+            "header."
+            + base64.urlsafe_b64encode(
+                b'{"agentId":"582e3d15-9b51-433c-a1af-904e6116c446"}'
+            ).decode().rstrip("=")
+            + ".sig"
+        )
+        personal = (
+            "header."
+            + base64.urlsafe_b64encode(
+                b'{"userId":6,"exp":1780000000}'
+            ).decode().rstrip("=")
+            + ".sig"
+        )
+
+        parity_test.require_live_parity_token(agent)
+        with self.assertRaisesRegex(AssertionError, "non-expiring agent JWT"):
+            parity_test.require_live_parity_token(personal)
+        with self.assertRaisesRegex(AssertionError, "non-expiring agent JWT"):
+            parity_test.require_live_parity_token("")
+        with self.assertRaisesRegex(AssertionError, "non-expiring agent JWT"):
+            parity_test.require_live_parity_token("not-a-jwt")
 
     def test_write_mode_requires_an_explicit_token(self) -> None:
         environment = {"HT_TOKEN": "", "HYPERTASKS_JWT_TOKEN": ""}

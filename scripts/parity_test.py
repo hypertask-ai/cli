@@ -30,6 +30,40 @@ WRITE_ASSIGNEE = "6"
 DERIVED_NODE_FIELDS = frozenset({"has_more", "next_offset", "link", "uniqueIndex"})
 STABLE_SCALAR_FIELDS = frozenset({"authenticated", "hasToken", "identity", "success"})
 ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
+LIVE_PARITY_TOKEN_HELP = (
+    "HYPERTASK_PARITY_TOKEN must be a non-expiring agent JWT with read access "
+    "to board 15. Mint one with `hypertask agents create --name 'CLI Live Parity' "
+    "--project 15 --role read` and set the hypertask-ai/cli secret."
+)
+
+
+def jwt_payload(token: str) -> dict[str, Any]:
+    parts = token.split(".")
+    if len(parts) != 3:
+        raise AssertionError(LIVE_PARITY_TOKEN_HELP)
+    padded = parts[1] + "=" * (-len(parts[1]) % 4)
+    try:
+        payload = json.loads(base64.urlsafe_b64decode(padded))
+    except (ValueError, json.JSONDecodeError) as error:
+        raise AssertionError(LIVE_PARITY_TOKEN_HELP) from error
+    if not isinstance(payload, dict):
+        raise AssertionError(LIVE_PARITY_TOKEN_HELP)
+    return payload
+
+
+def require_live_parity_token(token: str | None = None) -> None:
+    raw = token if token is not None else (
+        os.environ.get("HT_TOKEN") or os.environ.get("HYPERTASKS_JWT_TOKEN") or ""
+    )
+    if not raw.strip():
+        raise AssertionError(LIVE_PARITY_TOKEN_HELP)
+    payload = jwt_payload(raw)
+    agent_id = payload.get("agentId")
+    if not isinstance(agent_id, str) or not agent_id.strip():
+        raise AssertionError(LIVE_PARITY_TOKEN_HELP)
+    if "exp" in payload:
+        raise AssertionError(LIVE_PARITY_TOKEN_HELP)
+
 
 @dataclass(frozen=True)
 class ReadCase:
@@ -558,6 +592,7 @@ def main() -> int:
             assert write_token is not None
             write_parity(node_cli, zig_cli, write_token)
         elif not options.capabilities_only:
+            require_live_parity_token()
             read_only_parity(node_cli, zig_cli)
             auth_matrix(node_cli, zig_cli)
             human_output(zig_cli)
