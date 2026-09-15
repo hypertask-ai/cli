@@ -24,6 +24,12 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
             defer body.deinit();
             try body.string("visibility", visibility);
             try context.callWithToken(token, .PATCH, path, try body.finish());
+        } else if (context.args.get("name")) |name| {
+            try requireNameOnly(context);
+            var body = try json.Object.init(context.allocator);
+            defer body.deinit();
+            try body.string("display_name", name);
+            try context.callWithToken(token, .PATCH, path, try body.finish());
         } else {
             const add_inputs = try common.optionList(context, "add-project");
             const remove_inputs = try common.optionList(context, "remove-project");
@@ -120,8 +126,12 @@ fn requireDeleteConfirmation(confirmed: bool) !void {
 }
 
 // The server accepts a visibility change only as a visibility-only body, so
-// mixing it with project changes is refused up front instead of failing later.
+// mixing it with project or name changes is refused up front instead of failing later.
 fn requireVisibilityOnly(context: *const Context, visibility: []const u8) !void {
+    if (context.args.get("name") != null) {
+        std.debug.print("--visibility cannot be combined with --name; run two commands\n", .{});
+        return error.InvalidOptions;
+    }
     const add_inputs = try common.optionList(context, "add-project");
     const remove_inputs = try common.optionList(context, "remove-project");
     if (add_inputs.len != 0 or remove_inputs.len != 0) {
@@ -130,6 +140,16 @@ fn requireVisibilityOnly(context: *const Context, visibility: []const u8) !void 
     }
     if (!std.mem.eql(u8, visibility, "TEAM") and !std.mem.eql(u8, visibility, "PRIVATE")) {
         std.debug.print("--visibility must be TEAM or PRIVATE\n", .{});
+        return error.InvalidOptions;
+    }
+}
+
+// Rename is its own PATCH body shape; do not mix it with board membership changes.
+fn requireNameOnly(context: *const Context) !void {
+    const add_inputs = try common.optionList(context, "add-project");
+    const remove_inputs = try common.optionList(context, "remove-project");
+    if (add_inputs.len != 0 or remove_inputs.len != 0) {
+        std.debug.print("--name cannot be combined with --add-project/--remove-project; run two commands\n", .{});
         return error.InvalidOptions;
     }
 }

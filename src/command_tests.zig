@@ -410,6 +410,15 @@ test "agents update --visibility sends a visibility-only body" {
     );
 }
 
+test "agents update --name sends a display_name body" {
+    try expectRequest(
+        &.{ "agents", "update", "--id", "agent-1", "--name", "Ops Script" },
+        .PATCH,
+        "/mcp/agents/agent-1",
+        "{\"display_name\":\"Ops Script\"}",
+    );
+}
+
 test "agents update refuses to mix visibility with project changes or an unknown value" {
     try expectDispatchError(
         error.InvalidOptions,
@@ -418,6 +427,17 @@ test "agents update refuses to mix visibility with project changes or an unknown
     try expectDispatchError(
         error.InvalidOptions,
         &.{ "agents", "update", "--id", "agent-1", "--visibility", "PUBLIC" },
+    );
+    try expectDispatchError(
+        error.InvalidOptions,
+        &.{ "agents", "update", "--id", "agent-1", "--visibility", "TEAM", "--name", "Ops Script" },
+    );
+}
+
+test "agents update refuses to mix --name with project changes" {
+    try expectDispatchError(
+        error.InvalidOptions,
+        &.{ "agents", "update", "--id", "agent-1", "--name", "Ops Script", "--add-project", "15" },
     );
 }
 
