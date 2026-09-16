@@ -272,18 +272,33 @@ test "command handlers build request bodies and query strings without HTTP" {
     );
 }
 
-test "task update sends assignee [] for an empty list or --clear-assignees" {
-    try expectRequest(
+test "comment reactions require an emoji" {
+    try expectDispatchError(error.MissingOption, &.{ "comment", "react", "216402" });
+    try expectDispatchError(error.MissingOption, &.{ "comment", "unreact", "216402" });
+}
+
+test "task update empty assignee or --clear-assignees unassigns through the assign route" {
+    // Empty --assignee used to POST /mcp/tasks/update with no fields and get
+    // missing_field. Assignee rows that agents created also survive assignee:[].
+    // Clear by walking current rows through the existing unassign path.
+    try expectRequestWithResponses(
         &.{ "task", "update", "HTPR-6519", "--assignee", "" },
-        .POST,
-        "/mcp/tasks/update",
-        "{\"ticket_number\":\"HTPR-6519\",\"assignee\":[]}",
+        &.{ "{\"tasks\":[{\"id\":41043,\"assignees\":[]}]}", "{\"tasks\":[{\"id\":41043,\"assignees\":[]}]}" },
+        .GET,
+        "/mcp/tasks?ticket_number=HTPR-6519",
+        null,
     );
-    try expectRequest(
+    try expectRequestWithResponses(
         &.{ "task", "update", "HTPR-6519", "--clear-assignees" },
-        .POST,
-        "/mcp/tasks/update",
-        "{\"ticket_number\":\"HTPR-6519\",\"assignee\":[]}",
+        &.{
+            "{\"tasks\":[{\"id\":41043,\"assignees\":[{\"id\":6,\"agent\":{\"id\":\"agent-1\"}}]}]}",
+            "{\"tasks\":[{\"id\":41043,\"assignees\":[{\"id\":6,\"agent\":{\"id\":\"agent-1\"}}]}]}",
+            "{\"assignees\":[]}",
+            "{\"tasks\":[{\"id\":41043,\"assignees\":[]}]}",
+        },
+        .GET,
+        "/mcp/tasks?ticket_number=HTPR-6519",
+        null,
     );
     try expectRequest(
         &.{ "task", "update", "HTPR-6519", "--assignee", "6,7" },
@@ -291,11 +306,6 @@ test "task update sends assignee [] for an empty list or --clear-assignees" {
         "/mcp/tasks/update",
         "{\"ticket_number\":\"HTPR-6519\",\"assignee\":[6,7]}",
     );
-}
-
-test "comment reactions require an emoji" {
-    try expectDispatchError(error.MissingOption, &.{ "comment", "react", "216402" });
-    try expectDispatchError(error.MissingOption, &.{ "comment", "unreact", "216402" });
 }
 
 test "the local agent dev loop refuses to guess an agent or a handler URL" {
