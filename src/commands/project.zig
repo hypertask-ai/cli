@@ -3,6 +3,7 @@ const common = @import("../command_context.zig");
 const Context = common.Context;
 const json = @import("../json_util.zig");
 const query = @import("../query.zig");
+const list_query = @import("../list_query.zig");
 const output = @import("../output.zig");
 
 pub fn run(context: *const Context, subcommand: []const u8) !void {
@@ -35,6 +36,7 @@ fn list(context: *const Context) !void {
     defer path.deinit();
     try path.add("limit", context.args.get("limit") orelse "10");
     try path.add("offset", context.args.get("offset") orelse "0");
+    try list_query.addListQuery(&path, context.args, context.allocator);
     try context.call(.GET, path.path(), null);
 }
 
@@ -128,7 +130,12 @@ fn invite(context: *const Context) !void {
 }
 
 fn labels(context: *const Context, project: []const u8) !void {
-    try context.call(.GET, try labelsPath(context.allocator, project), null);
+    const prefix = try labelsPath(context.allocator, project);
+    defer context.allocator.free(prefix);
+    var path = try query.Builder.init(context.allocator, prefix);
+    defer path.deinit();
+    try list_query.addListQuery(&path, context.args, context.allocator);
+    try context.call(.GET, path.path(), null);
 }
 
 fn labelsPath(allocator: std.mem.Allocator, project: []const u8) ![]const u8 {

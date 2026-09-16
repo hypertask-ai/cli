@@ -3,6 +3,7 @@ const common = @import("../command_context.zig");
 const Context = common.Context;
 const json = @import("../json_util.zig");
 const query = @import("../query.zig");
+const list_query = @import("../list_query.zig");
 const attachments = @import("../attachments.zig");
 const output = @import("../output.zig");
 const resolve = @import("../resolve.zig");
@@ -12,6 +13,7 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
         var path = try query.Builder.init(context.allocator, "/mcp/comments");
         defer path.deinit();
         try addIdentifierQuery(&path, context, try context.args.requirePositional(2, "ticket-or-task-id"));
+        try list_query.addListQuery(&path, context.args, context.allocator);
         var response = try context.fetch(.GET, path.path(), null);
         defer response.deinit();
         const code = @intFromEnum(response.status);

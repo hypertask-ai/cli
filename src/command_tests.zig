@@ -73,6 +73,12 @@ test "router dispatches task and decision aliases" {
         null,
     );
     try expectRequest(
+        &.{ "tasks", "list", "--project", "15", "--filter", "section=AI Review", "--filter", "has_pr=red", "--fields", "title,url", "--limit", "20" },
+        .GET,
+        "/mcp/tasks?project_id=15&limit=20&offset=0&fields=title%2Curl&filter.section=AI%20Review&filter.has_pr=red",
+        null,
+    );
+    try expectRequest(
         &.{ "tasks", "list", "--project", "15" },
         .GET,
         "/mcp/tasks?project_id=15&limit=10&offset=0",
