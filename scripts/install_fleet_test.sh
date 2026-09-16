@@ -55,4 +55,15 @@ PATH="$npm_link_dir:$PATH" HYPERTASK_INSTALL_PATH="$regular" "$repo_root/scripts
 [[ -L "$npm_link_dir/hypertask" ]]
 cmp "$artifact" "$npm_target"
 
+# HTPR-6475: fleet jobs often have a stripped PATH, so command -v misses
+# ~/.npm-global/bin/hypertask. That file still wins on a login PATH.
+stripped_home="$tmp/home-stripped"
+mkdir -p "$stripped_home/.npm-global/bin"
+printf 'old npm hidden\n' >"$stripped_home/.npm-global/bin/hypertask"
+chmod 755 "$stripped_home/.npm-global/bin/hypertask"
+PATH="/usr/bin:/bin" HOME="$stripped_home" HYPERTASK_INSTALL_PATH="$regular" \
+  "$repo_root/scripts/install-fleet.sh" "$artifact"
+cmp "$artifact" "$regular"
+cmp "$artifact" "$stripped_home/.npm-global/bin/hypertask"
+
 printf 'fleet install tests passed\n'
