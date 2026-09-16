@@ -31,4 +31,28 @@ HYPERTASK_INSTALL_PATH="$linked" "$repo_root/scripts/install-fleet.sh" "$artifac
 cmp "$artifact" "$linked"
 [[ $(stat -c '%a' "$link_target") == 755 ]]
 
+# HTPR-6520: wrappers run `hypertask` from PATH. npm-global often wins over
+# ~/.local/bin, so a fleet install that only writes the destination leaves
+# agents on the old binary (`--assignee ""` still missing_field).
+old_path_dir="$tmp/npm-global/bin"
+mkdir -p "$old_path_dir"
+old_path="$old_path_dir/hypertask"
+printf 'old npm\n' >"$old_path"
+chmod 755 "$old_path"
+PATH="$old_path_dir:$PATH" HYPERTASK_INSTALL_PATH="$regular" "$repo_root/scripts/install-fleet.sh" "$artifact"
+cmp "$artifact" "$regular"
+cmp "$artifact" "$old_path"
+
+# Same layout as ~/.npm-global/bin/hypertask -> .../hypertask.exe
+npm_target="$tmp/npm-lib/hypertask.exe"
+mkdir -p "$(dirname "$npm_target")"
+printf 'old exe\n' >"$npm_target"
+chmod 755 "$npm_target"
+npm_link_dir="$tmp/npm-global-link/bin"
+mkdir -p "$npm_link_dir"
+ln -s "$npm_target" "$npm_link_dir/hypertask"
+PATH="$npm_link_dir:$PATH" HYPERTASK_INSTALL_PATH="$regular" "$repo_root/scripts/install-fleet.sh" "$artifact"
+[[ -L "$npm_link_dir/hypertask" ]]
+cmp "$artifact" "$npm_target"
+
 printf 'fleet install tests passed\n'
