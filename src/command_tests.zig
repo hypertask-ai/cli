@@ -272,6 +272,27 @@ test "command handlers build request bodies and query strings without HTTP" {
     );
 }
 
+test "task update sends assignee [] for an empty list or --clear-assignees" {
+    try expectRequest(
+        &.{ "task", "update", "HTPR-6519", "--assignee", "" },
+        .POST,
+        "/mcp/tasks/update",
+        "{\"ticket_number\":\"HTPR-6519\",\"assignee\":[]}",
+    );
+    try expectRequest(
+        &.{ "task", "update", "HTPR-6519", "--clear-assignees" },
+        .POST,
+        "/mcp/tasks/update",
+        "{\"ticket_number\":\"HTPR-6519\",\"assignee\":[]}",
+    );
+    try expectRequest(
+        &.{ "task", "update", "HTPR-6519", "--assignee", "6,7" },
+        .POST,
+        "/mcp/tasks/update",
+        "{\"ticket_number\":\"HTPR-6519\",\"assignee\":[6,7]}",
+    );
+}
+
 test "comment reactions require an emoji" {
     try expectDispatchError(error.MissingOption, &.{ "comment", "react", "216402" });
     try expectDispatchError(error.MissingOption, &.{ "comment", "unreact", "216402" });

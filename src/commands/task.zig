@@ -209,8 +209,9 @@ fn update(context: *const Context) !void {
             try body.identifiers("remove_labels", labels);
         }
     }
-    const assignees = try common.optionList(context, "assignee");
-    if (assignees.len != 0) try body.integers("assignee", assignees);
+    const clear_assignees = context.args.has("clear-assignees");
+    const assignees = if (clear_assignees) @as([]const []const u8, &.{}) else try common.optionList(context, "assignee");
+    if (clear_assignees or context.args.has("assignee")) try body.integers("assignee", assignees);
     const attach_inputs = try common.optionList(context, "attach");
     var response = if (hasUpdateOptions(context))
         try context.fetch(.POST, "/mcp/tasks/update", try body.finish())
@@ -714,7 +715,7 @@ fn priority(value: []const u8) i64 {
 
 fn hasUpdateOptions(context: *const Context) bool {
     const names = [_][]const u8{
-        "title", "description", "description-file", "pull-request", "priority", "estimate", "due", "clear-due", "status", "section", "assignee", "labels", "add-labels", "remove-labels", "parent-task", "clear-parent",
+        "title", "description", "description-file", "pull-request", "priority", "estimate", "due", "clear-due", "status", "section", "assignee", "clear-assignees", "labels", "add-labels", "remove-labels", "parent-task", "clear-parent",
     };
     for (names) |name| if (context.args.has(name)) return true;
     return false;
