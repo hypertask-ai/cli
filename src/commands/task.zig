@@ -3,6 +3,7 @@ const common = @import("../command_context.zig");
 const Context = common.Context;
 const json = @import("../json_util.zig");
 const query = @import("../query.zig");
+const list_query = @import("../list_query.zig");
 const resolve = @import("../resolve.zig");
 const attachments = @import("../attachments.zig");
 const http = @import("../http.zig");
@@ -58,6 +59,7 @@ fn list(context: *const Context) !void {
     if (context.args.has("has-due-date")) try path.add("has_due_date", "true");
     try path.add("limit", context.args.get("limit") orelse "10");
     try path.add("offset", context.args.get("offset") orelse "0");
+    try list_query.addListQuery(&path, context.args, context.allocator);
     try context.call(.GET, path.path(), null);
 }
 
@@ -537,6 +539,7 @@ fn searchValue(context: *const Context, value: []const u8) !void {
     try path.add("q", value);
     try path.add("limit", context.args.get("limit") orelse "10");
     if (context.args.get("project")) |project| try path.add("project_id", project);
+    try list_query.addListQuery(&path, context.args, context.allocator);
 
     var response = try context.fetch(.GET, path.path(), null);
     defer response.deinit();

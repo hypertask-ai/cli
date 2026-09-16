@@ -61,6 +61,7 @@ test {
     _ = @import("json_util.zig");
     _ = @import("option_validate.zig");
     _ = @import("query.zig");
+    _ = @import("list_query.zig");
     _ = @import("token_refresh.zig");
     _ = @import("commands/project.zig");
     _ = @import("commands/task.zig");

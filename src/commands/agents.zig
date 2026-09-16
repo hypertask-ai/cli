@@ -2,11 +2,16 @@ const std = @import("std");
 const common = @import("../command_context.zig");
 const Context = common.Context;
 const json = @import("../json_util.zig");
+const query = @import("../query.zig");
+const list_query = @import("../list_query.zig");
 
 pub fn run(context: *const Context, subcommand: []const u8) !void {
     const token = common.managementToken(context);
     if (std.mem.eql(u8, subcommand, "list")) {
-        try context.callWithToken(token, .GET, "/mcp/admin/agents", null);
+        var path = try query.Builder.init(context.allocator, "/mcp/admin/agents");
+        defer path.deinit();
+        try list_query.addListQuery(&path, context.args, context.allocator);
+        try context.callWithToken(token, .GET, path.path(), null);
     } else if (std.mem.eql(u8, subcommand, "create")) {
         var body = try json.Object.init(context.allocator);
         defer body.deinit();

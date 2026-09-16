@@ -3,12 +3,18 @@ const common = @import("../command_context.zig");
 const Context = common.Context;
 const json = @import("../json_util.zig");
 const resolve = @import("../resolve.zig");
+const query = @import("../query.zig");
+const list_query = @import("../list_query.zig");
 
 pub fn run(context: *const Context, subcommand: []const u8) !void {
     const project = try common.positiveInt(try context.args.require("project"), "project");
     if (std.mem.eql(u8, subcommand, "list")) {
-        const path = try std.fmt.allocPrint(context.allocator, "/mcp/projects/{d}/sections", .{project});
-        return context.call(.GET, path, null);
+        const prefix = try std.fmt.allocPrint(context.allocator, "/mcp/projects/{d}/sections", .{project});
+        defer context.allocator.free(prefix);
+        var path = try query.Builder.init(context.allocator, prefix);
+        defer path.deinit();
+        try list_query.addListQuery(&path, context.args, context.allocator);
+        return context.call(.GET, path.path(), null);
     }
     if (std.mem.eql(u8, subcommand, "create")) {
         var body = try json.Object.init(context.allocator);
