@@ -12,6 +12,9 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
         defer path.deinit();
         try list_query.addListQuery(&path, context.args, context.allocator);
         try context.callWithToken(token, .GET, path.path(), null);
+    } else if (std.mem.eql(u8, subcommand, "get")) {
+        const path = try agentPath(context.allocator, try requireAgentId(context));
+        try context.callWithToken(token, .GET, path, null);
     } else if (std.mem.eql(u8, subcommand, "create")) {
         var body = try json.Object.init(context.allocator);
         defer body.deinit();
@@ -128,6 +131,11 @@ fn uniqueProjectIds(
 
 fn requireDeleteConfirmation(confirmed: bool) !void {
     if (!confirmed) return error.ConfirmationRequired;
+}
+
+fn requireAgentId(context: *const Context) ![]const u8 {
+    if (context.args.get("id")) |id| return id;
+    return context.args.requirePositional(2, "id");
 }
 
 // The server accepts a visibility change only as a visibility-only body, so

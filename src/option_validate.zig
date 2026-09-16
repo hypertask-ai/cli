@@ -83,6 +83,13 @@ fn unknownOption(name: []const u8) error{UnknownOption} {
     return error.UnknownOption;
 }
 
+test "agents get --id is a known option" {
+    const argv = [_][]const u8{ "agents", "get", "--id", "agent-1" };
+    var parsed = try args_mod.parse(std.testing.allocator, &argv);
+    defer parsed.deinit();
+    try rejectUnknownOptions(std.testing.allocator, &parsed);
+}
+
 test "unknown option on task get is rejected" {
     const argv = [_][]const u8{ "task", "get", "HYFA-70", "--zzznotaflag", "9" };
     var parsed = try args_mod.parse(std.testing.allocator, &argv);
