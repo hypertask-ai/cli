@@ -110,6 +110,17 @@ Board-wide unassign:
 hypertask tasks unassign --project 15 --assignee 6 --all
 ```
 
+`--labels` replaces the ticket's whole label set. Repeatable means you can pass the
+flag more than once in that one call, not that it appends to labels already on
+the ticket. Use `--add-label` / `--remove-label` (or `--add-labels` /
+`--remove-labels`) to keep the rest:
+
+```bash
+hypertask tasks update HTPR-5726 --labels CLI,BUG
+hypertask tasks update HTPR-5726 --add-label QA
+hypertask tasks update HTPR-5726 --remove-label BUG
+```
+
 That snapshots Normal, Archive, and Deleted tasks assigned to that person, then
 unassigns each one. The command exits nonzero if any task fails.
 
