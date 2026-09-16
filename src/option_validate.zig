@@ -32,7 +32,7 @@ pub fn rejectUnknownOptions(allocator: std.mem.Allocator, parsed: *const args_mo
 
     try allowName(&allowed, allocator, "help");
     try allowName(&allowed, allocator, "human");
-    try addOptions(&allowed, allocator, catalog.value.options);
+    try addOptions(&allowed, allocator, catalog.value.options, null);
 
     var node: *const Capability = &catalog.value;
     var index: usize = 0;
@@ -40,8 +40,7 @@ pub fn rejectUnknownOptions(allocator: std.mem.Allocator, parsed: *const args_mo
         const token = parsed.positional[index];
         const child = findChild(node, token) orelse break;
         node = child;
-        try addOptions(&allowed, allocator, child.options);
-        try addLongOptions(&command_flags, allocator, child.options);
+        try addOptions(&allowed, allocator, child.options, &command_flags);
         if (child.commands.len == 0) break;
     }
 
@@ -61,29 +60,24 @@ fn findChild(parent: *const Capability, token: []const u8) ?*const Capability {
     return null;
 }
 
-fn addOptions(allowed: *std.StringHashMapUnmanaged(void), allocator: std.mem.Allocator, options: []const CapabilityOption) !void {
+fn addOptions(
+    allowed: *std.StringHashMapUnmanaged(void),
+    allocator: std.mem.Allocator,
+    options: []const CapabilityOption,
+    command_flags: ?*std.StringHashMapUnmanaged(void),
+) !void {
     for (options) |option| {
         var parts = std.mem.splitScalar(u8, option.flags, ',');
         while (parts.next()) |raw_part| {
             const part = std.mem.trim(u8, raw_part, " \t");
             if (std.mem.startsWith(u8, part, "--")) {
-                try allowName(allowed, allocator, longOptionName(part[2..]));
+                const name = longOptionName(part[2..]);
+                try allowName(allowed, allocator, name);
+                if (command_flags) |dest| try allowName(dest, allocator, name);
             } else if (std.mem.startsWith(u8, part, "-") and part.len == 2) {
                 try allowName(allowed, allocator, part[1..]);
                 if (part[1] == 'V') try allowName(allowed, allocator, "version");
                 if (part[1] == 'h') try allowName(allowed, allocator, "help");
-            }
-        }
-    }
-}
-
-fn addLongOptions(allowed: *std.StringHashMapUnmanaged(void), allocator: std.mem.Allocator, options: []const CapabilityOption) !void {
-    for (options) |option| {
-        var parts = std.mem.splitScalar(u8, option.flags, ',');
-        while (parts.next()) |raw_part| {
-            const part = std.mem.trim(u8, raw_part, " \t");
-            if (std.mem.startsWith(u8, part, "--")) {
-                try allowName(allowed, allocator, longOptionName(part[2..]));
             }
         }
     }
