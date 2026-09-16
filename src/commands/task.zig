@@ -209,11 +209,18 @@ fn update(context: *const Context) !void {
             try body.identifiers("remove_labels", labels);
         }
     }
-    const clear_assignees = context.args.has("clear-assignees");
-    const assignees = if (clear_assignees) @as([]const []const u8, &.{}) else try common.optionList(context, "assignee");
-    if (clear_assignees or context.args.has("assignee")) try body.integers("assignee", assignees);
+    const assignees = try common.optionList(context, "assignee");
+    const clear_assignees = context.args.has("clear-assignees") or (context.args.has("assignee") and assignees.len == 0);
+    if (clear_assignees) {
+        // `assignee: []` on /mcp/tasks/update only drops human rows. Reuse the
+        // existing unassign path so agent-linked rows (the usual id-6 chip) go too.
+        try clearTaskAssignees(context, ticket);
+    } else if (assignees.len != 0) {
+        try body.integers("assignee", assignees);
+    }
     const attach_inputs = try common.optionList(context, "attach");
-    var response = if (hasUpdateOptions(context))
+    const post_update = hasFieldUpdateOptions(context) or (context.args.has("assignee") and assignees.len != 0);
+    var response = if (post_update)
         try context.fetch(.POST, "/mcp/tasks/update", try body.finish())
     else blk: {
         var path = try query.Builder.init(context.allocator, "/mcp/tasks");
@@ -713,12 +720,55 @@ fn priority(value: []const u8) i64 {
     return 0;
 }
 
-fn hasUpdateOptions(context: *const Context) bool {
+fn hasFieldUpdateOptions(context: *const Context) bool {
     const names = [_][]const u8{
-        "title", "description", "description-file", "pull-request", "priority", "estimate", "due", "clear-due", "status", "section", "assignee", "clear-assignees", "labels", "add-labels", "remove-labels", "parent-task", "clear-parent",
+        "title", "description", "description-file", "pull-request", "priority", "estimate", "due", "clear-due", "status", "section", "labels", "add-labels", "remove-labels", "parent-task", "clear-parent",
     };
     for (names) |name| if (context.args.has(name)) return true;
     return false;
+}
+
+fn clearTaskAssignees(context: *const Context, identifier: []const u8) !void {
+    var arena = std.heap.ArenaAllocator.init(context.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var list_path = try query.Builder.init(context.allocator, "/mcp/tasks");
+    defer list_path.deinit();
+    try addIdentifierQuery(&list_path, context, identifier);
+    var list_response = try context.fetch(.GET, list_path.path(), null);
+    defer list_response.deinit();
+    const list_code = @intFromEnum(list_response.status);
+    if (list_code < 200 or list_code >= 300) return error.CommandFailed;
+
+    const document = std.json.parseFromSliceLeaky(std.json.Value, allocator, list_response.body, .{}) catch return error.InvalidResponse;
+    var user_ids: std.ArrayListUnmanaged(i64) = .{};
+    if (document == .object) {
+        if (document.object.get("tasks")) |tasks_value| {
+            if (tasks_value == .array and tasks_value.array.items.len > 0 and tasks_value.array.items[0] == .object) {
+                if (tasks_value.array.items[0].object.get("assignees")) |assignees_value| {
+                    if (assignees_value == .array) {
+                        for (assignees_value.array.items) |row| {
+                            const user_id = rowUserId(row) orelse continue;
+                            var seen = false;
+                            for (user_ids.items) |existing| {
+                                if (existing == user_id) {
+                                    seen = true;
+                                    break;
+                                }
+                            }
+                            if (!seen) try user_ids.append(allocator, user_id);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    for (user_ids.items) |user_id| {
+        const user_id_text = try std.fmt.allocPrint(allocator, "{d}", .{user_id});
+        try unassignByIdQuiet(context, allocator, identifier, user_id_text);
+    }
 }
 
 /// Reads --description-file if given (taking precedence), otherwise returns --description.
