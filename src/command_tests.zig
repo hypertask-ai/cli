@@ -108,6 +108,16 @@ test "tasks list resolves --labels into a labels query filter" {
     );
 }
 
+test "tasks list --label alias also filters" {
+    try expectRequestWithResponses(
+        &.{ "tasks", "list", "--project", "15", "--label", "auto-error" },
+        &.{"{\"projects\":[{\"id\":15,\"labels\":[{\"id\":\"auto-error-label-id\",\"name\":\"auto-error\"}]}]}"},
+        .GET,
+        "/mcp/tasks?project_id=15&labels=auto-error-label-id&limit=10&offset=0",
+        null,
+    );
+}
+
 test "task get distinguishes internal ids from project ticket indexes" {
     try expectRequestWithResponses(
         &.{ "tasks", "get", "5661", "--project", "15" },

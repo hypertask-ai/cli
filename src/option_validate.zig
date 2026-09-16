@@ -104,6 +104,13 @@ test "project is rejected on task assign" {
     try std.testing.expectError(error.UnknownOption, rejectUnknownOptions(std.testing.allocator, &parsed));
 }
 
+test "tasks list --labels is a known option" {
+    const argv = [_][]const u8{ "tasks", "list", "--project", "15", "--labels", "CLI" };
+    var parsed = try args_mod.parse(std.testing.allocator, &argv);
+    defer parsed.deinit();
+    try rejectUnknownOptions(std.testing.allocator, &parsed);
+}
+
 test "known options and aliases still pass" {
     const argv = [_][]const u8{ "tasks", "show", "HTPR-1", "--project", "15", "--json" };
     var parsed = try args_mod.parse(std.testing.allocator, &argv);

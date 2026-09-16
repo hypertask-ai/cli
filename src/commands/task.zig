@@ -52,7 +52,8 @@ fn list(context: *const Context) !void {
         try path.add("section", value);
     }
     for (try common.optionList(context, "priority")) |value| try path.add("priority", value);
-    const label_inputs = try common.optionList(context, "labels");
+    const from_labels = try common.optionList(context, "labels");
+    const label_inputs = if (from_labels.len != 0) from_labels else try common.optionList(context, "label");
     const project_id = if (context.args.get("project")) |value| try common.positiveInt(value, "project") else null;
     const label_ids = try resolveLabelIds(context, label_inputs, project_id, false);
     for (label_ids) |value| try path.add("labels", value);
