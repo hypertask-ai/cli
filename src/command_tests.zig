@@ -208,12 +208,34 @@ test "command handlers build request bodies and query strings without HTTP" {
         "{\"ticket_number\":\"HTPR-6234\",\"project_id\":15,\"add_labels\":[\"qa-label-id\"]}",
     );
     try expectRequestWithResponses(
+        &.{ "task", "update", "HTPR-6479", "--project", "15", "--add-label", "youtube" },
+        &.{ "{\"tasks\":[{\"id\":35007,\"projectId\":15}]}", "{\"projects\":[{\"id\":15,\"labels\":[{\"id\":\"youtube-id\",\"name\":\"youtube\"}]}]}" },
+        .POST,
+        "/mcp/tasks/update",
+        "{\"ticket_number\":\"HTPR-6479\",\"project_id\":15,\"add_labels\":[\"youtube-id\"]}",
+    );
+    try expectRequestWithResponses(
+        &.{ "task", "update", "HTPR-6479", "--project", "15", "--labels", "youtube" },
+        &.{ "{\"tasks\":[{\"id\":35007,\"projectId\":15}]}", "{\"projects\":[{\"id\":15,\"labels\":[{\"id\":\"youtube-id\",\"name\":\"youtube\"}]}]}" },
+        .POST,
+        "/mcp/tasks/update",
+        "{\"ticket_number\":\"HTPR-6479\",\"project_id\":15,\"labels\":[\"youtube-id\"]}",
+    );
+    try expectRequestWithResponses(
         &.{ "task", "update", "HTPR-6234", "--project", "15", "--remove-labels", "11111111-2222-4333-8444-555555555555", "--add-labels", "CLI" },
         &.{ "{\"tasks\":[{\"id\":35007,\"projectId\":15}]}", "{\"projects\":[{\"id\":15,\"labels\":[{\"id\":\"cli-label-id\",\"name\":\"CLI\"}]}]}", "{\"projects\":[{\"id\":15,\"labels\":[]}]}" },
         .POST,
         "/mcp/tasks/update",
         "{\"ticket_number\":\"HTPR-6234\",\"project_id\":15,\"add_labels\":[\"cli-label-id\"],\"remove_labels\":[\"11111111-2222-4333-8444-555555555555\"]}",
     );
+    try expectRequestWithResponses(
+        &.{ "task", "update", "HTPR-6479", "--project", "15", "--remove-label", "CLI" },
+        &.{ "{\"tasks\":[{\"id\":35007,\"projectId\":15}]}", "{\"projects\":[{\"id\":15,\"labels\":[{\"id\":\"cli-label-id\",\"name\":\"CLI\"}]}]}" },
+        .POST,
+        "/mcp/tasks/update",
+        "{\"ticket_number\":\"HTPR-6479\",\"project_id\":15,\"remove_labels\":[\"cli-label-id\"]}",
+    );
+    try expectDispatchError(error.InvalidOptions, &.{ "task", "update", "HTPR-6479", "--labels", "youtube", "--add-label", "CLI" });
     try expectRequest(
         &.{ "decision", "create", "htpr-123", "--question", "Pick", "--option", "A", "--option", "B" },
         .POST,
@@ -528,5 +550,12 @@ test "a refused visibility change prints the server error body" {
     const printed = try posix.read(pipe[0], &captured);
     posix.close(pipe[0]);
     try std.testing.expect(std.mem.indexOf(u8, captured[0..printed], "TEAM_VISIBILITY_KEY_REQUIRED") != null);
+}
+
+test "task update label catalog states replace vs add" {
+    const catalog = @embedFile("capabilities.json");
+    try std.testing.expect(std.mem.indexOf(u8, catalog, "Replace the ticket's entire label set") != null);
+    try std.testing.expect(std.mem.indexOf(u8, catalog, "--add-label <list>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, catalog, "--remove-label <list>") != null);
 }
 
