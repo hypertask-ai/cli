@@ -432,6 +432,22 @@ test "task update --description-file reads the file and takes precedence over --
     );
 }
 
+test "agents get reads one owned agent" {
+    try expectRequest(
+        &.{ "agents", "get", "--id", "a0e75f8c-9080-47bd-b09a-71c55bd34a87" },
+        .GET,
+        "/mcp/agents/a0e75f8c-9080-47bd-b09a-71c55bd34a87",
+        null,
+    );
+    try expectRequest(
+        &.{ "agents", "get", "a0e75f8c-9080-47bd-b09a-71c55bd34a87" },
+        .GET,
+        "/mcp/agents/a0e75f8c-9080-47bd-b09a-71c55bd34a87",
+        null,
+    );
+    try expectDispatchError(error.MissingArgument, &.{ "agents", "get" });
+}
+
 test "agents update --visibility sends a visibility-only body" {
     try expectRequest(
         &.{ "agents", "update", "--id", "agent-1", "--visibility", "TEAM" },
