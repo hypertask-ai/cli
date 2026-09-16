@@ -24,8 +24,8 @@ Scope: implement every current Node CLI leaf command in the native Zig CLI, pres
   EXPECT: architecture check passed
   EVIDENCE: pending
 
-- [ ] G5: the installed hypertask binary is byte-identical to the ReleaseFast build artifact
-  CHECK: cmp zig-out/bin/hypertask "$HOME/.local/bin/hypertask" && echo "installed binary verified"
+- [ ] G5: the installed hypertask binary is byte-identical to the ReleaseFast build artifact, including whichever hypertask wins PATH
+  CHECK: cmp zig-out/bin/hypertask "$HOME/.local/bin/hypertask" && cmp zig-out/bin/hypertask "$(command -v hypertask)" && echo "installed binary verified"
   EXPECT: installed binary verified
   EVIDENCE: pending
 

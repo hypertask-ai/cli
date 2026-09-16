@@ -59,7 +59,9 @@ jobs:
 
       - name: Verify installed binary
         if: steps.state.outputs.needed == 'true'
-        run: cmp zig-out/bin/hypertask "$HOME/.local/bin/hypertask"
+        run: |
+          cmp zig-out/bin/hypertask "$HOME/.local/bin/hypertask"
+          cmp zig-out/bin/hypertask "$(command -v hypertask)"
 
       - name: Record installed commit
         if: steps.state.outputs.needed == 'true'

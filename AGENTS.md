@@ -19,7 +19,7 @@ zig build test         # unit tests
 
 Branch off `main`, push, open a PR with base `main`, and enable auto-merge (`gh pr merge --auto --squash`). Auto-merge is on for this repo. There is no branch protection, so a green PR merges itself.
 
-The installed binary at `~/.local/bin/hypertask` is what the fleet actually runs. A push to `main` triggers `.github/workflows/install-fleet.yml` on the trusted fleet runner. It builds in ReleaseFast mode, installs the binary without replacing an existing `hypertask` symlink, and verifies GATES G5 with `cmp`.
+The fleet destination is `~/.local/bin/hypertask`. Install also replaces whichever `hypertask` wins `PATH` when that is a different file, because agent wrappers run `hypertask` from PATH and npm-global often sits first. Destination symlinks are kept; the target is replaced. GATES G5 is `cmp` against both the destination and `command -v hypertask`.
 
 For a manual recovery install:
 
