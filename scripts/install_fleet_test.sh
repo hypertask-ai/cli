@@ -5,6 +5,11 @@ repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
+# install-fleet.sh also writes $HOME/.npm-global/bin/hypertask. Point HOME
+# at the temp dir so a test never replaces the live wrapper (HTPR-6475).
+export HOME="$tmp/home"
+mkdir -p "$HOME"
+
 artifact="$tmp/hypertask-build"
 printf '#!/usr/bin/env bash\nprintf "fleet build\\n"\n' >"$artifact"
 chmod 755 "$artifact"
