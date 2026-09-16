@@ -29,13 +29,22 @@ install_one() {
 
 install_one "$destination"
 
-# Wrappers (`ht-product-bot`, `ht-dev-2`) run `hypertask` from PATH.
-# npm-global often sits ahead of ~/.local/bin, so a destination-only
-# install leaves agents on a stale binary. Replace that PATH winner too.
-if path_hypertask=$(command -v hypertask 2>/dev/null); then
-  dest_real=$(realpath -m "$destination")
-  path_real=$(realpath -m "$path_hypertask")
-  if [[ "$path_real" != "$dest_real" ]]; then
-    install_one "$path_hypertask"
+# Replace another hypertask path when it exists and is not the destination.
+# Fleet jobs often have a stripped PATH, so command -v is not enough:
+# ~/.npm-global/bin/hypertask still wins on login PATH (HTPR-6475).
+dest_real=$(realpath -m "$destination")
+replace_if_other() {
+  local other=$1
+  [[ -e "$other" || -L "$other" ]] || return 0
+  local other_real
+  other_real=$(realpath -m "$other")
+  if [[ "$other_real" != "$dest_real" ]]; then
+    install_one "$other"
   fi
+}
+
+if path_hypertask=$(command -v hypertask 2>/dev/null); then
+  replace_if_other "$path_hypertask"
 fi
+replace_if_other "$HOME/.npm-global/bin/hypertask"
+replace_if_other "$HOME/.npm-global/lib/node_modules/@hypertask/hypertask_cli/bin/hypertask.exe"
