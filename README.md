@@ -141,6 +141,10 @@ hypertask agent take HTPR-5778
 hypertask agent move HTPR-5778 'In Progress'
 hypertask agent poll
 hypertask agent new-tickets --label Bug
+
+hypertask agents webhook get --agent <agent-id>
+hypertask agents webhook configure --agent <agent-id> --url https://agent.example/webhook --event chat.message --event comment.mention
+hypertask agents webhook rotate-secret --agent <agent-id>
 ```
 
 `--token`, `HT_TOKEN`, and `HYPERTASKS_JWT_TOKEN` are also accepted. Ticket capability environment variables are checked before any request. Without `HT_AGENT_STATE_DIR`, durable state is isolated by API endpoint, project, and agent identity. On first use, seen, ticket, and watermark files migrate from `~/.config/hypertask-agents/<slug>.*` when present.

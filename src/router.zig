@@ -46,7 +46,16 @@ pub fn dispatch(context: *const Context) !void {
     if (std.mem.eql(u8, root, "decision") or std.mem.eql(u8, root, "decisions")) return decision.run(context, subcommand);
     if (std.mem.eql(u8, root, "user")) return user.run(context, subcommand);
     if (std.mem.eql(u8, root, "agent")) return agent.run(context, subcommand);
-    if (std.mem.eql(u8, root, "agents")) return agents.run(context, subcommand);
+    if (std.mem.eql(u8, root, "agents")) {
+        if (std.mem.eql(u8, subcommand, "webhook") or std.mem.eql(u8, subcommand, "webhooks")) {
+            const webhook_subcommand = context.args.positionalAt(2) orelse return error.MissingSubcommand;
+            if (!std.mem.eql(u8, webhook_subcommand, "get") and
+                !std.mem.eql(u8, webhook_subcommand, "configure") and
+                !std.mem.eql(u8, webhook_subcommand, "rotate-secret")) return error.UnknownCommand;
+            return webhook.run(context, webhook_subcommand);
+        }
+        return agents.run(context, subcommand);
+    }
     if (std.mem.eql(u8, root, "messages")) return messages.run(context, subcommand);
     if (std.mem.eql(u8, root, "webhook") or std.mem.eql(u8, root, "webhooks")) return webhook.run(context, subcommand);
     if (std.mem.eql(u8, root, "admin")) {

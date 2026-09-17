@@ -135,6 +135,13 @@ test "agents get --id is a known option" {
     try rejectUnknownOptions(std.testing.allocator, &parsed);
 }
 
+test "agents webhook configure options are known" {
+    const argv = [_][]const u8{ "agents", "webhook", "configure", "--agent", "agent-1", "--event", "chat.message" };
+    var parsed = try args_mod.parse(std.testing.allocator, &argv);
+    defer parsed.deinit();
+    try rejectUnknownOptions(std.testing.allocator, &parsed);
+}
+
 test "unknown option on task get is rejected" {
     const argv = [_][]const u8{ "task", "get", "HYFA-70", "--zzznotaflag", "9" };
     var parsed = try args_mod.parse(std.testing.allocator, &argv);

@@ -187,6 +187,27 @@ test "webhook configure passes server-owned event names through" {
     );
 }
 
+test "agents webhook compatibility path dispatches webhook commands" {
+    try expectRequest(
+        &.{ "agents", "webhook", "get" },
+        .GET,
+        "/mcp/webhooks?agent_id=self",
+        null,
+    );
+    try expectRequest(
+        &.{ "agents", "webhook", "configure", "--agent", "agent-1", "--event", "chat.message" },
+        .POST,
+        "/mcp/webhooks",
+        "{\"action\":\"configure\",\"agent_id\":\"agent-1\",\"events\":[\"chat.message\"]}",
+    );
+    try expectRequest(
+        &.{ "agents", "webhook", "rotate-secret", "--agent", "agent-1" },
+        .POST,
+        "/mcp/webhooks",
+        "{\"action\":\"rotate\",\"agent_id\":\"agent-1\"}",
+    );
+}
+
 test "command handlers build request bodies and query strings without HTTP" {
     try expectRequest(
         &.{ "task", "create", "--project", "15", "--title", "Fix it", "--priority", "high", "--estimate", "3" },
@@ -558,4 +579,3 @@ test "task update label catalog states replace vs add" {
     try std.testing.expect(std.mem.indexOf(u8, catalog, "--add-label <list>") != null);
     try std.testing.expect(std.mem.indexOf(u8, catalog, "--remove-label <list>") != null);
 }
-
