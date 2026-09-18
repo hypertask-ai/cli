@@ -355,9 +355,9 @@ test "command handlers build request bodies and query strings without HTTP" {
     );
     try expectRequest(
         &.{ "projects", "delete", "15", "--yes" },
-        .DELETE,
-        "/mcp/projects/15",
-        null,
+        .POST,
+        "/mcp/projects/archive",
+        "{\"project_id\":15,\"status\":\"Deleted\"}",
     );
     try expectRequest(
         &.{ "comment", "add", "HTPR-123", "--text", "Hello", "--markdown" },

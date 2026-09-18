@@ -170,9 +170,11 @@ fn archive(context: *const Context) !void {
 
 fn deleteProject(context: *const Context) !void {
     if (!context.args.has("yes")) return error.ConfirmationRequired;
-    const id = try common.positiveInt(try context.args.requirePositional(2, "id"), "id");
-    const path = try std.fmt.allocPrint(context.allocator, "/mcp/projects/{d}", .{id});
-    try context.call(.DELETE, path, null);
+    var body = try json.Object.init(context.allocator);
+    defer body.deinit();
+    try body.integer("project_id", try common.positiveInt(try context.args.requirePositional(2, "id"), "id"));
+    try body.string("status", "Deleted");
+    try context.call(.POST, "/mcp/projects/archive", try body.finish());
 }
 
 fn createBoard(context: *const Context) !void {
