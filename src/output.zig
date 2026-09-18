@@ -62,6 +62,7 @@ pub fn responseBodyWasPrinted(err: anyerror) bool {
         error.ApiAuthentication,
         error.ApiNotFound,
         error.ApiFailure,
+        error.SectionNotFound,
         error.UnknownOption,
         => true,
         else => false,

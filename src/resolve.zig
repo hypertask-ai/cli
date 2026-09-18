@@ -203,6 +203,16 @@ pub fn sectionId(context: *const Context, project_id: i64, value: []const u8) !i
         if (title_value != .string or !std.ascii.eqlIgnoreCase(title_value.string, value)) continue;
         return jsonInteger(row, "id") orelse return error.InvalidResponse;
     }
+
+    std.debug.print("section not found: {s}\nsections may only contain:", .{value});
+    var first = true;
+    for (sections.array.items) |row| {
+        const title_value = row.object.get("section_title") orelse continue;
+        if (title_value != .string) continue;
+        std.debug.print("{s} {s}", .{ if (first) "" else ",", title_value.string });
+        first = false;
+    }
+    std.debug.print("\n", .{});
     return error.SectionNotFound;
 }
 

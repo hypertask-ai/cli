@@ -116,6 +116,15 @@ class Handler(BaseHTTPRequestHandler):
             name = "task-get.json" if "ticket_number" in request["query"] else "task-list.json"
             self.respond(200, fixture(name))
             return
+        if route == ("GET", "/mcp/projects/15/sections"):
+            self.respond(200, json.dumps({
+                "sections": [
+                    {"id": 1, "section_title": "Bugs"},
+                    {"id": 2, "section_title": "In Progress"},
+                    {"id": 3, "section_title": "Done"},
+                ],
+            }, separators=(",", ":")))
+            return
         if route == ("GET", "/mcp/projects/15/labels"):
             self.respond(200, fixture("labels-list.json"))
             return
@@ -314,6 +323,24 @@ def main() -> None:
             expect(missing.returncode == 4, f"not-found exit was {missing.returncode}")
             expect(missing.stderr == "", f"error leaked to stderr: {missing.stderr!r}")
             expect(json.loads(missing.stdout)["error"] == "Task not found", missing.stdout)
+
+            with Handler.lock:
+                before = len(Handler.requests)
+            bad_section = run(
+                binary, token, api_url, home,
+                "task", "move", "HTPR-5787", "--section", "Totally Not A Section",
+            )
+            expect(bad_section.returncode == 4, f"bad section exit was {bad_section.returncode}")
+            expect(bad_section.stdout == "", f"bad section wrote stdout: {bad_section.stdout!r}")
+            expect(bad_section.stderr == (
+                "section not found: Totally Not A Section\n"
+                "sections may only contain: Bugs, In Progress, Done\n"
+            ), f"bad section stderr was {bad_section.stderr!r}")
+            with Handler.lock:
+                requests = Handler.requests[before:]
+            expect([request["path"] for request in requests] == [
+                "/mcp/tasks", "/mcp/projects/15/sections",
+            ], f"bad section requests were {requests}")
 
             # HTPR-6313: an agent command run without any agent identity must
             # fail loudly — non-zero exit, error on stderr, nothing on stdout,
