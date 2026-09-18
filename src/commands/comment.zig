@@ -8,6 +8,7 @@ const attachments = @import("../attachments.zig");
 const output = @import("../output.zig");
 const improve_command = @import("../improve_command.zig");
 const resolve = @import("../resolve.zig");
+const rich_text = @import("../rich_text.zig");
 
 pub fn run(context: *const Context, subcommand: []const u8) !void {
     if (std.mem.eql(u8, subcommand, "list")) {
@@ -27,7 +28,13 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
         if (context.args.get("improve-command") != null and !context.args.has("improve")) return error.InvalidOptions;
         var text = if (context.args.get("file")) |path| try common.readFile(context.allocator, path, 1024 * 1024) else context.args.get("text") orelse context.args.get("body") orelse return error.MissingOption;
         const ticket = try context.args.requirePositional(2, "ticket-or-task-id");
-        if (context.args.has("improve")) text = try improve(context, ticket, text);
+        if (context.args.has("improve")) {
+            text = try improve(context, ticket, text);
+        } else if (!context.args.has("markdown")) {
+            const normalized = try rich_text.normalize(context.allocator, text);
+            text = normalized.text;
+            if (normalized.wrapped) std.debug.print("Notice: wrapped bare text in HTML paragraph tags.\n", .{});
+        }
         var body = try json.Object.init(context.allocator);
         defer body.deinit();
         try addIdentifierBody(&body, context, ticket);
