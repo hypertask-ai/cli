@@ -533,6 +533,36 @@ test "task unassign --assignee <user-id> with no matching rows stays an idempote
     );
 }
 
+test "comment add bare --improve posts the default rewrite" {
+    try expectRequestCountWithResponses(
+        &.{ "comment", "add", "HTPR-6574", "--improve", "--text", "<p>Draft</p>" },
+        &.{
+            "{\"tasks\":[{\"id\":42349,\"projectId\":15}]}",
+            "{\"html\":\"<p>Improved readability</p>\"}",
+            "{}",
+        },
+        3,
+        .POST,
+        "/mcp/comments",
+        "{\"ticket_number\":\"HTPR-6574\",\"text\":\"<p>Improved readability</p>\"}",
+    );
+}
+
+test "comment add --improve-command posts the requested rewrite" {
+    try expectRequestCountWithResponses(
+        &.{ "comment", "add", "HTPR-6574", "--improve", "--improve-command", "summarize", "--text", "<p>Draft</p>" },
+        &.{
+            "{\"tasks\":[{\"id\":42349,\"projectId\":15}]}",
+            "{\"html\":\"<p>Summary</p>\"}",
+            "{}",
+        },
+        3,
+        .POST,
+        "/mcp/comments",
+        "{\"ticket_number\":\"HTPR-6574\",\"text\":\"<p>Summary</p>\"}",
+    );
+}
+
 test "comment add and task descriptions wrap bare text in HTML paragraphs" {
     try expectRequest(
         &.{ "comment", "add", "HTPR-6501", "--text", "First paragraph\n\nSecond paragraph" },
