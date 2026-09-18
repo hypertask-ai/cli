@@ -104,6 +104,14 @@ class ParityTest(unittest.TestCase):
         with self.assertRaisesRegex(AssertionError, "non-expiring agent JWT"):
             parity_test.require_live_parity_token("not-a-jwt")
 
+    def test_actionable_unknown_command_keeps_the_parity_error_shape(self) -> None:
+        stderr = (
+            "valid commands: list get\n"
+            "hypertask: command not found\n"
+            "Next: choose one of the valid commands listed above.\n"
+        )
+        self.assertEqual(parity_test.error_shape(stderr), "unknown-command")
+
     def test_write_mode_requires_an_explicit_token(self) -> None:
         environment = {"HT_TOKEN": "", "HYPERTASKS_JWT_TOKEN": ""}
         with mock.patch.dict(os.environ, environment, clear=False):
