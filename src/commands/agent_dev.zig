@@ -373,7 +373,7 @@ fn postConfigure(context: *const Context, agent_id: []const u8, url: []const u8)
     try body.string("action", "configure");
     try body.string("agent_id", agent_id);
     try body.string("url", url);
-    return context.fetch(.POST, "/mcp/webhooks", try body.finish());
+    return context.fetchRaw(.POST, "/mcp/webhooks", try body.finish());
 }
 
 fn configureUrl(context: *const Context, agent_id: []const u8, url: []const u8) !void {
