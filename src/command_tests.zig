@@ -75,7 +75,7 @@ test "router dispatches task and decision aliases" {
     try expectRequest(
         &.{ "tasks", "list", "--project", "15", "--filter", "section=AI Review", "--filter", "has_pr=red", "--fields", "title,url", "--limit", "20" },
         .GET,
-        "/mcp/tasks?project_id=15&limit=20&offset=0&fields=title%2Curl&filter.section=AI%20Review&filter.has_pr=red",
+        "/mcp/tasks?project_id=15&offset=0&fields=title%2Curl&limit=20&filter.section=AI%20Review&filter.has_pr=red",
         null,
     );
     try expectRequest(
@@ -94,6 +94,34 @@ test "router dispatches task and decision aliases" {
         &.{ "decisions", "list", "HTPR-123", "--status", "pending" },
         .GET,
         "/mcp/decisions?ticket_number=HTPR-123&status=pending",
+        null,
+    );
+}
+
+test "every HTPR-6530 list command forwards --limit" {
+    try expectRequestWithResponses(
+        &.{ "comment", "list", "HTPR-6530", "--limit", "3" },
+        &.{"{\"success\":true,\"comments\":[],\"total\":0,\"offset\":0}"},
+        .GET,
+        "/mcp/comments?ticket_number=HTPR-6530&limit=3",
+        null,
+    );
+    try expectRequest(
+        &.{ "section", "list", "--project", "15", "--limit", "3" },
+        .GET,
+        "/mcp/projects/15/sections?limit=3",
+        null,
+    );
+    try expectRequest(
+        &.{ "labels", "list", "--project", "15", "--limit", "3" },
+        .GET,
+        "/mcp/projects/15/labels?limit=3",
+        null,
+    );
+    try expectRequest(
+        &.{ "agents", "list", "--management-key", "test-key", "--limit", "3" },
+        .GET,
+        "/mcp/admin/agents?limit=3",
         null,
     );
 }

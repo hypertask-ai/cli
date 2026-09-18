@@ -34,7 +34,7 @@ pub fn labelsCommand(context: *const Context, subcommand: []const u8) !void {
 fn list(context: *const Context) !void {
     var path = try query.Builder.init(context.allocator, "/mcp/projects");
     defer path.deinit();
-    try path.add("limit", context.args.get("limit") orelse "10");
+    if (context.args.get("limit") == null) try path.add("limit", "10");
     try path.add("offset", context.args.get("offset") orelse "0");
     try list_query.addListQuery(&path, context.args, context.allocator);
     try context.call(.GET, path.path(), null);
