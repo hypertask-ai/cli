@@ -225,7 +225,7 @@ fn update(context: *const Context) !void {
     const attach_inputs = try common.optionList(context, "attach");
     const post_update = hasFieldUpdateOptions(context) or (context.args.has("assignee") and assignees.len != 0);
     var response = if (post_update)
-        try context.fetch(.POST, "/mcp/tasks/update", try body.finish())
+        try fetchTaskUpdate(context, ticket, try body.finish())
     else blk: {
         var path = try query.Builder.init(context.allocator, "/mcp/tasks");
         defer path.deinit();
@@ -874,6 +874,49 @@ fn mergeSearchTask(allocator: std.mem.Allocator, task: *std.json.Value, detail_b
     if (description != .string) return error.InvalidResponse;
     try task.object.put("description", .{ .string = try allocator.dupe(u8, description.string) });
     try addSearchTaskLink(allocator, task);
+}
+
+fn fetchTaskUpdate(context: *const Context, identifier: []const u8, body: []const u8) !http.Response {
+    var response = try context.fetch(.POST, "/mcp/tasks/update", body);
+    if (!missingMutationLease(context.allocator, response.body)) return response;
+    response.deinit();
+
+    const task = try resolve.task(context, identifier);
+    try claimMutationLease(context, task.id);
+    defer releaseMutationLease(context, task.id) catch {};
+    return context.fetch(.POST, "/mcp/tasks/update", body);
+}
+
+fn missingMutationLease(allocator: std.mem.Allocator, response_body: []const u8) bool {
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, response_body, .{}) catch return false;
+    defer parsed.deinit();
+    if (parsed.value != .object) return false;
+    const error_value = parsed.value.object.get("error") orelse return false;
+    return error_value == .string and std.mem.indexOf(u8, error_value.string, "Caller holds no agent mutation lease") != null;
+}
+
+fn claimMutationLease(context: *const Context, task_id: i64) !void {
+    var body = try json.Object.init(context.allocator);
+    defer body.deinit();
+    try body.integer("task_id", task_id);
+    try body.integer("ttl_seconds", 120);
+    var response = try context.fetch(.POST, "/mcp/tasks/lease/claim", try body.finish());
+    defer response.deinit();
+    try requireSuccess(context, &response);
+}
+
+fn releaseMutationLease(context: *const Context, task_id: i64) !void {
+    var body = try json.Object.init(context.allocator);
+    defer body.deinit();
+    try body.integer("task_id", task_id);
+    var response = try context.fetch(.POST, "/mcp/tasks/lease/release", try body.finish());
+    defer response.deinit();
+    try requireSuccess(context, &response);
+}
+
+fn requireSuccess(context: *const Context, response: *http.Response) !void {
+    const code = @intFromEnum(response.status);
+    if (code < 200 or code >= 300) return context.finish(response);
 }
 
 fn taskMutationBody(context: *const Context, response: *http.Response) ![]u8 {
