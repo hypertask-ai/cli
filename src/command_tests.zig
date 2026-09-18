@@ -9,6 +9,10 @@ fn expectRequest(argv: []const []const u8, method: std.http.Method, path: []cons
 }
 
 fn expectRequestWithResponses(argv: []const []const u8, responses: []const []const u8, method: std.http.Method, path: []const u8, body: ?[]const u8) !void {
+    return expectRequestCountWithResponses(argv, responses, null, method, path, body);
+}
+
+fn expectRequestCountWithResponses(argv: []const []const u8, responses: []const []const u8, expected_count: ?usize, method: std.http.Method, path: []const u8, body: ?[]const u8) !void {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -29,6 +33,7 @@ fn expectRequestWithResponses(argv: []const []const u8, responses: []const []con
     };
 
     try router.dispatch(&context);
+    if (expected_count) |count| try std.testing.expectEqual(count, recorder.responses_index);
     try std.testing.expectEqual(method, recorder.method.?);
     try std.testing.expectEqualStrings(path, recorder.path.?);
     if (body) |expected| {
@@ -356,6 +361,23 @@ test "command handlers build request bodies and query strings without HTTP" {
         .POST,
         "/mcp/comments/216402/reactions",
         "{\"emoji\":\"✅\",\"active\":false}",
+    );
+}
+
+test "task update claims and releases a lease after the server reports none" {
+    try expectRequestCountWithResponses(
+        &.{ "task", "update", "HTPR-5805", "--title", "Keep title" },
+        &.{
+            "{\"success\":false,\"tasks\":[],\"error\":\"Failed to update 1 task(s). Caller holds no agent mutation lease for this task. Claim one with POST /mcp/tasks/lease/claim before this write.\"}",
+            "{\"success\":true,\"tasks\":[{\"id\":41043,\"projectId\":15}]}",
+            "{\"success\":true,\"lease\":{\"taskId\":41043}}",
+            "{\"success\":true,\"task\":{\"id\":41043,\"ticketNumber\":\"HTPR-5805\",\"projectId\":15}}",
+            "{\"success\":true}",
+        },
+        5,
+        .POST,
+        "/mcp/tasks/lease/release",
+        "{\"task_id\":41043}",
     );
 }
 
