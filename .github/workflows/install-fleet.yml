@@ -61,7 +61,12 @@ jobs:
         if: steps.state.outputs.needed == 'true'
         run: |
           cmp zig-out/bin/hypertask "$HOME/.local/bin/hypertask"
-          cmp zig-out/bin/hypertask "$(command -v hypertask)"
+          if path_ht=$(command -v hypertask 2>/dev/null); then
+            cmp zig-out/bin/hypertask "$path_ht"
+          fi
+          if [ -e "$HOME/.npm-global/bin/hypertask" ] || [ -L "$HOME/.npm-global/bin/hypertask" ]; then
+            cmp zig-out/bin/hypertask "$HOME/.npm-global/bin/hypertask"
+          fi
 
       - name: Record installed commit
         if: steps.state.outputs.needed == 'true'

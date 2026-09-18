@@ -19,7 +19,7 @@ zig build test         # unit tests
 
 Branch off `main`, push, open a PR with base `main`, and enable auto-merge (`gh pr merge --auto --squash`). Auto-merge is on for this repo. There is no branch protection, so a green PR merges itself.
 
-The fleet destination is `~/.local/bin/hypertask`. Install also replaces whichever `hypertask` wins `PATH` when that is a different file, because agent wrappers run `hypertask` from PATH and npm-global often sits first. Destination symlinks are kept; the target is replaced. GATES G5 is `cmp` against both the destination and `command -v hypertask`.
+The fleet destination is `~/.local/bin/hypertask`. Install also replaces whichever `hypertask` wins `PATH` when that is a different file, and it replaces `~/.npm-global/bin/hypertask` when that file exists even if this job's PATH is empty. Agent wrappers run `hypertask` from a login PATH, and npm-global often sits first. Destination symlinks are kept; the target is replaced. GATES G5 is `cmp` against the destination, `command -v hypertask` when it exists, and the npm-global wrapper when it exists.
 
 For a manual recovery install:
 

@@ -110,6 +110,17 @@ Board-wide unassign:
 hypertask tasks unassign --project 15 --assignee 6 --all
 ```
 
+`--labels` replaces the ticket's whole label set. Repeatable means you can pass the
+flag more than once in that one call, not that it appends to labels already on
+the ticket. Use `--add-label` / `--remove-label` (or `--add-labels` /
+`--remove-labels`) to keep the rest:
+
+```bash
+hypertask tasks update HTPR-5726 --labels CLI,BUG
+hypertask tasks update HTPR-5726 --add-label QA
+hypertask tasks update HTPR-5726 --remove-label BUG
+```
+
 That snapshots Normal, Archive, and Deleted tasks assigned to that person, then
 unassigns each one. The command exits nonzero if any task fails.
 
@@ -130,6 +141,10 @@ hypertask agent take HTPR-5778
 hypertask agent move HTPR-5778 'In Progress'
 hypertask agent poll
 hypertask agent new-tickets --label Bug
+
+hypertask agents webhook get --agent <agent-id>
+hypertask agents webhook configure --agent <agent-id> --url https://agent.example/webhook --event chat.message --event comment.mention
+hypertask agents webhook rotate-secret --agent <agent-id>
 ```
 
 `--token`, `HT_TOKEN`, and `HYPERTASKS_JWT_TOKEN` are also accepted. Ticket capability environment variables are checked before any request. Without `HT_AGENT_STATE_DIR`, durable state is isolated by API endpoint, project, and agent identity. On first use, seen, ticket, and watermark files migrate from `~/.config/hypertask-agents/<slug>.*` when present.

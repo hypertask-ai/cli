@@ -52,7 +52,8 @@ fn list(context: *const Context) !void {
         try path.add("section", value);
     }
     for (try common.optionList(context, "priority")) |value| try path.add("priority", value);
-    const label_inputs = try common.optionList(context, "labels");
+    const from_labels = try common.optionList(context, "labels");
+    const label_inputs = if (from_labels.len != 0) from_labels else try common.optionList(context, "label");
     const project_id = if (context.args.get("project")) |value| try common.positiveInt(value, "project") else null;
     const label_ids = try resolveLabelIds(context, label_inputs, project_id, false);
     for (label_ids) |value| try path.add("labels", value);
@@ -194,8 +195,9 @@ fn update(context: *const Context) !void {
     }
     if (context.args.has("clear-parent")) try body.nullValue("parent_task_id") else if (context.args.get("parent-task")) |value| try body.integer("parent_task_id", (try resolve.task(context, value)).id);
     const label_inputs = try common.optionList(context, "labels");
-    const add_label_inputs = try common.optionList(context, "add-labels");
-    const remove_label_inputs = try common.optionList(context, "remove-labels");
+    const add_label_inputs = try collectLabelOptions(context, &.{ "add-labels", "add-label" });
+    const remove_label_inputs = try collectLabelOptions(context, &.{ "remove-labels", "remove-label" });
+    if (label_inputs.len != 0 and (add_label_inputs.len != 0 or remove_label_inputs.len != 0)) return error.InvalidOptions;
     if (label_inputs.len != 0 or add_label_inputs.len != 0 or remove_label_inputs.len != 0) {
         const task_row = try resolve.task(context, ticket);
         if (label_inputs.len != 0) {
@@ -723,9 +725,17 @@ fn priority(value: []const u8) i64 {
     return 0;
 }
 
+fn collectLabelOptions(context: *const Context, names: []const []const u8) ![]const []const u8 {
+    var result: std.ArrayListUnmanaged([]const u8) = .{};
+    for (names) |name| {
+        try result.appendSlice(context.allocator, try common.optionList(context, name));
+    }
+    return result.toOwnedSlice(context.allocator);
+}
+
 fn hasFieldUpdateOptions(context: *const Context) bool {
     const names = [_][]const u8{
-        "title", "description", "description-file", "pull-request", "priority", "estimate", "due", "clear-due", "status", "section", "labels", "add-labels", "remove-labels", "parent-task", "clear-parent",
+        "title", "description", "description-file", "pull-request", "priority", "estimate", "due", "clear-due", "status", "section", "labels", "add-labels", "add-label", "remove-labels", "remove-label", "parent-task", "clear-parent",
     };
     for (names) |name| if (context.args.has(name)) return true;
     return false;

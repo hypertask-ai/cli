@@ -108,6 +108,16 @@ test "tasks list resolves --labels into a labels query filter" {
     );
 }
 
+test "tasks list --label alias also filters" {
+    try expectRequestWithResponses(
+        &.{ "tasks", "list", "--project", "15", "--label", "auto-error" },
+        &.{"{\"projects\":[{\"id\":15,\"labels\":[{\"id\":\"auto-error-label-id\",\"name\":\"auto-error\"}]}]}"},
+        .GET,
+        "/mcp/tasks?project_id=15&labels=auto-error-label-id&limit=10&offset=0",
+        null,
+    );
+}
+
 test "task get distinguishes internal ids from project ticket indexes" {
     try expectRequestWithResponses(
         &.{ "tasks", "get", "5661", "--project", "15" },
@@ -177,6 +187,27 @@ test "webhook configure passes server-owned event names through" {
     );
 }
 
+test "agents webhook compatibility path dispatches webhook commands" {
+    try expectRequest(
+        &.{ "agents", "webhook", "get" },
+        .GET,
+        "/mcp/webhooks?agent_id=self",
+        null,
+    );
+    try expectRequest(
+        &.{ "agents", "webhook", "configure", "--agent", "agent-1", "--event", "chat.message" },
+        .POST,
+        "/mcp/webhooks",
+        "{\"action\":\"configure\",\"agent_id\":\"agent-1\",\"events\":[\"chat.message\"]}",
+    );
+    try expectRequest(
+        &.{ "agents", "webhook", "rotate-secret", "--agent", "agent-1" },
+        .POST,
+        "/mcp/webhooks",
+        "{\"action\":\"rotate\",\"agent_id\":\"agent-1\"}",
+    );
+}
+
 test "command handlers build request bodies and query strings without HTTP" {
     try expectRequest(
         &.{ "task", "create", "--project", "15", "--title", "Fix it", "--priority", "high", "--estimate", "3" },
@@ -198,12 +229,34 @@ test "command handlers build request bodies and query strings without HTTP" {
         "{\"ticket_number\":\"HTPR-6234\",\"project_id\":15,\"add_labels\":[\"qa-label-id\"]}",
     );
     try expectRequestWithResponses(
+        &.{ "task", "update", "HTPR-6479", "--project", "15", "--add-label", "youtube" },
+        &.{ "{\"tasks\":[{\"id\":35007,\"projectId\":15}]}", "{\"projects\":[{\"id\":15,\"labels\":[{\"id\":\"youtube-id\",\"name\":\"youtube\"}]}]}" },
+        .POST,
+        "/mcp/tasks/update",
+        "{\"ticket_number\":\"HTPR-6479\",\"project_id\":15,\"add_labels\":[\"youtube-id\"]}",
+    );
+    try expectRequestWithResponses(
+        &.{ "task", "update", "HTPR-6479", "--project", "15", "--labels", "youtube" },
+        &.{ "{\"tasks\":[{\"id\":35007,\"projectId\":15}]}", "{\"projects\":[{\"id\":15,\"labels\":[{\"id\":\"youtube-id\",\"name\":\"youtube\"}]}]}" },
+        .POST,
+        "/mcp/tasks/update",
+        "{\"ticket_number\":\"HTPR-6479\",\"project_id\":15,\"labels\":[\"youtube-id\"]}",
+    );
+    try expectRequestWithResponses(
         &.{ "task", "update", "HTPR-6234", "--project", "15", "--remove-labels", "11111111-2222-4333-8444-555555555555", "--add-labels", "CLI" },
         &.{ "{\"tasks\":[{\"id\":35007,\"projectId\":15}]}", "{\"projects\":[{\"id\":15,\"labels\":[{\"id\":\"cli-label-id\",\"name\":\"CLI\"}]}]}", "{\"projects\":[{\"id\":15,\"labels\":[]}]}" },
         .POST,
         "/mcp/tasks/update",
         "{\"ticket_number\":\"HTPR-6234\",\"project_id\":15,\"add_labels\":[\"cli-label-id\"],\"remove_labels\":[\"11111111-2222-4333-8444-555555555555\"]}",
     );
+    try expectRequestWithResponses(
+        &.{ "task", "update", "HTPR-6479", "--project", "15", "--remove-label", "CLI" },
+        &.{ "{\"tasks\":[{\"id\":35007,\"projectId\":15}]}", "{\"projects\":[{\"id\":15,\"labels\":[{\"id\":\"cli-label-id\",\"name\":\"CLI\"}]}]}" },
+        .POST,
+        "/mcp/tasks/update",
+        "{\"ticket_number\":\"HTPR-6479\",\"project_id\":15,\"remove_labels\":[\"cli-label-id\"]}",
+    );
+    try expectDispatchError(error.InvalidOptions, &.{ "task", "update", "HTPR-6479", "--labels", "youtube", "--add-label", "CLI" });
     try expectRequest(
         &.{ "decision", "create", "htpr-123", "--question", "Pick", "--option", "A", "--option", "B" },
         .POST,
@@ -432,6 +485,22 @@ test "task update --description-file reads the file and takes precedence over --
     );
 }
 
+test "agents get reads one owned agent" {
+    try expectRequest(
+        &.{ "agents", "get", "--id", "a0e75f8c-9080-47bd-b09a-71c55bd34a87" },
+        .GET,
+        "/mcp/agents/a0e75f8c-9080-47bd-b09a-71c55bd34a87",
+        null,
+    );
+    try expectRequest(
+        &.{ "agents", "get", "a0e75f8c-9080-47bd-b09a-71c55bd34a87" },
+        .GET,
+        "/mcp/agents/a0e75f8c-9080-47bd-b09a-71c55bd34a87",
+        null,
+    );
+    try expectDispatchError(error.MissingArgument, &.{ "agents", "get" });
+}
+
 test "agents update --visibility sends a visibility-only body" {
     try expectRequest(
         &.{ "agents", "update", "--id", "agent-1", "--visibility", "TEAM" },
@@ -504,3 +573,9 @@ test "a refused visibility change prints the server error body" {
     try std.testing.expect(std.mem.indexOf(u8, captured[0..printed], "TEAM_VISIBILITY_KEY_REQUIRED") != null);
 }
 
+test "task update label catalog states replace vs add" {
+    const catalog = @embedFile("capabilities.json");
+    try std.testing.expect(std.mem.indexOf(u8, catalog, "Replace the ticket's entire label set") != null);
+    try std.testing.expect(std.mem.indexOf(u8, catalog, "--add-label <list>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, catalog, "--remove-label <list>") != null);
+}

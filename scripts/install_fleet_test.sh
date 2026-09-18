@@ -5,6 +5,11 @@ repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
+# install-fleet.sh also writes $HOME/.npm-global/bin/hypertask. Point HOME
+# at the temp dir so a test never replaces the live wrapper (HTPR-6475).
+export HOME="$tmp/home"
+mkdir -p "$HOME"
+
 artifact="$tmp/hypertask-build"
 printf '#!/usr/bin/env bash\nprintf "fleet build\\n"\n' >"$artifact"
 chmod 755 "$artifact"
@@ -54,5 +59,16 @@ ln -s "$npm_target" "$npm_link_dir/hypertask"
 PATH="$npm_link_dir:$PATH" HYPERTASK_INSTALL_PATH="$regular" "$repo_root/scripts/install-fleet.sh" "$artifact"
 [[ -L "$npm_link_dir/hypertask" ]]
 cmp "$artifact" "$npm_target"
+
+# HTPR-6475: fleet jobs often have a stripped PATH, so command -v misses
+# ~/.npm-global/bin/hypertask. That file still wins on a login PATH.
+stripped_home="$tmp/home-stripped"
+mkdir -p "$stripped_home/.npm-global/bin"
+printf 'old npm hidden\n' >"$stripped_home/.npm-global/bin/hypertask"
+chmod 755 "$stripped_home/.npm-global/bin/hypertask"
+PATH="/usr/bin:/bin" HOME="$stripped_home" HYPERTASK_INSTALL_PATH="$regular" \
+  "$repo_root/scripts/install-fleet.sh" "$artifact"
+cmp "$artifact" "$regular"
+cmp "$artifact" "$stripped_home/.npm-global/bin/hypertask"
 
 printf 'fleet install tests passed\n'
