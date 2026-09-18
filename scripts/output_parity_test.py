@@ -131,6 +131,9 @@ class Handler(BaseHTTPRequestHandler):
         if route == ("POST", "/mcp/tasks/create"):
             self.respond(422, fixture("task-create-error.json"))
             return
+        if route == ("POST", "/mcp/assignees/assign"):
+            self.respond(200, fixture("task-assign-self.json"))
+            return
         if route == ("POST", "/mcp/comments"):
             self.respond(400, fixture("comment-add-error.json"))
             return
@@ -367,6 +370,21 @@ def main() -> None:
             with Handler.lock:
                 expect(len(Handler.requests) == before, "identity error made network requests")
 
+            expect_command(
+                binary, token, api_url, home,
+                ("task", "assign", "HTPR-5787", "--self"),
+                "task-assign-self.json", 0,
+                {
+                    "method": "POST",
+                    "path": "/mcp/assignees/assign",
+                    "query": {},
+                    "body": {
+                        "ticket_number": "HTPR-5787",
+                        "assign_self": True,
+                        "intent": "assign",
+                    },
+                },
+            )
             expect_command(
                 binary, token, api_url, home,
                 ("tasks", "get", "HTPR-5787", "--project", "15"),
