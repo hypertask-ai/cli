@@ -8,6 +8,7 @@ const resolve = @import("../resolve.zig");
 const attachments = @import("../attachments.zig");
 const http = @import("../http.zig");
 const output = @import("../output.zig");
+const rich_text = @import("../rich_text.zig");
 
 pub fn run(context: *const Context, subcommand: []const u8) !void {
     if (std.mem.eql(u8, subcommand, "list")) return list(context);
@@ -789,8 +790,15 @@ fn clearTaskAssignees(context: *const Context, identifier: []const u8) !void {
 
 /// Reads --description-file if given (taking precedence), otherwise returns --description.
 fn descriptionValue(context: *const Context) !?[]const u8 {
-    if (context.args.get("description-file")) |path| return try common.readFile(context.allocator, path, 2 * 1024 * 1024);
-    return context.args.get("description");
+    const value = if (context.args.get("description-file")) |path|
+        try common.readFile(context.allocator, path, 2 * 1024 * 1024)
+    else
+        context.args.get("description") orelse return null;
+    if (context.args.has("markdown")) return value;
+
+    const normalized = try rich_text.normalize(context.allocator, value);
+    if (normalized.wrapped) std.debug.print("Notice: wrapped bare text in HTML paragraph tags.\n", .{});
+    return normalized.text;
 }
 
 fn responseTicket(context: *const Context, body: []const u8) ![]const u8 {

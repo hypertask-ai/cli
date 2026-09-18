@@ -307,6 +307,14 @@ test "subcommand help renders command-specific options" {
     defer std.testing.allocator.free(assign_with_ticket_help);
     try std.testing.expectEqualStrings(assign_help, assign_with_ticket_help);
 
+    const html_rule = "Comments and descriptions are HTML. Wrap content in block tags. Never embed images; attach files with --attach.";
+    const comment_add_help = try renderHelp(std.testing.allocator, &.{ "comment", "add" });
+    defer std.testing.allocator.free(comment_add_help);
+    try std.testing.expect(std.mem.indexOf(u8, comment_add_help, html_rule) != null);
+    const task_create_help = try renderHelp(std.testing.allocator, &.{ "task", "create" });
+    defer std.testing.allocator.free(task_create_help);
+    try std.testing.expect(std.mem.indexOf(u8, task_create_help, html_rule) != null);
+
     const unassign_help = try renderHelp(std.testing.allocator, &.{ "tasks", "unassign" });
     defer std.testing.allocator.free(unassign_help);
     try std.testing.expect(std.mem.indexOf(u8, unassign_help, "Usage: hypertask task unassign") != null);

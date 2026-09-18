@@ -202,7 +202,7 @@ test "task get distinguishes internal ids from project ticket indexes" {
         &.{ "comment", "add", "6162", "--text", "hi" },
         .POST,
         "/mcp/comments",
-        "{\"task_id\":6162,\"text\":\"hi\"}",
+        "{\"task_id\":6162,\"text\":\"<p>hi</p>\"}",
     );
 }
 
@@ -530,6 +530,42 @@ test "task unassign --assignee <user-id> with no matching rows stays an idempote
         .POST,
         "/mcp/assignees/assign",
         "{\"ticket_number\":\"HTPR-6136\",\"user_id\":6,\"intent\":\"unassign\"}",
+    );
+}
+
+test "comment add and task descriptions wrap bare text in HTML paragraphs" {
+    try expectRequest(
+        &.{ "comment", "add", "HTPR-6501", "--text", "First paragraph\n\nSecond paragraph" },
+        .POST,
+        "/mcp/comments",
+        "{\"ticket_number\":\"HTPR-6501\",\"text\":\"<p>First paragraph</p><p>Second paragraph</p>\"}",
+    );
+    try expectRequest(
+        &.{ "task", "create", "--project", "15", "--title", "Wrapped", "--description", "First paragraph\n\nSecond paragraph" },
+        .POST,
+        "/mcp/tasks/create",
+        "{\"project_id\":15,\"title\":\"Wrapped\",\"description\":\"<p>First paragraph</p><p>Second paragraph</p>\"}",
+    );
+    try expectRequest(
+        &.{ "task", "update", "HTPR-6501", "--description", "First paragraph\n\nSecond paragraph" },
+        .POST,
+        "/mcp/tasks/update",
+        "{\"ticket_number\":\"HTPR-6501\",\"description\":\"<p>First paragraph</p><p>Second paragraph</p>\"}",
+    );
+}
+
+test "comment add and task descriptions keep leading HTML block tags" {
+    try expectRequest(
+        &.{ "comment", "add", "HTPR-6501", "--text", "<blockquote>Already HTML</blockquote>" },
+        .POST,
+        "/mcp/comments",
+        "{\"ticket_number\":\"HTPR-6501\",\"text\":\"<blockquote>Already HTML</blockquote>\"}",
+    );
+    try expectRequest(
+        &.{ "task", "create", "--project", "15", "--title", "HTML", "--description", "<h2>Already HTML</h2>" },
+        .POST,
+        "/mcp/tasks/create",
+        "{\"project_id\":15,\"title\":\"HTML\",\"description\":\"<h2>Already HTML</h2>\"}",
     );
 }
 
