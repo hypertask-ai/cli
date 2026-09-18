@@ -137,8 +137,9 @@ fn renderHelp(allocator: std.mem.Allocator, path: []const []const u8) ![]u8 {
     if (options.len != 0) {
         try writer.writeAll("\nOptions:\n");
         for (options) |option| {
-            try writer.print("  {s}\n      {s}\n", .{
+            try writer.print("  {s}{s}\n      {s}\n", .{
                 try stringField(option, "flags"),
+                if (try boolField(option, "required")) " (required)" else "",
                 try stringField(option, "description"),
             });
         }
@@ -153,6 +154,36 @@ fn renderHelp(allocator: std.mem.Allocator, path: []const []const u8) ![]u8 {
             });
         }
     }
+
+    try writer.writeAll("\nExample:\n  hypertask");
+    for (canonical_path.items) |segment| try writer.print(" {s}", .{segment});
+    var example_command = command;
+    var example_subcommands = commands;
+    while (example_subcommands.len != 0) {
+        example_command = example_subcommands[0];
+        try writer.print(" {s}", .{try stringField(example_command, "name")});
+        example_subcommands = try arrayField(example_command, "commands");
+    }
+    for (try arrayField(example_command, "arguments")) |argument| {
+        if (try boolField(argument, "required")) {
+            try writer.print(" <{s}{s}>", .{
+                try stringField(argument, "name"),
+                if (try boolField(argument, "variadic")) "..." else "",
+            });
+        }
+    }
+    const example_options = try arrayField(example_command, "options");
+    var wrote_required_option = false;
+    for (example_options) |option| {
+        if (try boolField(option, "required")) {
+            try writer.print(" {s}", .{try stringField(option, "flags")});
+            wrote_required_option = true;
+        }
+    }
+    if (!wrote_required_option and example_options.len != 0) {
+        try writer.print(" {s}", .{try stringField(example_options[0], "flags")});
+    }
+    try writer.writeByte('\n');
 
     try writer.writeAll("\n  -h, --help\n      Show help\n");
     return result.toOwnedSlice(allocator);
@@ -197,6 +228,13 @@ test "subcommand help renders command-specific options" {
     try std.testing.expect(std.mem.indexOf(u8, assign_help, "Usage: hypertask task assign <ticket> [options]") != null);
     try std.testing.expect(std.mem.indexOf(u8, assign_help, "--assignee <id>") != null);
     try std.testing.expect(std.mem.indexOf(u8, assign_help, "--self") != null);
+    try std.testing.expect(std.mem.indexOf(u8, assign_help, "Example:\n  hypertask task assign <ticket> --assignee <id>") != null);
+
+    const pages_create_help = try renderHelp(std.testing.allocator, &.{ "pages", "create" });
+    defer std.testing.allocator.free(pages_create_help);
+    try std.testing.expect(std.mem.indexOf(u8, pages_create_help, "--task <id-or-ticket> (required)\n      Task ID or ticket reference") != null);
+    try std.testing.expect(std.mem.indexOf(u8, pages_create_help, "--content <content>\n      Page content") != null);
+    try std.testing.expect(std.mem.indexOf(u8, pages_create_help, "Example:\n  hypertask pages create --task <id-or-ticket> --title <title>") != null);
 
     const assign_with_ticket_help = try renderHelp(std.testing.allocator, &.{ "tasks", "assign", "HTPR-6276" });
     defer std.testing.allocator.free(assign_with_ticket_help);
