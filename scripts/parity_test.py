@@ -533,32 +533,37 @@ def error_shape(stderr: str) -> str:
         missing = re.search(r"required argument:\s*([^\s]+)", cleaned, re.IGNORECASE)
     if missing:
         return f"missing-required-argument:{missing.group(1)}"
-    if re.search(r"unknown command|UnknownCommand|not a valid subcommand", cleaned, re.IGNORECASE):
+    if re.search(r"unknown command|command not found|UnknownCommand|not a valid subcommand", cleaned, re.IGNORECASE):
         return "unknown-command"
     return "unclassified"
 
 
 def negative_cases(node_cli: list[str], zig_cli: list[str]) -> None:
     cases = (
-        ("task", "get"),
-        ("project", "show"),
-        ("comment", "list"),
-        ("task", "does-not-exist"),
+        (("task", "get"), 2),
+        (("project", "show"), 2),
+        (("comment", "list"), 2),
+        (("task", "does-not-exist"), 1),
     )
     with tempfile.TemporaryDirectory(prefix="hypertask-parity-") as directory:
         home = Path(directory)
         write_config(home, "negative", "https://saved.example.test/api")
         env = isolated_env(home)
         failures: list[str] = []
-        for case in cases:
+        for case, expected_zig_code in cases:
             node = run(node_cli, [*case, "--json"], env=env)
             zig = run(zig_cli, [*case, "--json"], env=env)
             node_shape = error_shape(node.stderr)
             zig_shape = error_shape(zig.stderr)
-            if node.returncode != zig.returncode or node_shape != zig_shape or node_shape == "unclassified":
+            if (
+                zig.returncode != expected_zig_code
+                or node_shape != zig_shape
+                or node_shape == "unclassified"
+                or "Next:" not in zig.stderr
+            ):
                 failures.append(
                     f"{' '.join(case)}: Node={node.returncode}/{node_shape}, "
-                    f"Zig={zig.returncode}/{zig_shape}"
+                    f"Zig={zig.returncode}/{zig_shape}, expected Zig={expected_zig_code} with Next"
                 )
         if failures:
             raise AssertionError("negative parity failures:\n" + "\n".join(failures))

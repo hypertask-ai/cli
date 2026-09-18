@@ -25,6 +25,56 @@ const user = @import("commands/user.zig");
 const view = @import("commands/view.zig");
 const webhook = @import("commands/webhook.zig");
 
+pub fn validateCommandPath(allocator: std.mem.Allocator, path: []const []const u8, require_leaf: bool) !void {
+    if (path.len != 0 and std.mem.eql(u8, path[0], "raw")) {
+        if (path.len <= 4) return;
+        std.debug.print("unexpected argument: {s}\naccepted arguments: METHOD path body\n", .{path[4]});
+        return error.InvalidOptions;
+    }
+
+    const catalog = @embedFile("capabilities.json");
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, catalog, .{});
+    defer parsed.deinit();
+
+    var command = parsed.value;
+    var index: usize = 0;
+    while (index < path.len) : (index += 1) {
+        const commands = try arrayFieldOrEmpty(command, "commands");
+        if (commands.len == 0) return validateArguments(command, path[index..]);
+        command = findCommand(command, path[index]) orelse {
+            printCommandChoices(commands);
+            return error.UnknownCommand;
+        };
+    }
+
+    const commands = try arrayFieldOrEmpty(command, "commands");
+    if (commands.len != 0 and require_leaf) {
+        printCommandChoices(commands);
+        return error.MissingSubcommand;
+    }
+}
+
+fn validateArguments(command: std.json.Value, provided: []const []const u8) !void {
+    const arguments = try arrayFieldOrEmpty(command, "arguments");
+    const variadic = if (arguments.len == 0) false else try boolField(arguments[arguments.len - 1], "variadic");
+    if (variadic or provided.len <= arguments.len) return;
+
+    std.debug.print("unexpected argument: {s}\naccepted arguments:", .{provided[arguments.len]});
+    if (arguments.len == 0) std.debug.print(" (none)", .{});
+    for (arguments) |argument| std.debug.print(" {s}", .{try stringField(argument, "name")});
+    std.debug.print("\n", .{});
+    return error.InvalidOptions;
+}
+
+fn printCommandChoices(commands: []const std.json.Value) void {
+    std.debug.print("valid commands:", .{});
+    for (commands) |command| {
+        const name = stringField(command, "name") catch continue;
+        std.debug.print(" {s}", .{name});
+    }
+    std.debug.print("\n", .{});
+}
+
 pub fn dispatch(context: *const Context) !void {
     const root = context.args.positionalAt(0) orelse return printHelp(context.allocator, &.{});
     if (std.mem.eql(u8, root, "login")) return auth.login(context);
@@ -103,7 +153,7 @@ fn renderHelp(allocator: std.mem.Allocator, path: []const []const u8) ![]u8 {
     defer canonical_path.deinit(allocator);
     for (path) |segment| {
         command = findCommand(command, segment) orelse {
-            if ((try arrayField(command, "commands")).len == 0) break;
+            if ((try arrayFieldOrEmpty(command, "commands")).len == 0) break;
             return error.UnknownCommand;
         };
         try canonical_path.append(allocator, try stringField(command, "name"));
@@ -130,7 +180,7 @@ fn renderHelp(allocator: std.mem.Allocator, path: []const []const u8) ![]u8 {
 
     const options = try arrayField(command, "options");
     if (options.len != 0) try writer.writeAll(" [options]");
-    const commands = try arrayField(command, "commands");
+    const commands = try arrayFieldOrEmpty(command, "commands");
     if (commands.len != 0) try writer.writeAll(" <command>");
     try writer.writeByte('\n');
 
@@ -162,7 +212,7 @@ fn renderHelp(allocator: std.mem.Allocator, path: []const []const u8) ![]u8 {
     while (example_subcommands.len != 0) {
         example_command = example_subcommands[0];
         try writer.print(" {s}", .{try stringField(example_command, "name")});
-        example_subcommands = try arrayField(example_command, "commands");
+        example_subcommands = try arrayFieldOrEmpty(example_command, "commands");
     }
     for (try arrayField(example_command, "arguments")) |argument| {
         if (try boolField(argument, "required")) {
@@ -190,10 +240,10 @@ fn renderHelp(allocator: std.mem.Allocator, path: []const []const u8) ![]u8 {
 }
 
 fn findCommand(parent: std.json.Value, name: []const u8) ?std.json.Value {
-    const commands = arrayField(parent, "commands") catch return null;
+    const commands = arrayFieldOrEmpty(parent, "commands") catch return null;
     for (commands) |command| {
         if (std.mem.eql(u8, stringField(command, "name") catch continue, name)) return command;
-        const aliases = arrayField(command, "aliases") catch continue;
+        const aliases = arrayFieldOrEmpty(command, "aliases") catch continue;
         for (aliases) |alias| {
             if (alias == .string and std.mem.eql(u8, alias.string, name)) return command;
         }
@@ -222,7 +272,24 @@ fn arrayField(value: std.json.Value, name: []const u8) ![]const std.json.Value {
     return field.array.items;
 }
 
+fn arrayFieldOrEmpty(value: std.json.Value, name: []const u8) ![]const std.json.Value {
+    if (value != .object) return error.InvalidCapabilities;
+    const field = value.object.get(name) orelse return &.{};
+    if (field != .array) return error.InvalidCapabilities;
+    return field.array.items;
+}
+
 test "subcommand help renders command-specific options" {
+    try validateCommandPath(std.testing.allocator, &.{"tasks"}, false);
+    const task_help = try renderHelp(std.testing.allocator, &.{"tasks"});
+    defer std.testing.allocator.free(task_help);
+    try std.testing.expect(std.mem.indexOf(u8, task_help, "Commands:") != null);
+    try std.testing.expect(std.mem.indexOf(u8, task_help, "assign") != null);
+
+    const new_tickets_help = try renderHelp(std.testing.allocator, &.{ "agent", "new-tickets" });
+    defer std.testing.allocator.free(new_tickets_help);
+    try std.testing.expect(std.mem.indexOf(u8, new_tickets_help, "--project <id>") != null);
+
     const assign_help = try renderHelp(std.testing.allocator, &.{ "tasks", "assign" });
     defer std.testing.allocator.free(assign_help);
     try std.testing.expect(std.mem.indexOf(u8, assign_help, "Usage: hypertask task assign <ticket> [options]") != null);

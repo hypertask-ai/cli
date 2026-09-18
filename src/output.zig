@@ -16,11 +16,17 @@ pub fn printResponse(allocator: std.mem.Allocator, body: []const u8, json: bool)
 
 pub fn finish(response: *http.Response) !void {
     const code = @intFromEnum(response.status);
-    if (code < 200 or code >= 300) {
-        try print(response.body);
-        return apiError(response.status);
-    }
     try print(response.body);
+    if (code < 200 or code >= 300) return apiError(response.status);
+    if (responseReportsFailure(response.allocator, response.body)) return error.ApiFailure;
+}
+
+pub fn responseReportsFailure(allocator: std.mem.Allocator, body: []const u8) bool {
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch return false;
+    defer parsed.deinit();
+    if (parsed.value != .object) return false;
+    const success = parsed.value.object.get("success") orelse return false;
+    return success == .bool and !success.bool;
 }
 
 fn apiError(status: std.http.Status) anyerror {
@@ -34,44 +40,145 @@ fn apiError(status: std.http.Status) anyerror {
 
 pub fn exitCode(err: anyerror) u8 {
     return switch (err) {
-        error.MissingOption,
-        error.MissingSubcommand,
+        error.AmbiguousTaskIdentifier,
+        error.ApiInvalidInput,
+        error.ConfirmationRequired,
+        error.ConflictingProjectChanges,
+        error.FileNotFound,
+        error.InvalidFilter,
         error.InvalidInteger,
+        error.InvalidJsonObject,
+        error.InvalidManifest,
+        error.InvalidMethod,
         error.InvalidOptions,
         error.InvalidProject,
+        error.InvalidTicket,
+        error.MissingAgentIdentity,
+        error.MissingArgument,
+        error.MissingOption,
+        error.MissingOptionValue,
+        error.MissingProject,
+        error.MissingProjectChanges,
+        error.MissingSubcommand,
+        error.MissingTask,
+        error.MissingWebhookSecret,
+        error.NoToken,
         error.UnknownOption,
-        error.ApiInvalidInput,
         => 2,
         error.UnknownCommand => 1,
-        error.TaskNotFound,
+        error.ApiAuthentication,
+        error.ApiFailure,
+        error.ApiNotFound,
+        error.AssigneeNotConfirmed,
+        error.AssigneeNotRemoved,
+        error.CapabilityAgentMismatch,
+        error.CapabilityAgentOverride,
+        error.CapabilityExpired,
+        error.CapabilityTicketMismatch,
+        error.CommandFailed,
+        error.FieldNotFound,
+        error.InvalidResponse,
+        error.LabelNotFound,
+        error.ModeMismatch,
+        error.ProjectAccessDenied,
         error.ProjectNotFound,
         error.SectionNotFound,
-        error.FieldNotFound,
-        error.LabelNotFound,
-        error.ApiNotFound,
-        error.ApiFailure,
-        error.CommandFailed,
+        error.TaskNotFound,
         => 4,
         else => 1,
     };
 }
 
-pub fn responseBodyWasPrinted(err: anyerror) bool {
-    return switch (err) {
-        error.ApiInvalidInput,
+pub fn printFailure(err: anyerror) void {
+    const summary: ?[]const u8 = switch (err) {
+        error.MissingAgentIdentity,
+        error.MissingArgument,
+        error.MissingOption,
+        error.MissingOptionValue,
+        error.MissingProject,
+        error.MissingProjectChanges,
+        error.MissingSubcommand,
+        error.MissingTask,
+        error.MissingWebhookSecret,
+        => "required command input is missing",
+        error.AmbiguousTaskIdentifier,
+        error.ConflictingProjectChanges,
+        error.FileNotFound,
+        error.InvalidFilter,
+        error.InvalidInteger,
+        error.InvalidJsonObject,
+        error.InvalidManifest,
+        error.InvalidMethod,
+        error.InvalidOptions,
+        error.InvalidProject,
+        error.InvalidTicket,
+        => "command input is invalid",
+        error.UnknownOption => "the command does not accept that option",
+        error.UnknownCommand => "command not found",
+        error.NoToken => "authentication token is missing",
         error.ApiAuthentication,
-        error.ApiNotFound,
-        error.ApiFailure,
-        error.SectionNotFound,
-        error.UnknownOption,
-        => true,
-        else => false,
+        error.CapabilityAgentMismatch,
+        error.CapabilityAgentOverride,
+        error.CapabilityExpired,
+        error.CapabilityTicketMismatch,
+        error.ProjectAccessDenied,
+        => "this token does not have the required access",
+        error.ApiNotFound, error.FieldNotFound, error.LabelNotFound, error.ProjectNotFound, error.SectionNotFound, error.TaskNotFound => "the requested item was not found",
+        error.ApiInvalidInput => "the server rejected the command input",
+        error.ApiFailure, error.AssigneeNotConfirmed, error.AssigneeNotRemoved, error.CommandFailed => "the server could not complete the command",
+        error.InvalidResponse, error.ModeMismatch => "the server returned a response the CLI could not use",
+        else => null,
+    };
+    if (summary) |message| {
+        std.debug.print("hypertask: {s}\n", .{message});
+    } else {
+        std.debug.print("hypertask: command failed ({s})\n", .{@errorName(err)});
+    }
+    std.debug.print("Next: {s}\n", .{nextStep(err)});
+}
+
+fn nextStep(err: anyerror) []const u8 {
+    return switch (err) {
+        error.UnknownCommand, error.MissingSubcommand => "choose one of the valid commands listed above.",
+        error.UnknownOption => "retry with one of the accepted flags listed above.",
+        error.InvalidMethod => "retry with one of the valid methods listed above.",
+        error.SectionNotFound => "retry with one of the sections listed above.",
+        error.LabelNotFound => "retry with one of the labels listed above.",
+        error.AmbiguousTaskIdentifier => "retry with the full ticket key or internal id described above.",
+        error.NoToken => "run `hypertask login --token <jwt>`.",
+        error.MissingAgentIdentity => "pass --agent-id or set HT_AGENT_ID, then retry.",
+        error.MissingWebhookSecret => "set the webhook secret environment variable named above, then retry.",
+        error.ApiAuthentication, error.ProjectAccessDenied => "ask the project owner to add this token.",
+        error.CapabilityAgentMismatch,
+        error.CapabilityAgentOverride,
+        error.CapabilityExpired,
+        error.CapabilityTicketMismatch,
+        => "request a fresh capability for this agent and ticket.",
+        error.ApiNotFound, error.FieldNotFound, error.ProjectNotFound, error.TaskNotFound => "check the requested identifier and retry.",
+        error.AssigneeNotConfirmed, error.AssigneeNotRemoved => "read the task back, then retry only if its assignees are still wrong.",
+        error.FileNotFound, error.InvalidJsonObject, error.InvalidManifest => "fix the file or JSON input named above, then retry.",
+        error.ApiInvalidInput,
+        error.ConfirmationRequired,
+        error.ConflictingProjectChanges,
+        error.InvalidFilter,
+        error.InvalidInteger,
+        error.InvalidOptions,
+        error.InvalidProject,
+        error.InvalidTicket,
+        error.MissingArgument,
+        error.MissingOption,
+        error.MissingOptionValue,
+        error.MissingProject,
+        error.MissingProjectChanges,
+        error.MissingTask,
+        => "run the same command with --help.",
+        else => "retry the same command once.",
     };
 }
 
 pub fn finishResponse(allocator: std.mem.Allocator, response: *http.Response, json: bool) !void {
     const code = @intFromEnum(response.status);
-    if (code < 200 or code >= 300) return finish(response);
+    if (code < 200 or code >= 300 or responseReportsFailure(allocator, response.body)) return finish(response);
     try printResponse(allocator, response.body, json);
 }
 
@@ -218,16 +325,29 @@ fn writeSanitized(writer: anytype, value: []const u8) !void {
     }
 }
 
-pub fn fail(message: []const u8) noreturn {
-    std.fs.File.stderr().writeAll(message) catch {};
-    std.fs.File.stderr().writeAll("\n") catch {};
-    std.process.exit(1);
+pub fn invalidOptions(message: []const u8) error{InvalidOptions} {
+    std.debug.print("{s}\n", .{message});
+    return error.InvalidOptions;
 }
 
-pub fn failFmt(allocator: std.mem.Allocator, comptime format: []const u8, values: anytype) noreturn {
-    const message = std.fmt.allocPrint(allocator, format, values) catch fail("error");
-    defer allocator.free(message);
-    fail(message);
+pub fn unknownCommand(message: []const u8) error{UnknownCommand} {
+    std.debug.print("{s}\n", .{message});
+    return error.UnknownCommand;
+}
+
+test "success false is a failure even with a successful HTTP status" {
+    try std.testing.expect(responseReportsFailure(std.testing.allocator, "{\"success\":false,\"error\":\"not done\"}"));
+    try std.testing.expect(!responseReportsFailure(std.testing.allocator, "{\"success\":true}"));
+    try std.testing.expect(!responseReportsFailure(std.testing.allocator, "{\"tasks\":[]}"));
+}
+
+test "exit codes document command input and server failures" {
+    try std.testing.expectEqual(@as(u8, 1), exitCode(error.UnknownCommand));
+    try std.testing.expectEqual(@as(u8, 2), exitCode(error.MissingOptionValue));
+    try std.testing.expectEqual(@as(u8, 2), exitCode(error.MissingTask));
+    try std.testing.expectEqual(@as(u8, 2), exitCode(error.NoToken));
+    try std.testing.expectEqual(@as(u8, 4), exitCode(error.ProjectAccessDenied));
+    try std.testing.expectEqual(@as(u8, 4), exitCode(error.InvalidResponse));
 }
 
 test "human output formats status fields without JSON syntax" {

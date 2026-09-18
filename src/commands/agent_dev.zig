@@ -373,14 +373,14 @@ fn postConfigure(context: *const Context, agent_id: []const u8, url: []const u8)
     try body.string("action", "configure");
     try body.string("agent_id", agent_id);
     try body.string("url", url);
-    return context.fetch(.POST, "/mcp/webhooks", try body.finish());
+    return context.fetchRaw(.POST, "/mcp/webhooks", try body.finish());
 }
 
 fn configureUrl(context: *const Context, agent_id: []const u8, url: []const u8) !void {
     var response = try postConfigure(context, agent_id, url);
     defer response.deinit();
     const code = @intFromEnum(response.status);
-    if (code < 200 or code >= 300) {
+    if (code < 200 or code >= 300 or output.responseReportsFailure(context.allocator, response.body)) {
         try output.print(response.body);
         return error.ApiFailure;
     }
@@ -409,13 +409,13 @@ fn installUrl(context: *const Context, agent_id: []const u8, url: []const u8) !b
         var response = try postConfigure(context, agent_id, url);
         defer response.deinit();
         const code: u16 = @intFromEnum(response.status);
-        if (code >= 200 and code < 300) return true;
+        if (code >= 200 and code < 300 and !output.responseReportsFailure(context.allocator, response.body)) return true;
         if (!hostNotResolvedYet(context.allocator, code, response.body)) {
             try output.print(response.body);
             // A 4xx is the server refusing the URL, so it provably stored
             // nothing. Anything else may have been applied before the reply
             // went missing, and the caller must keep the recovery record.
-            return if (code < 500) error.ApiInvalidInput else error.ApiFailure;
+            return if (code >= 400 and code < 500) error.ApiInvalidInput else error.ApiFailure;
         }
         if (waited >= INSTALL_WAIT_MS) {
             try output.print(response.body);

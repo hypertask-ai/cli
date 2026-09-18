@@ -206,6 +206,11 @@ test "task get distinguishes internal ids from project ticket indexes" {
     );
 }
 
+test "task mutations reject unknown priorities before making a request" {
+    try expectDispatchError(error.InvalidOptions, &.{ "task", "create", "--project", "15", "--title", "x", "--priority", "eventually" });
+    try expectDispatchError(error.InvalidOptions, &.{ "task", "update", "HTPR-1", "--priority", "eventually" });
+}
+
 test "messages poll rejects invalid cursors before making a request" {
     try expectDispatchError(error.InvalidInteger, &.{ "messages", "poll", "--since", "-1" });
     try expectDispatchError(error.InvalidInteger, &.{ "messages", "poll", "--since", "not-a-number" });

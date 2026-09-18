@@ -6,6 +6,7 @@ const query = @import("../query.zig");
 const list_query = @import("../list_query.zig");
 const attachments = @import("../attachments.zig");
 const output = @import("../output.zig");
+const improve_command = @import("../improve_command.zig");
 const resolve = @import("../resolve.zig");
 
 pub fn run(context: *const Context, subcommand: []const u8) !void {
@@ -93,7 +94,7 @@ fn improve(context: *const Context, ticket: []const u8, text: []const u8) ![]con
     defer body.deinit();
     try body.integer("project_id", task.project_id);
     try body.string("text", text);
-    try body.string("command", improveCommand(context.args.get("improve-command") orelse "improve-readability"));
+    try body.string("command", try improve_command.parse(context.allocator, context.args.get("improve-command") orelse "improve-readability"));
     var response = try context.fetch(.POST, "/mcp/ai/improve", try body.finish());
     defer response.deinit();
     const code = @intFromEnum(response.status);
@@ -103,13 +104,6 @@ fn improve(context: *const Context, ticket: []const u8, text: []const u8) ![]con
     const html = parsed.value.object.get("html") orelse return error.InvalidResponse;
     if (html != .string) return error.InvalidResponse;
     return context.allocator.dupe(u8, html.string);
-}
-
-fn improveCommand(value: []const u8) []const u8 {
-    if (std.mem.eql(u8, value, "fix-spelling")) return "FixSpellingAndGrammar";
-    if (std.mem.eql(u8, value, "summarize")) return "Summarize";
-    if (std.mem.eql(u8, value, "make-shorter")) return "MakeShorter";
-    return "ImproveReadability";
 }
 
 fn addHasMore(allocator: std.mem.Allocator, response_body: []const u8) ![]u8 {

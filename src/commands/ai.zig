@@ -5,6 +5,7 @@ const json = @import("../json_util.zig");
 const resolve = @import("../resolve.zig");
 const query = @import("../query.zig");
 const output = @import("../output.zig");
+const improve_command = @import("../improve_command.zig");
 
 pub fn run(context: *const Context, subcommand: []const u8) !void {
     if (std.mem.eql(u8, subcommand, "improve")) return improve(context);
@@ -22,7 +23,7 @@ fn improve(context: *const Context) !void {
     defer body.deinit();
     try body.integer("project_id", project);
     try body.string("text", text);
-    try body.string("command", improveCommand(context.args.get("command") orelse "improve-readability"));
+    try body.string("command", try improve_command.parse(context.allocator, context.args.get("command") orelse "improve-readability"));
     try context.call(.POST, "/mcp/ai/improve", try body.finish());
 }
 
@@ -61,8 +62,8 @@ fn write(context: *const Context) !void {
     defer body.deinit();
     try body.integer("project_id", project);
     try body.string("prompt", prompt);
-    const mode = context.args.get("mode") orelse "task-writer";
-    try body.string("mode", if (std.mem.eql(u8, mode, "write-with-ai")) "write_with_ai" else "task_writer");
+    const requested_mode = try writerMode(context.args.get("mode") orelse "task-writer");
+    try body.string("mode", requested_mode);
     try body.integers("task_ids", task_ids);
     try body.string("task_title", task_title);
     try body.string("task_description", task_description);
@@ -75,7 +76,6 @@ fn write(context: *const Context) !void {
     const document = try std.json.parseFromSlice(std.json.Value, context.allocator, generated.body, .{});
     defer document.deinit();
     const produced_mode = stringField(document.value, "mode") orelse return error.InvalidResponse;
-    const requested_mode = if (std.mem.eql(u8, mode, "write-with-ai")) "write_with_ai" else "task_writer";
     if (!std.mem.eql(u8, produced_mode, requested_mode)) return error.ModeMismatch;
     var apply_body = try json.Object.init(context.allocator);
     defer apply_body.deinit();
@@ -97,11 +97,11 @@ fn write(context: *const Context) !void {
     try context.print(try json.mergeRawField(context.allocator, generated.body, "applied", "true"));
 }
 
-fn improveCommand(value: []const u8) []const u8 {
-    if (std.mem.eql(u8, value, "fix-spelling")) return "FixSpellingAndGrammar";
-    if (std.mem.eql(u8, value, "summarize")) return "Summarize";
-    if (std.mem.eql(u8, value, "make-shorter")) return "MakeShorter";
-    return "ImproveReadability";
+fn writerMode(value: []const u8) error{InvalidOptions}![]const u8 {
+    if (std.mem.eql(u8, value, "task-writer")) return "task_writer";
+    if (std.mem.eql(u8, value, "write-with-ai")) return "write_with_ai";
+    std.debug.print("invalid mode: {s}\nvalid modes: task-writer, write-with-ai\n", .{value});
+    return error.InvalidOptions;
 }
 
 fn integerField(value: std.json.Value, name: []const u8) ?i64 {
