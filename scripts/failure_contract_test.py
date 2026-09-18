@@ -72,6 +72,11 @@ def main() -> None:
     assert_failure(run("raw", "CONNECT", "/mcp/tasks"), 2, "valid methods: GET, POST, PUT, PATCH, DELETE")
     assert_failure(run("ai", "improve", "text", "--project", "15", "--command", "summarise"), 2, "valid improve commands:")
     assert_failure(
+        run("ai", "write", "text", "--project", "15", "--mode", "unexpected"),
+        2,
+        "valid modes: task-writer, write-with-ai",
+    )
+    assert_failure(
         run("task", "assign", "HTPR-1", "--self", "--assignee", "1"),
         2,
         "use either --self or --assignee",

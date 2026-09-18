@@ -360,9 +360,10 @@ def main() -> None:
                 result = run(binary, token, api_url, home, *args, strip_identity=True)
                 expect(result.returncode != 0, f"{' '.join(args)} exited 0 without agent identity")
                 expect(result.stdout == "", f"{' '.join(args)} printed to stdout: {result.stdout!r}")
-                expect("MissingAgentIdentity" in result.stderr, (
-                    f"{' '.join(args)} stderr missing MissingAgentIdentity: {result.stderr!r}"
-                ))
+                expect(result.stderr == (
+                    "hypertask: required command input is missing\n"
+                    "Next: pass --agent-id or set HT_AGENT_ID, then retry.\n"
+                ), f"{' '.join(args)} identity guidance was {result.stderr!r}")
             with Handler.lock:
                 expect(len(Handler.requests) == before, "identity error made network requests")
 

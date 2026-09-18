@@ -62,8 +62,8 @@ fn write(context: *const Context) !void {
     defer body.deinit();
     try body.integer("project_id", project);
     try body.string("prompt", prompt);
-    const mode = context.args.get("mode") orelse "task-writer";
-    try body.string("mode", if (std.mem.eql(u8, mode, "write-with-ai")) "write_with_ai" else "task_writer");
+    const requested_mode = try writerMode(context.args.get("mode") orelse "task-writer");
+    try body.string("mode", requested_mode);
     try body.integers("task_ids", task_ids);
     try body.string("task_title", task_title);
     try body.string("task_description", task_description);
@@ -76,7 +76,6 @@ fn write(context: *const Context) !void {
     const document = try std.json.parseFromSlice(std.json.Value, context.allocator, generated.body, .{});
     defer document.deinit();
     const produced_mode = stringField(document.value, "mode") orelse return error.InvalidResponse;
-    const requested_mode = if (std.mem.eql(u8, mode, "write-with-ai")) "write_with_ai" else "task_writer";
     if (!std.mem.eql(u8, produced_mode, requested_mode)) return error.ModeMismatch;
     var apply_body = try json.Object.init(context.allocator);
     defer apply_body.deinit();
@@ -96,6 +95,13 @@ fn write(context: *const Context) !void {
     const applied_code = @intFromEnum(applied.status);
     if (applied_code < 200 or applied_code >= 300) return output.finish(&applied);
     try context.print(try json.mergeRawField(context.allocator, generated.body, "applied", "true"));
+}
+
+fn writerMode(value: []const u8) error{InvalidOptions}![]const u8 {
+    if (std.mem.eql(u8, value, "task-writer")) return "task_writer";
+    if (std.mem.eql(u8, value, "write-with-ai")) return "write_with_ai";
+    std.debug.print("invalid mode: {s}\nvalid modes: task-writer, write-with-ai\n", .{value});
+    return error.InvalidOptions;
 }
 
 fn integerField(value: std.json.Value, name: []const u8) ?i64 {
