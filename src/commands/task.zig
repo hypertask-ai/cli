@@ -165,7 +165,7 @@ fn create(context: *const Context) !void {
     const assignees = try common.optionList(context, "assignee");
     if (assignees.len != 0) try body.integers("assignee", assignees);
     const attach_inputs = try common.optionList(context, "attach");
-    var response = try context.fetch(.POST, "/mcp/tasks/create", try body.finish());
+    var response = try context.fetchRaw(.POST, "/mcp/tasks/create", try body.finish());
     defer response.deinit();
     if (projectAccessDeniedResponse(context.allocator, response.status, response.body)) return projectAccessDenied(project);
     const linked_body = try taskMutationBody(context, &response);
@@ -815,7 +815,7 @@ fn resolveLabelIds(context: *const Context, inputs: []const []const u8, project_
     defer path.deinit();
     try path.add("limit", "100");
     try path.add("offset", "0");
-    var response = try context.fetch(.GET, path.path(), null);
+    var response = try context.fetchRaw(.GET, path.path(), null);
     defer response.deinit();
     const code = @intFromEnum(response.status);
     if (projectAccessDeniedResponse(context.allocator, response.status, response.body)) return projectAccessDenied(project);
@@ -918,14 +918,14 @@ fn mergeSearchTask(allocator: std.mem.Allocator, task: *std.json.Value, detail_b
 }
 
 fn fetchTaskUpdate(context: *const Context, identifier: []const u8, body: []const u8) !http.Response {
-    var response = try context.fetch(.POST, "/mcp/tasks/update", body);
+    var response = try context.fetchRaw(.POST, "/mcp/tasks/update", body);
     if (!missingMutationLease(context.allocator, response.body)) return response;
     response.deinit();
 
     const task = try resolve.task(context, identifier);
     try claimMutationLease(context, task.id);
     defer releaseMutationLease(context, task.id) catch {};
-    return context.fetch(.POST, "/mcp/tasks/update", body);
+    return context.fetchRaw(.POST, "/mcp/tasks/update", body);
 }
 
 fn missingMutationLease(allocator: std.mem.Allocator, response_body: []const u8) bool {

@@ -97,6 +97,7 @@ fn nextStep(err: anyerror) []const u8 {
     return switch (err) {
         error.UnknownCommand, error.MissingSubcommand => "choose one of the valid commands listed above.",
         error.UnknownOption => "retry with one of the accepted flags listed above.",
+        error.InvalidMethod => "retry with one of the valid methods listed above.",
         error.SectionNotFound => "retry with one of the sections listed above.",
         error.LabelNotFound => "retry with one of the labels listed above.",
         error.NoToken => "run `hypertask login --token <jwt>`.",
@@ -108,7 +109,6 @@ fn nextStep(err: anyerror) []const u8 {
         error.MissingProject,
         error.InvalidFilter,
         error.InvalidInteger,
-        error.InvalidMethod,
         error.InvalidOptions,
         error.InvalidProject,
         error.InvalidTicket,

@@ -154,7 +154,7 @@ fn fetchTaskOptional(context: *const Context, key: []const u8, value: []const u8
     defer query.deinit();
     try query.add(key, value);
     if (project) |project_id| try query.add("project_id", project_id);
-    var response = try context.fetch(.GET, query.path(), null);
+    var response = try context.fetchRaw(.GET, query.path(), null);
     defer response.deinit();
     const code = @intFromEnum(response.status);
     if (code == 404) return null;

@@ -42,6 +42,8 @@ class StubHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         if self.path.startswith("/mcp/projects"):
             self.respond(200, {"projects": []})
+        elif self.path.startswith("/mcp/comments"):
+            self.respond(200, {"success": False, "error": "comment read did not run"})
         elif self.path.startswith("/mcp/tasks"):
             self.respond(200, {"success": False, "error": "task read did not run"})
         else:
@@ -88,6 +90,9 @@ def main() -> None:
     try:
         success_false = run("task", "get", "HTPR-1", api_url=api_url)
         assert_failure(success_false, 4, "task read did not run")
+
+        manual_fetch_failure = run("comment", "list", "HTPR-1", api_url=api_url)
+        assert_failure(manual_fetch_failure, 4, "comment read did not run")
 
         with_labels = run(
             "task", "create", "--project", "5156", "--title", "x", "--labels", "Infra",

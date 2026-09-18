@@ -78,6 +78,16 @@ pub const Context = struct {
     }
 
     pub fn fetch(self: *const Context, method: std.http.Method, path: []const u8, body: ?[]const u8) !http.Response {
+        var response = try self.fetchRaw(method, path, body);
+        if (!output.responseReportsFailure(self.allocator, response.body)) return response;
+
+        defer response.deinit();
+        if (self.request_recorder != null) return error.CommandFailed;
+        try output.finish(&response);
+        return error.ApiFailure;
+    }
+
+    pub fn fetchRaw(self: *const Context, method: std.http.Method, path: []const u8, body: ?[]const u8) !http.Response {
         try self.requireAuth();
         if (self.request_recorder) |recorder| return recorder.fetch(method, path, body);
         return http.request(self.allocator, self.cfg, method, path, body);
