@@ -58,7 +58,7 @@ fn list(context: *const Context) !void {
     const label_ids = try resolveLabelIds(context, label_inputs, project_id, false);
     for (label_ids) |value| try path.add("labels", value);
     if (context.args.has("has-due-date")) try path.add("has_due_date", "true");
-    try path.add("limit", context.args.get("limit") orelse "10");
+    if (context.args.get("limit") == null) try path.add("limit", "10");
     try path.add("offset", context.args.get("offset") orelse "0");
     try list_query.addListQuery(&path, context.args, context.allocator);
     try context.call(.GET, path.path(), null);
@@ -539,7 +539,7 @@ fn searchValue(context: *const Context, value: []const u8) !void {
     var path = try query.Builder.init(context.allocator, "/mcp/tasks/search");
     defer path.deinit();
     try path.add("q", value);
-    try path.add("limit", context.args.get("limit") orelse "10");
+    if (context.args.get("limit") == null) try path.add("limit", "10");
     if (context.args.get("project")) |project| try path.add("project_id", project);
     try list_query.addListQuery(&path, context.args, context.allocator);
 

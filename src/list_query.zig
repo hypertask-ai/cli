@@ -2,12 +2,12 @@ const std = @import("std");
 const args = @import("args.zig");
 const query = @import("query.zig");
 
-/// Shared HTPR-6530 list flags: --query, --filter, --sort, --fields, --cursor.
-/// --limit stays on each command so existing defaults do not change.
+/// Shared HTPR-6530 list flags: --query, --filter, --sort, --fields, --limit, --cursor.
 pub fn addListQuery(path: *query.Builder, parsed: *const args.Parsed, allocator: std.mem.Allocator) !void {
     if (parsed.get("query")) |value| try path.add("query", value);
     if (parsed.get("sort")) |value| try path.add("sort", value);
     if (parsed.get("fields")) |value| try path.add("fields", value);
+    if (parsed.get("limit")) |value| try path.add("limit", value);
     if (parsed.get("cursor")) |value| try path.add("cursor", value);
 
     const filters = try parsed.getAll(allocator, "filter");
@@ -42,6 +42,8 @@ test "list query flags become shared query params" {
         "title,url",
         "--sort",
         "updatedAt:desc",
+        "--limit",
+        "20",
         "--cursor",
         "abc",
     });
@@ -50,7 +52,7 @@ test "list query flags become shared query params" {
     defer path.deinit();
     try addListQuery(&path, &parsed, std.testing.allocator);
     try std.testing.expectEqualStrings(
-        "/mcp/tasks?query=review&sort=updatedAt%3Adesc&fields=title%2Curl&cursor=abc&filter.section=AI%20Review&filter.has_pr=red",
+        "/mcp/tasks?query=review&sort=updatedAt%3Adesc&fields=title%2Curl&limit=20&cursor=abc&filter.section=AI%20Review&filter.has_pr=red",
         path.path(),
     );
 }
