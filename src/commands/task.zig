@@ -863,7 +863,7 @@ fn resolveLabelIds(context: *const Context, inputs: []const []const u8, project_
 }
 
 fn projectAccessDenied(project: i64) error{ProjectAccessDenied} {
-    std.debug.print("this token cannot access project {d}\n", .{project});
+    std.debug.print("this token is not a member of project {d}\n", .{project});
     return error.ProjectAccessDenied;
 }
 
