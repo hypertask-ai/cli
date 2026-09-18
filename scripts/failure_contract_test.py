@@ -103,14 +103,14 @@ def main() -> None:
             "task", "create", "--project", "5156", "--title", "x", "--labels", "Infra",
             api_url=api_url,
         )
-        assert_failure(with_labels, 4, "cannot access project 5156", "ask the project owner")
+        assert_failure(with_labels, 4, "this token is not a member of project 5156", "ask the project owner to add it")
         assert "LabelNotFound" not in with_labels.stderr
 
         without_labels = run(
             "task", "create", "--project", "5156", "--title", "x",
             api_url=api_url,
         )
-        assert_failure(without_labels, 4, "cannot access project 5156", "ask the project owner")
+        assert_failure(without_labels, 4, "this token is not a member of project 5156", "ask the project owner to add it")
         assert "Internal server error" not in without_labels.stdout + without_labels.stderr
     finally:
         server.shutdown()
