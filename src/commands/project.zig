@@ -21,6 +21,7 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
         return createLabel(context);
     }
     if (std.mem.eql(u8, subcommand, "archive")) return archive(context);
+    if (std.mem.eql(u8, subcommand, "delete")) return deleteProject(context);
     if (std.mem.eql(u8, subcommand, "create-board") or std.mem.eql(u8, subcommand, "create")) return createBoard(context);
     return error.UnknownCommand;
 }
@@ -165,6 +166,13 @@ fn archive(context: *const Context) !void {
     try body.integer("project_id", try common.positiveInt(try context.args.requirePositional(2, "id"), "id"));
     try body.string("status", if (context.args.has("restore")) "Normal" else "Archive");
     try context.call(.POST, "/mcp/projects/archive", try body.finish());
+}
+
+fn deleteProject(context: *const Context) !void {
+    if (!context.args.has("yes")) return error.ConfirmationRequired;
+    const id = try common.positiveInt(try context.args.requirePositional(2, "id"), "id");
+    const path = try std.fmt.allocPrint(context.allocator, "/mcp/projects/{d}", .{id});
+    try context.call(.DELETE, path, null);
 }
 
 fn createBoard(context: *const Context) !void {

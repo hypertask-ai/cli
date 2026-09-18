@@ -206,6 +206,10 @@ test "task get distinguishes internal ids from project ticket indexes" {
     );
 }
 
+test "project delete requires explicit confirmation" {
+    try expectDispatchError(error.ConfirmationRequired, &.{ "projects", "delete", "15" });
+}
+
 test "task mutations reject unknown priorities before making a request" {
     try expectDispatchError(error.InvalidOptions, &.{ "task", "create", "--project", "15", "--title", "x", "--priority", "eventually" });
     try expectDispatchError(error.InvalidOptions, &.{ "task", "update", "HTPR-1", "--priority", "eventually" });
@@ -348,6 +352,12 @@ test "command handlers build request bodies and query strings without HTTP" {
         .POST,
         "/mcp/projects/15/members",
         "{\"projectId\":15,\"userToAdd\":6}",
+    );
+    try expectRequest(
+        &.{ "projects", "delete", "15", "--yes" },
+        .DELETE,
+        "/mcp/projects/15",
+        null,
     );
     try expectRequest(
         &.{ "comment", "add", "HTPR-123", "--text", "Hello", "--markdown" },
