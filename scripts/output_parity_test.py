@@ -236,7 +236,10 @@ def expect_command(
         f"{' '.join(args)} output differs from {output_fixture}\n"
         f"actual: {result.stdout!r}"
     ))
-    expect(result.stderr == "", f"{' '.join(args)} wrote stderr: {result.stderr!r}")
+    if exit_code == 0:
+        expect(result.stderr == "", f"{' '.join(args)} wrote stderr: {result.stderr!r}")
+    else:
+        expect("Next:" in result.stderr, f"{' '.join(args)} omitted next-step guidance: {result.stderr!r}")
 
     with Handler.lock:
         requests = Handler.requests[before:]
@@ -321,7 +324,10 @@ def main() -> None:
 
             missing = run(binary, token, api_url, home, "tasks", "get", "HTPR-404")
             expect(missing.returncode == 4, f"not-found exit was {missing.returncode}")
-            expect(missing.stderr == "", f"error leaked to stderr: {missing.stderr!r}")
+            expect(missing.stderr == (
+                "hypertask: the requested item was not found\n"
+                "Next: check the requested identifier and retry.\n"
+            ), f"not-found guidance was {missing.stderr!r}")
             expect(json.loads(missing.stdout)["error"] == "Task not found", missing.stdout)
 
             with Handler.lock:
@@ -335,6 +341,8 @@ def main() -> None:
             expect(bad_section.stderr == (
                 "section not found: Totally Not A Section\n"
                 "sections may only contain: Bugs, In Progress, Done\n"
+                "hypertask: the requested item was not found\n"
+                "Next: retry with one of the sections listed above.\n"
             ), f"bad section stderr was {bad_section.stderr!r}")
             with Handler.lock:
                 requests = Handler.requests[before:]

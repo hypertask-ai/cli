@@ -5,6 +5,7 @@ const json = @import("../json_util.zig");
 const resolve = @import("../resolve.zig");
 const query = @import("../query.zig");
 const output = @import("../output.zig");
+const improve_command = @import("../improve_command.zig");
 
 pub fn run(context: *const Context, subcommand: []const u8) !void {
     if (std.mem.eql(u8, subcommand, "improve")) return improve(context);
@@ -22,7 +23,7 @@ fn improve(context: *const Context) !void {
     defer body.deinit();
     try body.integer("project_id", project);
     try body.string("text", text);
-    try body.string("command", improveCommand(context.args.get("command") orelse "improve-readability"));
+    try body.string("command", try improve_command.parse(context.allocator, context.args.get("command") orelse "improve-readability"));
     try context.call(.POST, "/mcp/ai/improve", try body.finish());
 }
 
@@ -95,13 +96,6 @@ fn write(context: *const Context) !void {
     const applied_code = @intFromEnum(applied.status);
     if (applied_code < 200 or applied_code >= 300) return output.finish(&applied);
     try context.print(try json.mergeRawField(context.allocator, generated.body, "applied", "true"));
-}
-
-fn improveCommand(value: []const u8) []const u8 {
-    if (std.mem.eql(u8, value, "fix-spelling")) return "FixSpellingAndGrammar";
-    if (std.mem.eql(u8, value, "summarize")) return "Summarize";
-    if (std.mem.eql(u8, value, "make-shorter")) return "MakeShorter";
-    return "ImproveReadability";
 }
 
 fn integerField(value: std.json.Value, name: []const u8) ?i64 {

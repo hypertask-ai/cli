@@ -6,9 +6,7 @@ const json = @import("../json_util.zig");
 const output = @import("../output.zig");
 
 pub fn login(context: *const Context) !void {
-    const login_token = context.args.get("token") orelse {
-        output.fail("browser login is unavailable in hypertask; use `hypertask login --token <jwt>`");
-    };
+    const login_token = context.args.get("token") orelse return output.invalidOptions("browser login is unavailable in hypertask; use `hypertask login --token <jwt>`");
     try config.saveToken(context.allocator, login_token, context.args.get("api-url") orelse context.cfg.api_url);
     try context.print("{\"success\":true,\"saved\":true,\"configPath\":\"~/.hypertask/config.json\"}");
 }
@@ -107,12 +105,12 @@ fn formatExpiry(allocator: std.mem.Allocator, seconds: i64) !?[]u8 {
 pub fn token(context: *const Context, subcommand: []const u8) !void {
     if (std.mem.eql(u8, subcommand, "set-management-key")) {
         const key = try context.args.requirePositional(2, "key");
-        if (!std.mem.startsWith(u8, key, "htmk_")) output.fail("management key must start with htmk_");
+        if (!std.mem.startsWith(u8, key, "htmk_")) return output.invalidOptions("management key must start with htmk_");
         try config.saveManagementKey(context.allocator, key);
         try context.print("{\"success\":true,\"saved\":true,\"configPath\":\"~/.hypertask/config.json\"}");
         return;
     }
-    if (!std.mem.eql(u8, subcommand, "refresh")) output.fail("unknown token command");
+    if (!std.mem.eql(u8, subcommand, "refresh")) return output.unknownCommand("unknown token command");
     try context.requireAuth();
     var response = try http.request(context.allocator, context.cfg, .POST, "/mcp/token/refresh", null);
     defer response.deinit();

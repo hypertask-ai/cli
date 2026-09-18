@@ -155,7 +155,7 @@ fn create(context: *const Context) !void {
         try body.string("description", value);
         if (context.args.has("markdown")) try body.string("content_type", "markdown");
     }
-    if (context.args.get("priority")) |value| try body.integer("priority", priority(value));
+    if (context.args.get("priority")) |value| try body.integer("priority", try priority(value));
     if (context.args.get("estimate")) |value| try body.integer("estimate", try common.int(value, "estimate"));
     if (context.args.get("due")) |value| try body.string("due_date", value);
     if (context.args.get("section")) |value| try body.integer("section_id", try resolve.sectionId(context, project, value));
@@ -167,6 +167,7 @@ fn create(context: *const Context) !void {
     const attach_inputs = try common.optionList(context, "attach");
     var response = try context.fetch(.POST, "/mcp/tasks/create", try body.finish());
     defer response.deinit();
+    if (projectAccessDeniedResponse(context.allocator, response.status, response.body)) return projectAccessDenied(project);
     const linked_body = try taskMutationBody(context, &response);
     if (attach_inputs.len == 0) return context.print(linked_body);
     const ticket = try responseTicket(context, response.body);
@@ -186,7 +187,7 @@ fn update(context: *const Context) !void {
     if (context.args.get("pull-request")) |value| try body.string("pull_request_url", value);
     if (context.args.has("clear-due")) try body.nullValue("due_date") else if (context.args.get("due")) |value| try body.string("due_date", value);
     if (context.args.get("status")) |value| try body.string("status", value);
-    if (context.args.get("priority")) |value| try body.integer("priority", priority(value));
+    if (context.args.get("priority")) |value| try body.integer("priority", try priority(value));
     if (context.args.get("estimate")) |value| try body.integer("estimate", try common.int(value, "estimate"));
     if (context.args.get("section")) |value| {
         const found = try resolve.task(context, ticket);
@@ -242,12 +243,12 @@ fn update(context: *const Context) !void {
 fn assign(context: *const Context, intent: []const u8) !void {
     const self_flag = context.args.has("self");
     const assignee = context.args.get("assignee");
-    if (self_flag and assignee != null) output.fail("Error: use either --self or --assignee, not both");
-    if (!self_flag and assignee == null) output.fail("Error: provide --assignee <id> or --self");
+    if (self_flag and assignee != null) return output.invalidOptions("Error: use either --self or --assignee, not both");
+    if (!self_flag and assignee == null) return output.invalidOptions("Error: provide --assignee <id> or --self");
     if (context.args.has("all")) {
-        if (!std.mem.eql(u8, intent, "unassign")) output.fail("Error: --all is only valid for tasks unassign");
-        if (context.args.positionalAt(2) != null) output.fail("Error: --all cannot be combined with a ticket argument");
-        if (context.args.get("project") == null) output.fail("Error: --all requires --project <id>");
+        if (!std.mem.eql(u8, intent, "unassign")) return output.invalidOptions("Error: --all is only valid for tasks unassign");
+        if (context.args.positionalAt(2) != null) return output.invalidOptions("Error: --all cannot be combined with a ticket argument");
+        if (context.args.get("project") == null) return output.invalidOptions("Error: --all requires --project <id>");
         return unassignAll(context);
     }
     const identifier = try context.args.requirePositional(2, "ticket-or-task-id");
@@ -717,12 +718,14 @@ fn jsonIntegerField(value: std.json.Value, key: []const u8) ?i64 {
     };
 }
 
-fn priority(value: []const u8) i64 {
+fn priority(value: []const u8) !i64 {
     if (std.ascii.eqlIgnoreCase(value, "urgent")) return 1;
     if (std.ascii.eqlIgnoreCase(value, "high")) return 2;
     if (std.ascii.eqlIgnoreCase(value, "medium")) return 3;
     if (std.ascii.eqlIgnoreCase(value, "low")) return 4;
-    return 0;
+    if (std.ascii.eqlIgnoreCase(value, "none")) return 0;
+    std.debug.print("invalid priority: {s}\nvalid priorities: urgent, high, medium, low, none\n", .{value});
+    return error.InvalidOptions;
 }
 
 fn collectLabelOptions(context: *const Context, names: []const []const u8) ![]const []const u8 {
@@ -815,19 +818,26 @@ fn resolveLabelIds(context: *const Context, inputs: []const []const u8, project_
     var response = try context.fetch(.GET, path.path(), null);
     defer response.deinit();
     const code = @intFromEnum(response.status);
-    if (code < 200 or code >= 300) return error.CommandFailed;
+    if (projectAccessDeniedResponse(context.allocator, response.status, response.body)) return projectAccessDenied(project);
+    if (code < 200 or code >= 300) {
+        try context.finish(&response);
+        return error.CommandFailed;
+    }
     const document = try std.json.parseFromSlice(std.json.Value, context.allocator, response.body, .{});
     defer document.deinit();
     const projects = document.value.object.get("projects") orelse return error.InvalidResponse;
+    if (projects != .array) return error.InvalidResponse;
     var available: ?std.json.Value = null;
     for (projects.array.items) |candidate| {
+        if (candidate != .object) continue;
         const id = candidate.object.get("id") orelse continue;
         if (id == .integer and id.integer == project) {
-            available = candidate.object.get("labels") orelse return error.LabelNotFound;
+            available = candidate.object.get("labels") orelse return error.InvalidResponse;
             break;
         }
     }
-    const labels = available orelse return error.LabelNotFound;
+    const labels = available orelse return projectAccessDenied(project);
+    if (labels != .array) return error.InvalidResponse;
     var result: std.ArrayListUnmanaged([]const u8) = .{};
     for (inputs) |input| {
         if (isLabelId(input)) {
@@ -847,9 +857,40 @@ fn resolveLabelIds(context: *const Context, inputs: []const []const u8, project_
                 break;
             }
         }
-        try result.append(context.allocator, match orelse return error.LabelNotFound);
+        try result.append(context.allocator, match orelse return labelNotFound(input, labels.array.items));
     }
     return result.toOwnedSlice(context.allocator);
+}
+
+fn projectAccessDenied(project: i64) error{ProjectAccessDenied} {
+    std.debug.print("this token cannot access project {d}\n", .{project});
+    return error.ProjectAccessDenied;
+}
+
+fn projectAccessDeniedResponse(allocator: std.mem.Allocator, status: std.http.Status, body: []const u8) bool {
+    if (status == .forbidden) return true;
+    const document = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch return false;
+    defer document.deinit();
+    if (document.value != .object) return false;
+    for ([_][]const u8{ "error", "message" }) |field| {
+        const value = document.value.object.get(field) orelse continue;
+        if (value == .string and std.ascii.eqlIgnoreCase(std.mem.trim(u8, value.string, " \t\r\n"), "forbidden")) return true;
+    }
+    return false;
+}
+
+fn labelNotFound(input: []const u8, labels: []const std.json.Value) error{LabelNotFound} {
+    std.debug.print("label not found: {s}\nlabels may only contain:", .{input});
+    var first = true;
+    for (labels) |label| {
+        if (label != .object) continue;
+        const name = label.object.get("name") orelse continue;
+        if (name != .string) continue;
+        std.debug.print("{s} {s}", .{ if (first) "" else ",", name.string });
+        first = false;
+    }
+    std.debug.print("\n", .{});
+    return error.LabelNotFound;
 }
 
 fn isLabelId(value: []const u8) bool {
@@ -921,7 +962,7 @@ fn requireSuccess(context: *const Context, response: *http.Response) !void {
 
 fn taskMutationBody(context: *const Context, response: *http.Response) ![]u8 {
     const code = @intFromEnum(response.status);
-    if (code < 200 or code >= 300) {
+    if (code < 200 or code >= 300 or output.responseReportsFailure(context.allocator, response.body)) {
         try output.finish(response);
         return error.CommandFailed;
     }

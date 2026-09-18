@@ -112,8 +112,13 @@ pub fn raw(context_value: *const Context) !void {
     const method_text = try context_value.args.requirePositional(1, "METHOD");
     const path = try context_value.args.requirePositional(2, "path");
     const body = context_value.args.positionalAt(3);
-    const method: std.http.Method = if (std.ascii.eqlIgnoreCase(method_text, "GET")) .GET else if (std.ascii.eqlIgnoreCase(method_text, "POST")) .POST else if (std.ascii.eqlIgnoreCase(method_text, "PUT")) .PUT else if (std.ascii.eqlIgnoreCase(method_text, "PATCH")) .PATCH else if (std.ascii.eqlIgnoreCase(method_text, "DELETE")) .DELETE else return error.InvalidMethod;
+    const method: std.http.Method = if (std.ascii.eqlIgnoreCase(method_text, "GET")) .GET else if (std.ascii.eqlIgnoreCase(method_text, "POST")) .POST else if (std.ascii.eqlIgnoreCase(method_text, "PUT")) .PUT else if (std.ascii.eqlIgnoreCase(method_text, "PATCH")) .PATCH else if (std.ascii.eqlIgnoreCase(method_text, "DELETE")) .DELETE else return invalidMethod(method_text);
     try context_value.call(method, path, body);
+}
+
+fn invalidMethod(value: []const u8) error{InvalidMethod} {
+    std.debug.print("invalid method: {s}\nvalid methods: GET, POST, PUT, PATCH, DELETE\n", .{value});
+    return error.InvalidMethod;
 }
 
 fn contextResponses(context_value: *const Context) ![2]@import("../http.zig").Response {

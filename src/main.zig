@@ -11,9 +11,7 @@ const version = "0.2.3 (zig)";
 
 pub fn main() void {
     run() catch |err| {
-        if (!output.responseBodyWasPrinted(err)) {
-            std.debug.print("hypertask: {s}\n", .{@errorName(err)});
-        }
+        output.printFailure(err);
         std.process.exit(output.exitCode(err));
     };
 }
@@ -37,8 +35,9 @@ fn run() !void {
         try std.fs.File.stdout().writeAll("hypertask " ++ version ++ "\n");
         return;
     }
-    if (parsed.has("help")) return router.printHelp(allocator, parsed.positional);
     if (parsed.positional.len == 0) return router.printHelp(allocator, &.{});
+    try router.validateCommandPath(allocator, parsed.positional, !parsed.has("help"));
+    if (parsed.has("help")) return router.printHelp(allocator, parsed.positional);
 
     var cfg = try config.load(allocator, parsed.get("token"), parsed.get("api-url"), parsed.get("management-key"));
     defer cfg.deinit();
@@ -58,6 +57,7 @@ fn run() !void {
 test {
     _ = @import("args.zig");
     _ = @import("http.zig");
+    _ = @import("improve_command.zig");
     _ = @import("json_util.zig");
     _ = @import("option_validate.zig");
     _ = @import("query.zig");
