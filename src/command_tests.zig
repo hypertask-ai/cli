@@ -89,6 +89,27 @@ test "router dispatches task and decision aliases" {
         "/mcp/tasks?project_id=15&limit=10&offset=0",
         null,
     );
+    try expectRequestCountWithResponses(
+        &.{ "tasks", "list", "--project", "15", "--filter", "updated_since=2026-09-18T20:17:00Z" },
+        &.{
+            "{\"success\":true,\"tasks\":[{\"id\":4}],\"total\":2,\"limit\":100,\"offset\":0,\"nextCursor\":\"normal-cursor\"}",
+            "{\"success\":true,\"tasks\":[{\"id\":3}],\"total\":2,\"limit\":100,\"offset\":0,\"nextCursor\":null}",
+            "{\"success\":true,\"tasks\":[{\"id\":2}],\"total\":2,\"limit\":100,\"offset\":0,\"nextCursor\":\"archive-cursor\"}",
+            "{\"success\":true,\"tasks\":[{\"id\":1}],\"total\":2,\"limit\":100,\"offset\":0,\"nextCursor\":null}",
+        },
+        4,
+        .GET,
+        "/mcp/tasks?project_id=15&limit=100&offset=0&filter.updated_since=2026-09-18T20%3A17%3A00Z&status=Archive&cursor=archive-cursor",
+        null,
+    );
+    try expectRequestCountWithResponses(
+        &.{ "tasks", "list", "--project", "15", "--filter", "updated_since=2026-09-18T20:17:00Z", "--filter", "status=Archive" },
+        &.{"{\"success\":true,\"tasks\":[],\"total\":0,\"limit\":100,\"offset\":0,\"nextCursor\":null}"},
+        1,
+        .GET,
+        "/mcp/tasks?project_id=15&limit=100&offset=0&filter.updated_since=2026-09-18T20%3A17%3A00Z&filter.status=Archive",
+        null,
+    );
     try expectRequest(
         &.{ "decision", "list", "htpr-123", "--status", "pending" },
         .GET,

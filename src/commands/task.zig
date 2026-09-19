@@ -59,10 +59,101 @@ fn list(context: *const Context) !void {
     const label_ids = try resolveLabelIds(context, label_inputs, project_id, false);
     for (label_ids) |value| try path.add("labels", value);
     if (context.args.has("has-due-date")) try path.add("has_due_date", "true");
-    if (context.args.get("limit") == null) try path.add("limit", "10");
+    const all_updated = context.args.get("limit") == null and context.args.get("cursor") == null and context.args.get("offset") == null and try hasFilter(context, "updated_since");
+    if (context.args.get("limit") == null) try path.add("limit", if (all_updated) "100" else "10");
     try path.add("offset", context.args.get("offset") orelse "0");
     try list_query.addListQuery(&path, context.args, context.allocator);
+    if (all_updated) {
+        const include_archive = context.args.get("status") == null and !try hasFilter(context, "status");
+        return listAllPages(context, path.path(), include_archive);
+    }
     try context.call(.GET, path.path(), null);
+}
+
+fn hasFilter(context: *const Context, name: []const u8) !bool {
+    const filters = try context.args.getAll(context.allocator, "filter");
+    defer context.allocator.free(filters);
+    for (filters) |value| {
+        const separator = std.mem.indexOfScalar(u8, value, '=') orelse continue;
+        if (std.mem.eql(u8, value[0..separator], name)) return true;
+    }
+    return false;
+}
+
+fn listAllPages(context: *const Context, base_path: []const u8, include_archive: bool) !void {
+    var arena = std.heap.ArenaAllocator.init(context.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    var tasks = std.json.Array.init(allocator);
+    var result: ?std.json.Value = null;
+    var total: i64 = 0;
+    var cursor: ?[]u8 = null;
+    defer if (cursor) |value| context.allocator.free(value);
+
+    const status_count: usize = if (include_archive) 2 else 1;
+    for (0..status_count) |status_index| {
+        if (cursor) |value| context.allocator.free(value);
+        cursor = null;
+        var first_page = true;
+        while (true) {
+            var path = try query.Builder.init(context.allocator, base_path);
+            defer path.deinit();
+            path.has_query = true;
+            if (status_index == 1) try path.add("status", "Archive");
+            if (cursor) |value| try path.add("cursor", value);
+            var response = try context.fetch(.GET, path.path(), null);
+            defer response.deinit();
+            const page = try std.json.parseFromSliceLeaky(std.json.Value, allocator, response.body, .{ .allocate = .alloc_always });
+            if (page != .object) return error.InvalidResponse;
+            const page_tasks = page.object.get("tasks") orelse return error.InvalidResponse;
+            if (page_tasks != .array) return error.InvalidResponse;
+            try tasks.appendSlice(page_tasks.array.items);
+            if (result == null) result = page;
+            if (first_page) {
+                const page_total = page.object.get("total") orelse return error.InvalidResponse;
+                if (page_total != .integer) return error.InvalidResponse;
+                total += page_total.integer;
+                first_page = false;
+            }
+
+            const next_value = page.object.get("nextCursor") orelse break;
+            if (next_value == .null) break;
+            if (next_value != .string or next_value.string.len == 0) return error.InvalidResponse;
+            if (cursor) |value| if (std.mem.eql(u8, value, next_value.string)) return error.InvalidResponse;
+            const next_cursor = try context.allocator.dupe(u8, next_value.string);
+            if (cursor) |value| context.allocator.free(value);
+            cursor = next_cursor;
+        }
+    }
+
+    if (context.args.get("sort") == null and context.args.get("sort-by") == null) {
+        std.mem.sort(std.json.Value, tasks.items, {}, updatedTaskBefore);
+    }
+    var combined = result orelse return error.InvalidResponse;
+    try combined.object.put("tasks", .{ .array = tasks });
+    try combined.object.put("total", .{ .integer = total });
+    try combined.object.put("limit", .{ .integer = @intCast(tasks.items.len) });
+    try combined.object.put("offset", .{ .integer = 0 });
+    try combined.object.put("nextCursor", .null);
+    const body = try std.json.Stringify.valueAlloc(context.allocator, combined, .{});
+    defer context.allocator.free(body);
+    try context.print(body);
+}
+
+fn updatedTaskBefore(_: void, left: std.json.Value, right: std.json.Value) bool {
+    const left_updated = if (left == .object and left.object.get("updatedAt") != null and left.object.get("updatedAt").? == .string)
+        left.object.get("updatedAt").?.string
+    else
+        "";
+    const right_updated = if (right == .object and right.object.get("updatedAt") != null and right.object.get("updatedAt").? == .string)
+        right.object.get("updatedAt").?.string
+    else
+        "";
+    const order = std.mem.order(u8, left_updated, right_updated);
+    if (order != .eq) return order == .gt;
+    const left_id = if (left == .object and left.object.get("id") != null and left.object.get("id").? == .integer) left.object.get("id").?.integer else 0;
+    const right_id = if (right == .object and right.object.get("id") != null and right.object.get("id").? == .integer) right.object.get("id").?.integer else 0;
+    return left_id < right_id;
 }
 
 fn next(context: *const Context) !void {
