@@ -234,6 +234,15 @@ test "task get distinguishes internal ids from project ticket indexes" {
     );
 }
 
+test "project update sends the new title" {
+    try expectRequest(
+        &.{ "projects", "update", "5500", "--title", "Agent Toolkit" },
+        .PATCH,
+        "/mcp/projects/5500",
+        "{\"title\":\"Agent Toolkit\"}",
+    );
+}
+
 test "project delete requires explicit confirmation" {
     try expectDispatchError(error.ConfirmationRequired, &.{ "projects", "delete", "15" });
 }

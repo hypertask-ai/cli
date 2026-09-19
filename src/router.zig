@@ -279,6 +279,17 @@ fn arrayFieldOrEmpty(value: std.json.Value, name: []const u8) ![]const std.json.
     return field.array.items;
 }
 
+test "project update help shows the title option" {
+    const project_help = try renderHelp(std.testing.allocator, &.{"projects"});
+    defer std.testing.allocator.free(project_help);
+    try std.testing.expect(std.mem.indexOf(u8, project_help, "update") != null);
+
+    const update_help = try renderHelp(std.testing.allocator, &.{ "projects", "update" });
+    defer std.testing.allocator.free(update_help);
+    try std.testing.expect(std.mem.indexOf(u8, update_help, "Usage: hypertask project update <project-id> [options]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, update_help, "--title <title> (required)") != null);
+}
+
 test "subcommand help renders command-specific options" {
     try validateCommandPath(std.testing.allocator, &.{"tasks"}, false);
     const task_help = try renderHelp(std.testing.allocator, &.{"tasks"});
