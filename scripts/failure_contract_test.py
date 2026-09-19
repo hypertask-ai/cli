@@ -38,31 +38,12 @@ def assert_failure(process: subprocess.CompletedProcess[str], expected_code: int
         assert message in output, (message, output)
 
 
-class RedirectDestinationHandler(BaseHTTPRequestHandler):
-    authorizations: list[str | None] = []
-
-    def do_GET(self) -> None:
-        self.authorizations.append(self.headers.get("Authorization"))
-        self.respond({"ok": True})
-
-    def respond(self, body: dict[str, object]) -> None:
-        encoded = json.dumps(body).encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(encoded)))
-        self.end_headers()
-        self.wfile.write(encoded)
-
-    def log_message(self, format: str, *args: object) -> None:
-        pass
-
-
-class RedirectOriginHandler(BaseHTTPRequestHandler):
+class RedirectHandler(BaseHTTPRequestHandler):
     destination_port = 0
-    authorizations: list[str | None] = []
+    requests: list[tuple[int, str, str | None]] = []
 
     def do_GET(self) -> None:
-        self.authorizations.append(self.headers.get("Authorization"))
+        self.requests.append((self.server.server_port, self.path, self.headers.get("Authorization")))
         if self.path == "/mcp/same-origin":
             self.redirect("/mcp/final")
         elif self.path == "/mcp/cross-port":
@@ -166,29 +147,38 @@ def main() -> None:
         server.server_close()
         thread.join()
 
-    destination = ThreadingHTTPServer(("127.0.0.1", 0), RedirectDestinationHandler)
-    origin = ThreadingHTTPServer(("127.0.0.1", 0), RedirectOriginHandler)
-    RedirectOriginHandler.destination_port = destination.server_port
+    destination = ThreadingHTTPServer(("127.0.0.1", 0), RedirectHandler)
+    origin = ThreadingHTTPServer(("127.0.0.1", 0), RedirectHandler)
+    RedirectHandler.destination_port = destination.server_port
     destination_thread = threading.Thread(target=destination.serve_forever, daemon=True)
     origin_thread = threading.Thread(target=origin.serve_forever, daemon=True)
     destination_thread.start()
     origin_thread.start()
     redirect_api_url = f"http://127.0.0.1:{origin.server_port}"
     try:
-        RedirectOriginHandler.authorizations.clear()
+        RedirectHandler.requests.clear()
         same_origin = run("raw", "GET", "/mcp/same-origin", api_url=redirect_api_url)
         assert same_origin.returncode == 0, same_origin.stderr
-        assert RedirectOriginHandler.authorizations == ["Bearer test-token", "Bearer test-token"]
+        assert RedirectHandler.requests == [
+            (origin.server_port, "/mcp/same-origin", "Bearer test-token"),
+            (origin.server_port, "/mcp/final", "Bearer test-token"),
+        ]
 
-        RedirectDestinationHandler.authorizations.clear()
+        RedirectHandler.requests.clear()
         cross_port = run("raw", "GET", "/mcp/cross-port", api_url=redirect_api_url)
         assert cross_port.returncode == 0, cross_port.stderr
-        assert RedirectDestinationHandler.authorizations == [None]
+        assert RedirectHandler.requests == [
+            (origin.server_port, "/mcp/cross-port", "Bearer test-token"),
+            (destination.server_port, "/mcp/final", None),
+        ]
 
-        RedirectDestinationHandler.authorizations.clear()
+        RedirectHandler.requests.clear()
         cross_host = run("raw", "GET", "/mcp/cross-host", api_url=redirect_api_url)
         assert cross_host.returncode == 0, cross_host.stderr
-        assert RedirectDestinationHandler.authorizations == [None]
+        assert RedirectHandler.requests == [
+            (origin.server_port, "/mcp/cross-host", "Bearer test-token"),
+            (destination.server_port, "/mcp/final", None),
+        ]
     finally:
         origin.shutdown()
         origin.server_close()
