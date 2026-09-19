@@ -16,6 +16,7 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
         defer path.deinit();
         try addIdentifierQuery(&path, context, try context.args.requirePositional(2, "ticket-or-task-id"));
         try list_query.addListQuery(&path, context.args, context.allocator);
+        if (context.args.has("include-activity")) try path.add("include_activity", "true");
         var response = try context.fetch(.GET, path.path(), null);
         defer response.deinit();
         const code = @intFromEnum(response.status);

@@ -136,7 +136,7 @@ fn isBoolean(name: []const u8) bool {
         "html",              "canvas",    "dry-run",      "apply",
         "clear-description", "running",   "default",      "clear-labels",
         "clear-assignees",   "add",       "self",         "yes",
-        "improve",
+        "improve",           "include-activity",
     };
     for (names) |candidate| {
         if (std.mem.eql(u8, name, candidate)) return true;

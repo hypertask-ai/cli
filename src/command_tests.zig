@@ -111,6 +111,13 @@ test "every HTPR-6530 list command forwards --limit" {
         "/mcp/comments?ticket_number=HTPR-6530&limit=3",
         null,
     );
+    try expectRequestWithResponses(
+        &.{ "comment", "list", "HTPR-6516", "--include-activity" },
+        &.{"{\"success\":true,\"comments\":[],\"total\":0,\"offset\":0}"},
+        .GET,
+        "/mcp/comments?ticket_number=HTPR-6516&include_activity=true",
+        null,
+    );
     try expectRequest(
         &.{ "section", "list", "--project", "15", "--limit", "3" },
         .GET,
