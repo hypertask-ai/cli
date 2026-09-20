@@ -99,6 +99,12 @@ def main() -> None:
     assert_failure(run("task"), 2, "valid commands:")
     assert_failure(run("status", "ignored"), 2, "unexpected argument: ignored", "accepted arguments: (none)")
     assert_failure(run("pages", "create"), 2, "required option: --task")
+    assert_failure(
+        run("task", "list", "--project", "15", "--priority", "impossible", "--limit", "1"),
+        2,
+        "invalid priority: impossible",
+        "valid priorities: urgent, high, medium, low, none",
+    )
     assert_failure(run("raw", "CONNECT", "/mcp/tasks"), 2, "valid methods: GET, POST, PUT, PATCH, DELETE")
     assert_failure(run("ai", "improve", "text", "--project", "15", "--command", "summarise"), 2, "valid improve commands:")
     assert_failure(

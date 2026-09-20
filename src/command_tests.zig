@@ -247,7 +247,17 @@ test "project delete requires explicit confirmation" {
     try expectDispatchError(error.ConfirmationRequired, &.{ "projects", "delete", "15" });
 }
 
-test "task mutations reject unknown priorities before making a request" {
+test "task list accepts priority names" {
+    try expectRequest(
+        &.{ "task", "list", "--project", "15", "--priority", "high", "--limit", "1" },
+        .GET,
+        "/mcp/tasks?project_id=15&priority=2&offset=0&limit=1",
+        null,
+    );
+}
+
+test "task commands reject unknown priorities before making a request" {
+    try expectDispatchError(error.InvalidOptions, &.{ "task", "list", "--project", "15", "--priority", "impossible", "--limit", "1" });
     try expectDispatchError(error.InvalidOptions, &.{ "task", "create", "--project", "15", "--title", "x", "--priority", "eventually" });
     try expectDispatchError(error.InvalidOptions, &.{ "task", "update", "HTPR-1", "--priority", "eventually" });
 }
