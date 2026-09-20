@@ -70,7 +70,9 @@ class RedirectHandler(BaseHTTPRequestHandler):
 
 class StubHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
-        if self.path.startswith("/mcp/projects"):
+        if self.path == "/mcp/projects/5156/sections":
+            self.respond(500, {"success": False, "error": "Internal server error", "message": "Forbidden"})
+        elif self.path.startswith("/mcp/projects"):
             self.respond(200, {"projects": []})
         elif self.path.startswith("/mcp/comments"):
             self.respond(200, {"success": False, "error": "comment read did not run"})
@@ -136,14 +138,14 @@ def main() -> None:
         assert_failure(manual_fetch_failure, 4, "comment read did not run")
 
         with_labels = run(
-            "task", "create", "--project", "5156", "--title", "x", "--labels", "Infra",
+            "task", "create", "--project", "5156", "--section", "Backlog", "--title", "x", "--labels", "Infra",
             api_url=api_url,
         )
         assert_failure(with_labels, 4, "this token is not a member of project 5156", "ask the project owner to add it")
         assert "LabelNotFound" not in with_labels.stderr
 
         without_labels = run(
-            "task", "create", "--project", "5156", "--title", "x",
+            "task", "create", "--project", "5156", "--section", "Backlog", "--title", "x",
             api_url=api_url,
         )
         assert_failure(without_labels, 4, "this token is not a member of project 5156", "ask the project owner to add it")

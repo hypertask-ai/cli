@@ -269,7 +269,7 @@ fn create(context: *const Context) !void {
     const attach_inputs = try common.optionList(context, "attach");
     var response = try context.fetchRaw(.POST, "/mcp/tasks/create", try body.finish());
     defer response.deinit();
-    if (projectAccessDeniedResponse(context.allocator, response.status, response.body)) return projectAccessDenied(project);
+    if (resolve.projectAccessDeniedResponse(context.allocator, response.status, response.body)) return resolve.projectAccessDenied(project);
     const linked_body = try taskMutationBody(context, &response);
     if (attach_inputs.len == 0) return context.print(linked_body);
     const ticket = try responseTicket(context, response.body);
@@ -927,7 +927,7 @@ fn resolveLabelIds(context: *const Context, inputs: []const []const u8, project_
     var response = try context.fetchRaw(.GET, path.path(), null);
     defer response.deinit();
     const code = @intFromEnum(response.status);
-    if (projectAccessDeniedResponse(context.allocator, response.status, response.body)) return projectAccessDenied(project);
+    if (resolve.projectAccessDeniedResponse(context.allocator, response.status, response.body)) return resolve.projectAccessDenied(project);
     if (code < 200 or code >= 300) {
         try context.finish(&response);
         return error.CommandFailed;
@@ -945,7 +945,7 @@ fn resolveLabelIds(context: *const Context, inputs: []const []const u8, project_
             break;
         }
     }
-    const labels = available orelse return projectAccessDenied(project);
+    const labels = available orelse return resolve.projectAccessDenied(project);
     if (labels != .array) return error.InvalidResponse;
     var result: std.ArrayListUnmanaged([]const u8) = .{};
     for (inputs) |input| {
@@ -969,23 +969,6 @@ fn resolveLabelIds(context: *const Context, inputs: []const []const u8, project_
         try result.append(context.allocator, match orelse return labelNotFound(input, labels.array.items));
     }
     return result.toOwnedSlice(context.allocator);
-}
-
-fn projectAccessDenied(project: i64) error{ProjectAccessDenied} {
-    std.debug.print("this token is not a member of project {d}\n", .{project});
-    return error.ProjectAccessDenied;
-}
-
-fn projectAccessDeniedResponse(allocator: std.mem.Allocator, status: std.http.Status, body: []const u8) bool {
-    if (status == .forbidden) return true;
-    const document = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch return false;
-    defer document.deinit();
-    if (document.value != .object) return false;
-    for ([_][]const u8{ "error", "message" }) |field| {
-        const value = document.value.object.get(field) orelse continue;
-        if (value == .string and std.ascii.eqlIgnoreCase(std.mem.trim(u8, value.string, " \t\r\n"), "forbidden")) return true;
-    }
-    return false;
 }
 
 fn labelNotFound(input: []const u8, labels: []const std.json.Value) error{LabelNotFound} {
