@@ -1,7 +1,6 @@
 const std = @import("std");
 const common = @import("command_context.zig");
 const Context = common.Context;
-const http = @import("http.zig");
 const json = @import("json_util.zig");
 const query_mod = @import("query.zig");
 
@@ -187,13 +186,34 @@ fn jsonInteger(value: std.json.Value, key: []const u8) ?i64 {
     };
 }
 
+pub fn projectAccessDenied(project_id: i64) error{ProjectAccessDenied} {
+    std.debug.print("this token is not a member of project {d}\n", .{project_id});
+    return error.ProjectAccessDenied;
+}
+
+pub fn projectAccessDeniedResponse(allocator: std.mem.Allocator, status: std.http.Status, body: []const u8) bool {
+    if (status == .forbidden) return true;
+    const document = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch return false;
+    defer document.deinit();
+    if (document.value != .object) return false;
+    for ([_][]const u8{ "error", "message" }) |field| {
+        const value = document.value.object.get(field) orelse continue;
+        if (value != .string) continue;
+        const message = std.mem.trim(u8, value.string, " \t\r\n");
+        if (std.ascii.eqlIgnoreCase(message, "forbidden") or
+            std.ascii.eqlIgnoreCase(message, "project not found or access denied")) return true;
+    }
+    return false;
+}
+
 pub fn sectionId(context: *const Context, project_id: i64, value: []const u8) !i64 {
     if (isNumeric(value)) return std.fmt.parseInt(i64, value, 10);
     try context.requireAuth();
     const path = try std.fmt.allocPrint(context.allocator, "/mcp/projects/{d}/sections", .{project_id});
     defer context.allocator.free(path);
-    var response = try http.get(context.allocator, context.cfg, path);
+    var response = try context.fetchRaw(.GET, path, null);
     defer response.deinit();
+    if (projectAccessDeniedResponse(context.allocator, response.status, response.body)) return projectAccessDenied(project_id);
     if (@intFromEnum(response.status) < 200 or @intFromEnum(response.status) >= 300) return error.CommandFailed;
     const parsed = try std.json.parseFromSlice(std.json.Value, context.allocator, response.body, .{});
     defer parsed.deinit();
