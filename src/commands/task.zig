@@ -52,7 +52,17 @@ fn list(context: *const Context) !void {
         if (context.args.get("project") == null) return error.MissingOption;
         try path.add("section", value);
     }
-    for (try common.optionList(context, "priority")) |value| try path.add("priority", value);
+    for (try common.optionList(context, "priority")) |value| {
+        const normalized = if (value.len == 1 and value[0] >= '0' and value[0] <= '4') value else switch (try priority(value)) {
+            0 => "0",
+            1 => "1",
+            2 => "2",
+            3 => "3",
+            4 => "4",
+            else => unreachable,
+        };
+        try path.add("priority", normalized);
+    }
     const from_labels = try common.optionList(context, "labels");
     const label_inputs = if (from_labels.len != 0) from_labels else try common.optionList(context, "label");
     const project_id = if (context.args.get("project")) |value| try common.positiveInt(value, "project") else null;
