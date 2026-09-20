@@ -116,6 +116,9 @@ class Handler(BaseHTTPRequestHandler):
             name = "task-get.json" if "ticket_number" in request["query"] else "task-list.json"
             self.respond(200, fixture(name))
             return
+        if route == ("POST", "/mcp/assignees/assign"):
+            self.respond(200, fixture("task-assign-self.json"))
+            return
         if route == ("GET", "/mcp/projects/15/sections"):
             self.respond(200, json.dumps({
                 "sections": [
@@ -367,6 +370,21 @@ def main() -> None:
             with Handler.lock:
                 expect(len(Handler.requests) == before, "identity error made network requests")
 
+            expect_command(
+                binary, token, api_url, home,
+                ("task", "assign", "HTPR-5787", "--self"),
+                "task-assign-self.json", 0,
+                {
+                    "method": "POST",
+                    "path": "/mcp/assignees/assign",
+                    "query": {},
+                    "body": {
+                        "ticket_number": "HTPR-5787",
+                        "assign_self": True,
+                        "intent": "assign",
+                    },
+                },
+            )
             expect_command(
                 binary, token, api_url, home,
                 ("tasks", "get", "HTPR-5787", "--project", "15"),

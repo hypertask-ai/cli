@@ -89,6 +89,27 @@ test "router dispatches task and decision aliases" {
         "/mcp/tasks?project_id=15&limit=10&offset=0",
         null,
     );
+    try expectRequestCountWithResponses(
+        &.{ "tasks", "list", "--project", "15", "--filter", "updated_since=2026-09-18T20:17:00Z" },
+        &.{
+            "{\"success\":true,\"tasks\":[{\"id\":4}],\"total\":2,\"limit\":100,\"offset\":0,\"nextCursor\":\"normal-cursor\"}",
+            "{\"success\":true,\"tasks\":[{\"id\":3}],\"total\":2,\"limit\":100,\"offset\":0,\"nextCursor\":null}",
+            "{\"success\":true,\"tasks\":[{\"id\":2}],\"total\":2,\"limit\":100,\"offset\":0,\"nextCursor\":\"archive-cursor\"}",
+            "{\"success\":true,\"tasks\":[{\"id\":1}],\"total\":2,\"limit\":100,\"offset\":0,\"nextCursor\":null}",
+        },
+        4,
+        .GET,
+        "/mcp/tasks?project_id=15&limit=100&offset=0&filter.updated_since=2026-09-18T20%3A17%3A00Z&status=Archive&cursor=archive-cursor",
+        null,
+    );
+    try expectRequestCountWithResponses(
+        &.{ "tasks", "list", "--project", "15", "--filter", "updated_since=2026-09-18T20:17:00Z", "--filter", "status=Archive" },
+        &.{"{\"success\":true,\"tasks\":[],\"total\":0,\"limit\":100,\"offset\":0,\"nextCursor\":null}"},
+        1,
+        .GET,
+        "/mcp/tasks?project_id=15&limit=100&offset=0&filter.updated_since=2026-09-18T20%3A17%3A00Z&filter.status=Archive",
+        null,
+    );
     try expectRequest(
         &.{ "decision", "list", "htpr-123", "--status", "pending" },
         .GET,
@@ -109,6 +130,13 @@ test "every HTPR-6530 list command forwards --limit" {
         &.{"{\"success\":true,\"comments\":[],\"total\":0,\"offset\":0}"},
         .GET,
         "/mcp/comments?ticket_number=HTPR-6530&limit=3",
+        null,
+    );
+    try expectRequestWithResponses(
+        &.{ "comment", "list", "HTPR-6516", "--include-activity" },
+        &.{"{\"success\":true,\"comments\":[],\"total\":0,\"offset\":0}"},
+        .GET,
+        "/mcp/comments?ticket_number=HTPR-6516&include_activity=true",
         null,
     );
     try expectRequest(
@@ -202,11 +230,34 @@ test "task get distinguishes internal ids from project ticket indexes" {
         &.{ "comment", "add", "6162", "--text", "hi" },
         .POST,
         "/mcp/comments",
-        "{\"task_id\":6162,\"text\":\"hi\"}",
+        "{\"task_id\":6162,\"text\":\"<p>hi</p>\"}",
     );
 }
 
-test "task mutations reject unknown priorities before making a request" {
+test "project update sends the new title" {
+    try expectRequest(
+        &.{ "projects", "update", "5500", "--title", "Agent Toolkit" },
+        .PATCH,
+        "/mcp/projects/5500",
+        "{\"title\":\"Agent Toolkit\"}",
+    );
+}
+
+test "project delete requires explicit confirmation" {
+    try expectDispatchError(error.ConfirmationRequired, &.{ "projects", "delete", "15" });
+}
+
+test "task list accepts priority names" {
+    try expectRequest(
+        &.{ "task", "list", "--project", "15", "--priority", "high", "--limit", "1" },
+        .GET,
+        "/mcp/tasks?project_id=15&priority=2&offset=0&limit=1",
+        null,
+    );
+}
+
+test "task commands reject unknown priorities before making a request" {
+    try expectDispatchError(error.InvalidOptions, &.{ "task", "list", "--project", "15", "--priority", "impossible", "--limit", "1" });
     try expectDispatchError(error.InvalidOptions, &.{ "task", "create", "--project", "15", "--title", "x", "--priority", "eventually" });
     try expectDispatchError(error.InvalidOptions, &.{ "task", "update", "HTPR-1", "--priority", "eventually" });
 }
@@ -348,6 +399,12 @@ test "command handlers build request bodies and query strings without HTTP" {
         .POST,
         "/mcp/projects/15/members",
         "{\"projectId\":15,\"userToAdd\":6}",
+    );
+    try expectRequest(
+        &.{ "projects", "delete", "15", "--yes" },
+        .POST,
+        "/mcp/projects/archive",
+        "{\"project_id\":15,\"status\":\"Deleted\"}",
     );
     try expectRequest(
         &.{ "comment", "add", "HTPR-123", "--text", "Hello", "--markdown" },
@@ -520,6 +577,72 @@ test "task unassign --assignee <user-id> with no matching rows stays an idempote
         .POST,
         "/mcp/assignees/assign",
         "{\"ticket_number\":\"HTPR-6136\",\"user_id\":6,\"intent\":\"unassign\"}",
+    );
+}
+
+test "comment add bare --improve posts the default rewrite" {
+    try expectRequestCountWithResponses(
+        &.{ "comment", "add", "HTPR-6574", "--improve", "--text", "<p>Draft</p>" },
+        &.{
+            "{\"tasks\":[{\"id\":42349,\"projectId\":15}]}",
+            "{\"html\":\"<p>Improved readability</p>\"}",
+            "{}",
+        },
+        3,
+        .POST,
+        "/mcp/comments",
+        "{\"ticket_number\":\"HTPR-6574\",\"text\":\"<p>Improved readability</p>\"}",
+    );
+}
+
+test "comment add --improve-command posts the requested rewrite" {
+    try expectRequestCountWithResponses(
+        &.{ "comment", "add", "HTPR-6574", "--improve", "--improve-command", "summarize", "--text", "<p>Draft</p>" },
+        &.{
+            "{\"tasks\":[{\"id\":42349,\"projectId\":15}]}",
+            "{\"html\":\"<p>Summary</p>\"}",
+            "{}",
+        },
+        3,
+        .POST,
+        "/mcp/comments",
+        "{\"ticket_number\":\"HTPR-6574\",\"text\":\"<p>Summary</p>\"}",
+    );
+}
+
+test "comment add and task descriptions wrap bare text in HTML paragraphs" {
+    try expectRequest(
+        &.{ "comment", "add", "HTPR-6501", "--text", "First paragraph\n\nSecond paragraph" },
+        .POST,
+        "/mcp/comments",
+        "{\"ticket_number\":\"HTPR-6501\",\"text\":\"<p>First paragraph</p><p>Second paragraph</p>\"}",
+    );
+    try expectRequest(
+        &.{ "task", "create", "--project", "15", "--title", "Wrapped", "--description", "First paragraph\n\nSecond paragraph" },
+        .POST,
+        "/mcp/tasks/create",
+        "{\"project_id\":15,\"title\":\"Wrapped\",\"description\":\"<p>First paragraph</p><p>Second paragraph</p>\"}",
+    );
+    try expectRequest(
+        &.{ "task", "update", "HTPR-6501", "--description", "First paragraph\n\nSecond paragraph" },
+        .POST,
+        "/mcp/tasks/update",
+        "{\"ticket_number\":\"HTPR-6501\",\"description\":\"<p>First paragraph</p><p>Second paragraph</p>\"}",
+    );
+}
+
+test "comment add and task descriptions keep leading HTML block tags" {
+    try expectRequest(
+        &.{ "comment", "add", "HTPR-6501", "--text", "<blockquote>Already HTML</blockquote>" },
+        .POST,
+        "/mcp/comments",
+        "{\"ticket_number\":\"HTPR-6501\",\"text\":\"<blockquote>Already HTML</blockquote>\"}",
+    );
+    try expectRequest(
+        &.{ "task", "create", "--project", "15", "--title", "HTML", "--description", "<h2>Already HTML</h2>" },
+        .POST,
+        "/mcp/tasks/create",
+        "{\"project_id\":15,\"title\":\"HTML\",\"description\":\"<h2>Already HTML</h2>\"}",
     );
 }
 

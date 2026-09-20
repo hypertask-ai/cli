@@ -105,8 +105,13 @@ hypertask agents update --id <agent-id> --name "Ops Script"
 hypertask agents update --id <agent-id> --add-project 339
 hypertask agents archive --id <agent-id>
 hypertask agents delete --id <agent-id> --confirm
+hypertask projects update <project-id> --title "New board title"
+hypertask projects archive <project-id>
+hypertask projects delete <project-id> --yes
 hypertask search "query" --project 15
 ```
+
+`projects update` renames a board you can edit. `projects archive` is reversible with `--restore`. `projects delete` permanently deletes the board, its tasks, notifications, and memberships, so it refuses to run without `--yes`.
 
 Task identifiers come in three forms:
 

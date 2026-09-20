@@ -9,6 +9,7 @@ const output = @import("../output.zig");
 pub fn run(context: *const Context, subcommand: []const u8) !void {
     if (std.mem.eql(u8, subcommand, "list")) return list(context);
     if (std.mem.eql(u8, subcommand, "show")) return show(context);
+    if (std.mem.eql(u8, subcommand, "update")) return update(context);
     if (std.mem.eql(u8, subcommand, "manifest")) return simpleProjectGet(context, "manifest");
     if (std.mem.eql(u8, subcommand, "playbook")) return playbook(context);
     if (std.mem.eql(u8, subcommand, "instructions")) return instructions(context);
@@ -21,6 +22,7 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
         return createLabel(context);
     }
     if (std.mem.eql(u8, subcommand, "archive")) return archive(context);
+    if (std.mem.eql(u8, subcommand, "delete")) return deleteProject(context);
     if (std.mem.eql(u8, subcommand, "create-board") or std.mem.eql(u8, subcommand, "create")) return createBoard(context);
     return error.UnknownCommand;
 }
@@ -82,6 +84,15 @@ fn simpleProjectGet(context: *const Context, resource: []const u8) !void {
     const id = try common.positiveInt(try context.args.requirePositional(2, "project-id"), "project-id");
     const path = try std.fmt.allocPrint(context.allocator, "/mcp/projects/{d}/{s}", .{ id, resource });
     try context.call(.GET, path, null);
+}
+
+fn update(context: *const Context) !void {
+    const id = try common.positiveInt(try context.args.requirePositional(2, "project-id"), "project-id");
+    var body = try json.Object.init(context.allocator);
+    defer body.deinit();
+    try body.string("title", try context.args.require("title"));
+    const path = try std.fmt.allocPrint(context.allocator, "/mcp/projects/{d}", .{id});
+    try context.call(.PATCH, path, try body.finish());
 }
 
 fn playbook(context: *const Context) !void {
@@ -164,6 +175,15 @@ fn archive(context: *const Context) !void {
     defer body.deinit();
     try body.integer("project_id", try common.positiveInt(try context.args.requirePositional(2, "id"), "id"));
     try body.string("status", if (context.args.has("restore")) "Normal" else "Archive");
+    try context.call(.POST, "/mcp/projects/archive", try body.finish());
+}
+
+fn deleteProject(context: *const Context) !void {
+    if (!context.args.has("yes")) return error.ConfirmationRequired;
+    var body = try json.Object.init(context.allocator);
+    defer body.deinit();
+    try body.integer("project_id", try common.positiveInt(try context.args.requirePositional(2, "id"), "id"));
+    try body.string("status", "Deleted");
     try context.call(.POST, "/mcp/projects/archive", try body.finish());
 }
 

@@ -135,7 +135,8 @@ fn isBoolean(name: []const u8) bool {
         "markdown",          "clear-due", "clear-parent", "comment",
         "html",              "canvas",    "dry-run",      "apply",
         "clear-description", "running",   "default",      "clear-labels",
-        "clear-assignees",   "add",       "self",
+        "clear-assignees",   "add",       "self",         "yes",
+        "improve",           "include-activity",
     };
     for (names) |candidate| {
         if (std.mem.eql(u8, name, candidate)) return true;
@@ -174,4 +175,23 @@ test "negative integers remain positional arguments" {
     defer parsed.deinit();
     try std.testing.expectEqual(@as(usize, 4), parsed.positional.len);
     try std.testing.expectEqualStrings("-30", parsed.positional[3]);
+}
+
+test "comment improve is a bare boolean flag" {
+    const argv = [_][]const u8{ "comment", "add", "HTPR-6574", "--improve", "--text", "<p>Draft</p>" };
+    var parsed = try parse(std.testing.allocator, &argv);
+    defer parsed.deinit();
+
+    try std.testing.expect(parsed.has("improve"));
+    try std.testing.expect(parsed.get("improve") == null);
+    try std.testing.expectEqualStrings("<p>Draft</p>", parsed.get("text").?);
+}
+
+test "comment improve-command keeps its explicit value" {
+    const argv = [_][]const u8{ "comment", "add", "HTPR-6574", "--improve", "--improve-command", "summarize", "--text", "<p>Draft</p>" };
+    var parsed = try parse(std.testing.allocator, &argv);
+    defer parsed.deinit();
+
+    try std.testing.expectEqualStrings("summarize", parsed.get("improve-command").?);
+    try std.testing.expectEqualStrings("<p>Draft</p>", parsed.get("text").?);
 }

@@ -279,6 +279,17 @@ fn arrayFieldOrEmpty(value: std.json.Value, name: []const u8) ![]const std.json.
     return field.array.items;
 }
 
+test "project update help shows the title option" {
+    const project_help = try renderHelp(std.testing.allocator, &.{"projects"});
+    defer std.testing.allocator.free(project_help);
+    try std.testing.expect(std.mem.indexOf(u8, project_help, "update") != null);
+
+    const update_help = try renderHelp(std.testing.allocator, &.{ "projects", "update" });
+    defer std.testing.allocator.free(update_help);
+    try std.testing.expect(std.mem.indexOf(u8, update_help, "Usage: hypertask project update <project-id> [options]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, update_help, "--title <title> (required)") != null);
+}
+
 test "subcommand help renders command-specific options" {
     try validateCommandPath(std.testing.allocator, &.{"tasks"}, false);
     const task_help = try renderHelp(std.testing.allocator, &.{"tasks"});
@@ -306,6 +317,14 @@ test "subcommand help renders command-specific options" {
     const assign_with_ticket_help = try renderHelp(std.testing.allocator, &.{ "tasks", "assign", "HTPR-6276" });
     defer std.testing.allocator.free(assign_with_ticket_help);
     try std.testing.expectEqualStrings(assign_help, assign_with_ticket_help);
+
+    const html_rule = "Comments and descriptions are HTML. Wrap content in block tags. Never embed images; attach files with --attach.";
+    const comment_add_help = try renderHelp(std.testing.allocator, &.{ "comment", "add" });
+    defer std.testing.allocator.free(comment_add_help);
+    try std.testing.expect(std.mem.indexOf(u8, comment_add_help, html_rule) != null);
+    const task_create_help = try renderHelp(std.testing.allocator, &.{ "task", "create" });
+    defer std.testing.allocator.free(task_create_help);
+    try std.testing.expect(std.mem.indexOf(u8, task_create_help, html_rule) != null);
 
     const unassign_help = try renderHelp(std.testing.allocator, &.{ "tasks", "unassign" });
     defer std.testing.allocator.free(unassign_help);
