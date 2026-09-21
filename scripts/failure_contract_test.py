@@ -74,6 +74,8 @@ class StubHandler(BaseHTTPRequestHandler):
             self.respond(404, {"success": False, "error": "Project not found or access denied"})
         elif self.path.startswith("/mcp/projects"):
             self.respond(200, {"projects": []})
+        elif self.path.startswith("/mcp/custom-fields"):
+            self.respond(200, {"success": False, "error": "custom field lookup did not run"})
         elif self.path.startswith("/mcp/comments"):
             self.respond(200, {"success": False, "error": "comment read did not run"})
         elif self.path.startswith("/mcp/tasks"):
@@ -142,6 +144,12 @@ def main() -> None:
 
         manual_fetch_failure = run("comment", "list", "HTPR-1", api_url=api_url)
         assert_failure(manual_fetch_failure, 4, "comment read did not run")
+
+        field_lookup_failure = run(
+            "fields", "delete", "--project", "15", "--name", "Missing",
+            api_url=api_url,
+        )
+        assert_failure(field_lookup_failure, 4, "custom field lookup did not run")
 
         with_labels = run(
             "task", "create", "--project", "5156", "--section", "Backlog", "--title", "x", "--labels", "Infra",
