@@ -1,9 +1,7 @@
 const std = @import("std");
 const common = @import("../command_context.zig");
 const Context = common.Context;
-const http = @import("../http.zig");
 const json = @import("../json_util.zig");
-const output = @import("../output.zig");
 const query = @import("../query.zig");
 const resolve = @import("../resolve.zig");
 
@@ -72,10 +70,11 @@ fn resolveFieldId(context: *const Context) ![]const u8 {
     var path = try query.Builder.init(context.allocator, "/mcp/custom-fields");
     defer path.deinit();
     try path.add("project_id", project);
-    var response = try http.get(context.allocator, context.cfg, path.path());
+    var response = try context.fetch(.GET, path.path(), null);
     defer response.deinit();
-    if (@intFromEnum(response.status) < 200 or @intFromEnum(response.status) >= 300) {
-        output.finish(&response) catch {};
+    const code = @intFromEnum(response.status);
+    if (code < 200 or code >= 300) {
+        try context.finish(&response);
         return error.CommandFailed;
     }
     const parsed = try std.json.parseFromSlice(std.json.Value, context.allocator, response.body, .{});
