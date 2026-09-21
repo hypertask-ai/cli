@@ -82,7 +82,10 @@ class StubHandler(BaseHTTPRequestHandler):
             self.respond(500, {"success": False, "error": "server broke"})
 
     def do_POST(self) -> None:
-        self.respond(500, {"success": False, "error": "Internal server error", "message": "Forbidden"})
+        if self.path == "/mcp/token/refresh":
+            self.respond(200, {"success": False, "error": "token refresh did not run"})
+        else:
+            self.respond(500, {"success": False, "error": "Internal server error", "message": "Forbidden"})
 
     def respond(self, status: int, body: dict[str, object]) -> None:
         encoded = json.dumps(body).encode()
@@ -133,6 +136,9 @@ def main() -> None:
     try:
         success_false = run("task", "get", "HTPR-1", api_url=api_url)
         assert_failure(success_false, 4, "task read did not run")
+
+        token_refresh_failure = run("token", "refresh", api_url=api_url)
+        assert_failure(token_refresh_failure, 4, "token refresh did not run")
 
         manual_fetch_failure = run("comment", "list", "HTPR-1", api_url=api_url)
         assert_failure(manual_fetch_failure, 4, "comment read did not run")
