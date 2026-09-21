@@ -90,6 +90,11 @@ pub fn exitCode(err: anyerror) u8 {
 }
 
 pub fn printFailure(err: anyerror) void {
+    if (err == error.SectionNotFound) {
+        std.debug.print("Next: {s}\n", .{nextStep(err)});
+        return;
+    }
+
     const summary: ?[]const u8 = switch (err) {
         error.MissingAgentIdentity,
         error.MissingArgument,
@@ -123,7 +128,7 @@ pub fn printFailure(err: anyerror) void {
         error.CapabilityTicketMismatch,
         error.ProjectAccessDenied,
         => "this token does not have the required access",
-        error.ApiNotFound, error.FieldNotFound, error.LabelNotFound, error.ProjectNotFound, error.SectionNotFound, error.TaskNotFound => "the requested item was not found",
+        error.ApiNotFound, error.FieldNotFound, error.LabelNotFound, error.ProjectNotFound, error.TaskNotFound => "the requested item was not found",
         error.ApiInvalidInput => "the server rejected the command input",
         error.ApiFailure, error.AssigneeNotConfirmed, error.AssigneeNotRemoved, error.CommandFailed => "the server could not complete the command",
         error.InvalidResponse, error.ModeMismatch => "the server returned a response the CLI could not use",
