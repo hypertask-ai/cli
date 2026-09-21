@@ -112,7 +112,7 @@ pub fn token(context: *const Context, subcommand: []const u8) !void {
     }
     if (!std.mem.eql(u8, subcommand, "refresh")) return output.unknownCommand("unknown token command");
     try context.requireAuth();
-    var response = try http.request(context.allocator, context.cfg, .POST, "/mcp/token/refresh", null);
+    var response = try context.fetch(.POST, "/mcp/token/refresh", null);
     defer response.deinit();
     const status_code = @intFromEnum(response.status);
     if (status_code < 200 or status_code >= 300) return output.finish(&response);
