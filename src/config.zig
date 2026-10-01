@@ -50,6 +50,12 @@ const FileConfig = struct {
     apiUrl: ?[]const u8 = null,
 };
 
+const environment_token_names = [_][]const u8{
+    "HYPERTASKS_JWT_TOKEN",
+    "HT_AGENT_TOKEN",
+    "HT_TOKEN",
+};
+
 pub fn load(allocator: std.mem.Allocator, token_override: ?[]const u8, api_url_override: ?[]const u8, management_override: ?[]const u8) !Config {
     var result = Config{ .allocator = allocator };
     errdefer result.deinit();
@@ -61,9 +67,9 @@ pub fn load(allocator: std.mem.Allocator, token_override: ?[]const u8, api_url_o
     if (std.mem.eql(u8, result.api_url, legacy_api_url)) {
         try setOwned(allocator, &result.owned_api_url, &result.api_url, default_api_url);
     }
-    if (try applyEnvironmentVariable(allocator, &result.owned_token, &result.token, "HYPERTASKS_JWT_TOKEN")) result.token_source = .environment;
-    if (try applyEnvironmentVariable(allocator, &result.owned_token, &result.token, "HT_AGENT_TOKEN")) result.token_source = .environment;
-    if (try applyEnvironmentVariable(allocator, &result.owned_token, &result.token, "HT_TOKEN")) result.token_source = .environment;
+    for (environment_token_names) |name| {
+        if (try applyEnvironmentVariable(allocator, &result.owned_token, &result.token, name)) result.token_source = .environment;
+    }
     if (try environmentVariable(allocator, "HYPERTASK_MANAGEMENT_KEY")) |value| {
         defer allocator.free(value);
         try setOwned(allocator, &result.owned_management_key, &result.management_key, value);
@@ -118,7 +124,7 @@ fn applyEnvironmentOverride(allocator: std.mem.Allocator, owned: *?[]u8, target:
 }
 
 pub fn hasEnvironmentToken(allocator: std.mem.Allocator) !bool {
-    for ([_][]const u8{ "HT_TOKEN", "HYPERTASKS_JWT_TOKEN" }) |name| {
+    for (environment_token_names) |name| {
         const value = try environmentVariable(allocator, name);
         defer if (value) |present| allocator.free(present);
         if (value) |present| if (present.len != 0) return true;
@@ -256,6 +262,14 @@ test "config writes repair permissive file and directory modes" {
     const file_stat = try secured_file.stat();
     try std.testing.expectEqual(@as(std.fs.File.Mode, 0o700), directory_stat.mode & 0o777);
     try std.testing.expectEqual(@as(std.fs.File.Mode, 0o600), file_stat.mode & 0o777);
+}
+
+test "HT_AGENT_TOKEN counts as an environment credential" {
+    var recognized = false;
+    for (environment_token_names) |name| {
+        if (std.mem.eql(u8, name, "HT_AGENT_TOKEN")) recognized = true;
+    }
+    try std.testing.expect(recognized);
 }
 
 test "environment overrides ignore empty values" {
