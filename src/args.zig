@@ -107,6 +107,11 @@ pub fn parse(allocator: std.mem.Allocator, argv: []const []const u8) !Parsed {
         try options.append(allocator, .{ .name = name, .value = argv[i] });
     }
 
+    // Normalize the root shorthand before catalog validation, help, and dispatch.
+    if (positional.items.len != 0 and std.mem.eql(u8, positional.items[0], "create-board")) {
+        try positional.insert(allocator, 0, "project");
+    }
+
     return .{
         .positional = try positional.toOwnedSlice(allocator),
         .options = try options.toOwnedSlice(allocator),
@@ -167,6 +172,25 @@ test "parse repeated and global options" {
     try std.testing.expectEqualStrings("urgent", parsed.get("label").?);
     try std.testing.expectEqual(@as(usize, 2), parsed.count("label"));
     try std.testing.expect(parsed.has("json"));
+}
+
+test "create-board shorthand preserves options and canonical project commands" {
+    for ([_][]const []const u8{
+        &.{ "create-board", "--help" },
+        &.{ "project", "create-board", "--help" },
+    }) |argv| {
+        var parsed = try parse(std.testing.allocator, argv);
+        defer parsed.deinit();
+        try std.testing.expectEqual(@as(usize, 2), parsed.positional.len);
+        try std.testing.expectEqualStrings("project", parsed.positional[0]);
+        try std.testing.expectEqualStrings("create-board", parsed.positional[1]);
+        try std.testing.expect(parsed.has("help"));
+    }
+    var parsed = try parse(std.testing.allocator, &.{ "projects", "create", "--stdin" });
+    defer parsed.deinit();
+    try std.testing.expectEqualStrings("projects", parsed.positional[0]);
+    try std.testing.expectEqualStrings("create", parsed.positional[1]);
+    try std.testing.expect(parsed.has("stdin"));
 }
 
 test "negative integers remain positional arguments" {
