@@ -101,6 +101,86 @@ class StubHandler(BaseHTTPRequestHandler):
         pass
 
 
+class RefreshPersistHandler(BaseHTTPRequestHandler):
+    def do_POST(self) -> None:
+        length = int(self.headers.get("Content-Length", "0"))
+        if length:
+            self.rfile.read(length)
+        authorization = self.headers.get("Authorization")
+        if authorization == "Bearer agent-job-token":
+            refreshed = "refreshed-from-agent"
+        elif authorization == "Bearer user-saved-token":
+            refreshed = "refreshed-from-saved"
+        else:
+            refreshed = "refreshed-unexpected"
+        self.respond(200, {
+            "success": True,
+            "token": refreshed,
+            "expiresAt": "2033-05-18T03:33:20.000Z",
+        })
+
+    def respond(self, status: int, body: dict[str, object]) -> None:
+        encoded = json.dumps(body).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(encoded)))
+        self.end_headers()
+        self.wfile.write(encoded)
+
+    def log_message(self, format: str, *args: object) -> None:
+        pass
+
+
+def refresh_in_home(api_url: str, home: Path, *, agent_token: str | None) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    env["HOME"] = str(home)
+    for name in ("HT_AGENT_TOKEN", "HT_TOKEN", "HYPERTASKS_JWT_TOKEN", "HYPERTASKS_API_URL"):
+        env.pop(name, None)
+    if agent_token is not None:
+        env["HT_AGENT_TOKEN"] = agent_token
+    return subprocess.run(
+        [str(CLI), "--api-url", api_url, "token", "refresh"],
+        text=True,
+        capture_output=True,
+        env=env,
+        check=False,
+    )
+
+
+def write_saved_token(home: Path, api_url: str) -> Path:
+    config_dir = home / ".hypertask"
+    config_dir.mkdir()
+    path = config_dir / "config.json"
+    path.write_text(json.dumps({"token": "user-saved-token", "apiUrl": api_url}), encoding="utf-8")
+    return path
+
+
+def token_refresh_does_not_persist_agent_credential(api_url: str) -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        home = Path(directory)
+        config_path = write_saved_token(home, api_url)
+        process = refresh_in_home(api_url, home, agent_token="agent-job-token")
+        assert process.returncode == 0, (process.returncode, process.stdout, process.stderr)
+        payload = json.loads(process.stdout)
+        assert payload["token"] == "refreshed-from-agent", payload
+        saved = json.loads(config_path.read_text(encoding="utf-8"))
+        assert saved["token"] == "user-saved-token", saved
+        assert "refreshed-from-agent" not in config_path.read_text(encoding="utf-8")
+
+
+def token_refresh_still_saves_a_user_credential(api_url: str) -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        home = Path(directory)
+        config_path = write_saved_token(home, api_url)
+        process = refresh_in_home(api_url, home, agent_token=None)
+        assert process.returncode == 0, (process.returncode, process.stdout, process.stderr)
+        payload = json.loads(process.stdout)
+        assert payload["token"] == "refreshed-from-saved", payload
+        assert payload["saved"] is True, payload
+        saved = json.loads(config_path.read_text(encoding="utf-8"))
+        assert saved["token"] == "refreshed-from-saved", saved
+
+
 def main() -> None:
     assert_failure(run("not-a-command"), 1, "valid commands:")
     assert_failure(run("task"), 2, "valid commands:")
@@ -208,6 +288,18 @@ def main() -> None:
         destination.shutdown()
         destination.server_close()
         destination_thread.join()
+
+    refresh_server = ThreadingHTTPServer(("127.0.0.1", 0), RefreshPersistHandler)
+    refresh_thread = threading.Thread(target=refresh_server.serve_forever, daemon=True)
+    refresh_thread.start()
+    refresh_api_url = f"http://127.0.0.1:{refresh_server.server_port}"
+    try:
+        token_refresh_does_not_persist_agent_credential(refresh_api_url)
+        token_refresh_still_saves_a_user_credential(refresh_api_url)
+    finally:
+        refresh_server.shutdown()
+        refresh_server.server_close()
+        refresh_thread.join()
 
     print("failure contract checks passed")
 
