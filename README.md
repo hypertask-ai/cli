@@ -14,6 +14,8 @@ hypertask capabilities --json
 
 JSON is the default output. Pass `--human` for the minimal human-readable mode.
 
+`hypertask create-board` is a shorthand for `hypertask project create-board` and accepts the same flags, manifest input, and help.
+
 ## Failure contract
 
 A command exits `0` only when it did what its arguments requested. Every failure prints what happened and one `Next:` action. Invalid finite values also list the accepted values.

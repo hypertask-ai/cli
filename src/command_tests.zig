@@ -234,6 +234,29 @@ test "task get distinguishes internal ids from project ticket indexes" {
     );
 }
 
+test "root create-board uses project validation and request routing" {
+    const argv = [_][]const u8{ "--json", "create-board", "--title", "Pecunia", "--team", "team-1", "--description", "Finance board" };
+    var parsed = try args.parse(std.testing.allocator, &argv);
+    defer parsed.deinit();
+    try @import("option_validate.zig").rejectUnknownOptions(std.testing.allocator, &parsed);
+    try router.validateCommandPath(std.testing.allocator, parsed.positional, true);
+    try expectRequest(
+        &argv,
+        .POST,
+        "/mcp/teams/team-1/boards",
+        "{\"title\":\"Pecunia\",\"sections\":[{\"title\":\"To Do\"},{\"title\":\"In Progress\"},{\"title\":\"Done\"}],\"description\":\"Finance board\"}",
+    );
+}
+
+test "root create-board rejects undeclared options and extra arguments" {
+    var unknown = try args.parse(std.testing.allocator, &.{ "create-board", "--typo", "value" });
+    defer unknown.deinit();
+    try std.testing.expectError(error.UnknownOption, @import("option_validate.zig").rejectUnknownOptions(std.testing.allocator, &unknown));
+    var extra = try args.parse(std.testing.allocator, &.{ "create-board", "unexpected" });
+    defer extra.deinit();
+    try std.testing.expectError(error.InvalidOptions, router.validateCommandPath(std.testing.allocator, extra.positional, true));
+}
+
 test "project update sends the new title" {
     try expectRequest(
         &.{ "projects", "update", "5500", "--title", "Agent Toolkit" },
