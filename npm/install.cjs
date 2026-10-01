@@ -4,7 +4,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 
-const BINARY_VERSION = '0.2.0';
+const BINARY_VERSION = '0.2.4';
 const RELEASE_ROOT = 'https://github.com/hypertask-ai/cli/releases';
 const installLocks = new Map();
 

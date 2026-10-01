@@ -7,18 +7,18 @@ const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
-const { assetFor, checksumFor, install } = require('../install.cjs');
+const { BINARY_VERSION, assetFor, checksumFor, install } = require('../install.cjs');
 
 const binary = Buffer.from('native-hypertask-binary');
 const digest = crypto.createHash('sha256').update(binary).digest('hex');
 
 function releaseServer(checksum = digest, stallBinary = false) {
   const server = http.createServer((request, response) => {
-    if (request.url === '/download/v0.2.0/hypertask-linux-x86_64') {
+    if (request.url === `/download/v${BINARY_VERSION}/hypertask-linux-x86_64`) {
       if (!stallBinary) response.end(binary);
       return;
     }
-    if (request.url === '/download/v0.2.0/checksums.txt') {
+    if (request.url === `/download/v${BINARY_VERSION}/checksums.txt`) {
       response.end(`${checksum}  hypertask-linux-x86_64\n`);
       return;
     }
