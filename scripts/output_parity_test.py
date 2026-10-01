@@ -163,6 +163,32 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
+class PaginationHandler(BaseHTTPRequestHandler):
+    pages = {
+        "0": json.dumps({
+            "success": True,
+            "tasks": [{"id": i, "description": "<p>Large page résumé</p>" * 200} for i in range(100)],
+            "total": 100,
+        }).encode(),
+        "100": b"",
+        "200": b" \r\n\t",
+        "300": b'{"success":true,"tasks":[',
+        "400": b'{"success":true,"tasks":[],"total":100}',
+    }
+
+    def do_GET(self) -> None:
+        offset = parse_qs(urlsplit(self.path).query)["offset"][0]
+        body = self.pages[offset]
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format: str, *args: object) -> None:
+        pass
+
+
 class TransportFailureHandler(BaseHTTPRequestHandler):
     """Sends malformed transport responses: a body shorter than the declared
     Content-Length, either closed cleanly (truncation) or reset mid-body."""
@@ -511,6 +537,36 @@ def main() -> None:
                     "body": None,
                 },
             )
+            pagination = ThreadingHTTPServer(("127.0.0.1", 0), PaginationHandler)
+            pagination_thread = threading.Thread(target=pagination.serve_forever, daemon=True)
+            pagination_thread.start()
+            pagination_url = f"http://127.0.0.1:{pagination.server_port}"
+            try:
+                for offset in PaginationHandler.pages:
+                    page = run(
+                        binary, token, pagination_url, home,
+                        "tasks", "list", "--project", "339", "--offset", offset, "--limit", "100",
+                    )
+                    if offset in ("0", "400"):
+                        expect(page.returncode == 0, f"offset {offset}: {page.stderr}")
+                        expect(
+                            page.stdout == PaginationHandler.pages[offset].decode() + "\n",
+                            f"offset {offset} changed the valid JSON page",
+                        )
+                        json.loads(page.stdout)
+                    else:
+                        expect(page.returncode == 4, (
+                            f"offset {offset} exited {page.returncode}, expected invalid response 4\n"
+                            f"stdout: {page.stdout!r}\nstderr: {page.stderr}"
+                        ))
+                        expect(page.stdout == "", f"offset {offset} leaked invalid JSON")
+                        expect("response the CLI could not use" in page.stderr, page.stderr)
+                        expect("Next:" in page.stderr, page.stderr)
+            finally:
+                pagination.shutdown()
+                pagination.server_close()
+                pagination_thread.join()
+
             transport = ThreadingHTTPServer(("127.0.0.1", 0), TransportFailureHandler)
             transport_thread = threading.Thread(target=transport.serve_forever, daemon=True)
             transport_thread.start()
