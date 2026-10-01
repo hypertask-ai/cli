@@ -77,7 +77,12 @@ fn list(context: *const Context) !void {
         const include_archive = context.args.get("status") == null and !try hasFilter(context, "status");
         return listAllPages(context, path.path(), include_archive);
     }
-    try context.call(.GET, path.path(), null);
+    var response = try context.fetch(.GET, path.path(), null);
+    defer response.deinit();
+    if (response.status.class() == .success and !try std.json.validate(context.allocator, response.body)) {
+        return error.InvalidResponse;
+    }
+    try context.finish(&response);
 }
 
 fn hasFilter(context: *const Context, name: []const u8) !bool {
