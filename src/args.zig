@@ -11,6 +11,9 @@ pub const Parsed = struct {
     positional: []const []const u8,
     options: []const Option,
     allocator: std.mem.Allocator,
+    /// A non-boolean flag written last with no value. Reported only after
+    /// unknown-option validation, so an unknown flag says "unknown option".
+    missing_value: ?[]const u8 = null,
 
     pub fn deinit(self: *Parsed) void {
         self.allocator.free(self.positional);
@@ -59,6 +62,10 @@ pub const Parsed = struct {
         return self.get(name) orelse return missingOption(name);
     }
 
+    pub fn requireValues(self: *const Parsed) !void {
+        if (self.missing_value) |name| return missingOptionValue(name);
+    }
+
     pub fn positionalAt(self: *const Parsed, index: usize) ?[]const u8 {
         return if (index < self.positional.len) self.positional[index] else null;
     }
@@ -76,6 +83,7 @@ pub fn parse(allocator: std.mem.Allocator, argv: []const []const u8) !Parsed {
 
     var i: usize = 0;
     var positional_only = false;
+    var missing_value: ?[]const u8 = null;
     while (i < argv.len) : (i += 1) {
         const value = argv[i];
         if (positional_only or !std.mem.startsWith(u8, value, "-") or std.mem.eql(u8, value, "-") or isNegativeInteger(value)) {
@@ -102,7 +110,11 @@ pub fn parse(allocator: std.mem.Allocator, argv: []const []const u8) !Parsed {
             try options.append(allocator, .{ .name = name, .value = null });
             continue;
         }
-        if (i + 1 >= argv.len) return missingOptionValue(name);
+        if (i + 1 >= argv.len) {
+            try options.append(allocator, .{ .name = name, .value = null });
+            missing_value = name;
+            continue;
+        }
         i += 1;
         try options.append(allocator, .{ .name = name, .value = argv[i] });
     }
@@ -116,6 +128,7 @@ pub fn parse(allocator: std.mem.Allocator, argv: []const []const u8) !Parsed {
         .positional = try positional.toOwnedSlice(allocator),
         .options = try options.toOwnedSlice(allocator),
         .allocator = allocator,
+        .missing_value = missing_value,
     };
 }
 
@@ -191,6 +204,13 @@ test "create-board shorthand preserves options and canonical project commands" {
     try std.testing.expectEqualStrings("projects", parsed.positional[0]);
     try std.testing.expectEqualStrings("create", parsed.positional[1]);
     try std.testing.expect(parsed.has("stdin"));
+}
+
+test "a trailing flag without a value is reported after parsing" {
+    var parsed = try parse(std.testing.allocator, &.{ "task", "move", "HTPR-1", "--section" });
+    defer parsed.deinit();
+    try std.testing.expectEqualStrings("section", parsed.missing_value.?);
+    try std.testing.expectError(error.MissingOptionValue, parsed.requireValues());
 }
 
 test "negative integers remain positional arguments" {

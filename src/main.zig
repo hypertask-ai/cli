@@ -7,7 +7,7 @@ const output = @import("output.zig");
 const router = @import("router.zig");
 const token_refresh = @import("token_refresh.zig");
 
-const version = "0.2.5 (zig)";
+const version = "0.2.6 (zig)";
 
 pub fn main() void {
     run() catch |err| {
@@ -31,6 +31,7 @@ fn run() !void {
     var parsed = try args_mod.parse(allocator, raw.items);
     defer parsed.deinit();
     try option_validate.rejectUnknownOptions(allocator, &parsed);
+    try parsed.requireValues();
     if (parsed.has("version")) {
         try std.fs.File.stdout().writeAll("hypertask " ++ version ++ "\n");
         return;
