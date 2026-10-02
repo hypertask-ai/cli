@@ -206,6 +206,12 @@ test "global human is allowed" {
     try rejectUnknownOptions(std.testing.allocator, &parsed);
 }
 
+test "unknown trailing option without a value is reported as unknown" {
+    var parsed = try args_mod.parse(std.testing.allocator, &.{ "tasks", "get", "HTPR-6808", "--bogus-flag" });
+    defer parsed.deinit();
+    try std.testing.expectError(error.UnknownOption, rejectUnknownOptions(std.testing.allocator, &parsed));
+}
+
 test "unknown option is rejected even with only globals present" {
     const argv = [_][]const u8{ "--zzznotaflag", "x" };
     var parsed = try args_mod.parse(std.testing.allocator, &argv);
