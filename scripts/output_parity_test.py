@@ -116,6 +116,9 @@ class Handler(BaseHTTPRequestHandler):
             name = "task-get.json" if "ticket_number" in request["query"] else "task-list.json"
             self.respond(200, fixture(name))
             return
+        if route == ("POST", "/mcp/tasks/move"):
+            self.respond(200, '{"success":true,"task":{"id":49511,"projectId":339}}')
+            return
         if route == ("POST", "/mcp/assignees/assign"):
             self.respond(200, fixture("task-assign-self.json"))
             return
@@ -377,6 +380,22 @@ def main() -> None:
             expect([request["path"] for request in requests] == [
                 "/mcp/tasks", "/mcp/projects/15/sections",
             ], f"bad section requests were {requests}")
+
+            # HTPR-6813: --to <project> is a cross-board move, not a section on
+            # the current board. One request to the move endpoint, exit 0.
+            with Handler.lock:
+                before = len(Handler.requests)
+            cross_board = run(
+                binary, token, api_url, home,
+                "task", "move", "49511", "--to", "339", "--to-section", "1176",
+            )
+            expect(cross_board.returncode == 0, f"cross-board move exit was {cross_board.returncode}: {cross_board.stderr!r}")
+            expect(json.loads(cross_board.stdout)["task"]["projectId"] == 339, cross_board.stdout)
+            with Handler.lock:
+                requests = Handler.requests[before:]
+            expect([(r["method"], r["path"], r["body"]) for r in requests] == [
+                ("POST", "/mcp/tasks/move", {"task_id": 49511, "target_project_id": 339, "target_section_id": 1176}),
+            ], f"cross-board move requests were {requests}")
 
             # HTPR-6313: an agent command run without any agent identity must
             # fail loudly — non-zero exit, error on stderr, nothing on stdout,
