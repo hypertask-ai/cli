@@ -45,4 +45,8 @@ pub fn build(b: *std.Build) void {
     const failure_contract_tests = b.addSystemCommand(&.{ python, "scripts/failure_contract_test.py" });
     failure_contract_tests.addArtifactArg(exe);
     test_step.dependOn(&failure_contract_tests.step);
+
+    const attachment_contract_tests = b.addSystemCommand(&.{ python, "scripts/attachment_contract_test.py" });
+    attachment_contract_tests.addArtifactArg(exe);
+    test_step.dependOn(&attachment_contract_tests.step);
 }
