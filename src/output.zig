@@ -40,6 +40,7 @@ fn apiError(status: std.http.Status) anyerror {
 
 pub fn exitCode(err: anyerror) u8 {
     return switch (err) {
+        error.BrokenPipe => 141,
         error.AmbiguousTaskIdentifier,
         error.ApiInvalidInput,
         error.ConfirmationRequired,
@@ -90,6 +91,8 @@ pub fn exitCode(err: anyerror) u8 {
 }
 
 pub fn printFailure(err: anyerror) void {
+    // The reader closed stdout early (`| head`); exit quietly like standard Unix tools.
+    if (err == error.BrokenPipe) return;
     if (err == error.SectionNotFound) {
         std.debug.print("Next: {s}\n", .{nextStep(err)});
         return;
@@ -354,6 +357,10 @@ test "exit codes document command input and server failures" {
     try std.testing.expectEqual(@as(u8, 2), exitCode(error.NoToken));
     try std.testing.expectEqual(@as(u8, 4), exitCode(error.ProjectAccessDenied));
     try std.testing.expectEqual(@as(u8, 4), exitCode(error.InvalidResponse));
+}
+
+test "a closed stdout pipe exits like SIGPIPE" {
+    try std.testing.expectEqual(@as(u8, 141), exitCode(error.BrokenPipe));
 }
 
 test "human output formats status fields without JSON syntax" {
