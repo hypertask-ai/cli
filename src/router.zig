@@ -314,6 +314,11 @@ test "subcommand help renders command-specific options" {
     try std.testing.expect(std.mem.indexOf(u8, pages_create_help, "--content <content>\n      Page content") != null);
     try std.testing.expect(std.mem.indexOf(u8, pages_create_help, "Example:\n  hypertask pages create --task <id-or-ticket> --title <title>") != null);
 
+    const pages_update_help = try renderHelp(std.testing.allocator, &.{ "pages", "update" });
+    defer std.testing.allocator.free(pages_update_help);
+    try std.testing.expect(std.mem.indexOf(u8, pages_update_help, "keep the existing content type unless --canvas, --html or --markdown is passed") != null);
+    try std.testing.expect(std.mem.indexOf(u8, pages_update_help, "--markdown\n      Treat content as Markdown") != null);
+
     const assign_with_ticket_help = try renderHelp(std.testing.allocator, &.{ "tasks", "assign", "HTPR-6276" });
     defer std.testing.allocator.free(assign_with_ticket_help);
     try std.testing.expectEqualStrings(assign_help, assign_with_ticket_help);

@@ -60,7 +60,9 @@ fn update(context: *const Context, mode: []const u8) !void {
     if (context.args.get("title")) |value| try body.string("title", value);
     if (context.args.get("content") != null or context.args.get("markdown-file") != null) {
         try body.string("content", try content(context));
-        try body.string("content_type", contentType(context));
+        if (context.args.has("canvas") or context.args.has("html") or context.args.has("markdown")) {
+            try body.string("content_type", contentType(context));
+        }
         try body.string("mode", mode);
     }
     if (context.args.get("if-version")) |value| try body.integer("if_version", try common.positiveInt(value, "if-version"));

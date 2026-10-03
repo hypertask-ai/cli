@@ -192,6 +192,16 @@ test "tasks list --labels is a known option" {
     try rejectUnknownOptions(std.testing.allocator, &parsed);
 }
 
+test "pages update and append accept explicit markdown" {
+    for ([_][]const u8{ "update", "append" }) |subcommand| {
+        var parsed = try args_mod.parse(std.testing.allocator, &.{ "pages", subcommand, "265", "--content", "Report", "--markdown" });
+        defer parsed.deinit();
+        try rejectUnknownOptions(std.testing.allocator, &parsed);
+        try parsed.requireValues();
+        try std.testing.expect(parsed.has("markdown"));
+    }
+}
+
 test "known options and aliases still pass" {
     const argv = [_][]const u8{ "tasks", "show", "HTPR-1", "--project", "15", "--json" };
     var parsed = try args_mod.parse(std.testing.allocator, &argv);

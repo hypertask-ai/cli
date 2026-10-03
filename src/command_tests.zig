@@ -686,6 +686,74 @@ test "task update --description-file reads the file and takes precedence over --
     );
 }
 
+test "pages update preserves type unless explicitly requested" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(.{ .sub_path = "report.html", .data = "<h1>Report</h1>" });
+    const directory = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(directory);
+    const path = try std.fs.path.join(std.testing.allocator, &.{ directory, "report.html" });
+    defer std.testing.allocator.free(path);
+
+    try expectRequest(
+        &.{ "pages", "update", "265", "--markdown-file", path },
+        .POST,
+        "/mcp/pages/update",
+        "{\"id\":265,\"content\":\"<h1>Report</h1>\",\"mode\":\"replace\"}",
+    );
+    try expectRequest(
+        &.{ "pages", "update", "265", "--content", "<h1>Report</h1>", "--canvas" },
+        .POST,
+        "/mcp/pages/update",
+        "{\"id\":265,\"content\":\"<h1>Report</h1>\",\"content_type\":\"html_canvas\",\"mode\":\"replace\"}",
+    );
+    try expectRequest(
+        &.{ "pages", "update", "265", "--content", "<h1>Report</h1>", "--html" },
+        .POST,
+        "/mcp/pages/update",
+        "{\"id\":265,\"content\":\"<h1>Report</h1>\",\"content_type\":\"html\",\"mode\":\"replace\"}",
+    );
+    try expectRequest(
+        &.{ "pages", "update", "265", "--content", "# Report", "--markdown" },
+        .POST,
+        "/mcp/pages/update",
+        "{\"id\":265,\"content\":\"# Report\",\"content_type\":\"markdown\",\"mode\":\"replace\"}",
+    );
+    try expectRequest(
+        &.{ "pages", "update", "265", "--content", "# Report", "--mode", "prepend" },
+        .POST,
+        "/mcp/pages/update",
+        "{\"id\":265,\"content\":\"# Report\",\"mode\":\"prepend\"}",
+    );
+    try expectRequest(
+        &.{ "pages", "append", "265", "--content", "More" },
+        .POST,
+        "/mcp/pages/update",
+        "{\"id\":265,\"content\":\"More\",\"mode\":\"append\"}",
+    );
+    try expectRequest(
+        &.{ "pages", "update", "265", "--title", "Report" },
+        .POST,
+        "/mcp/pages/update",
+        "{\"id\":265,\"title\":\"Report\"}",
+    );
+}
+
+test "pages create keeps markdown default and explicit canvas" {
+    try expectRequest(
+        &.{ "pages", "create", "--task", "HTPR-6893", "--content", "# Report" },
+        .POST,
+        "/mcp/pages/create",
+        "{\"ticket_number\":\"HTPR-6893\",\"content\":\"# Report\",\"content_type\":\"markdown\"}",
+    );
+    try expectRequest(
+        &.{ "pages", "create", "--task", "HTPR-6893", "--content", "<h1>Report</h1>", "--canvas" },
+        .POST,
+        "/mcp/pages/create",
+        "{\"ticket_number\":\"HTPR-6893\",\"content\":\"<h1>Report</h1>\",\"content_type\":\"html_canvas\"}",
+    );
+}
+
 test "agents get reads one owned agent" {
     try expectRequest(
         &.{ "agents", "get", "--id", "a0e75f8c-9080-47bd-b09a-71c55bd34a87" },
