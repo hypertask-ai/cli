@@ -70,6 +70,65 @@ fn expectDispatchErrorWithResponses(argv: []const []const u8, responses: []const
     try std.testing.expectError(expected, router.dispatch(&context));
 }
 
+test "time log forwards optional note date and timezone fields" {
+    try expectRequest(
+        &.{ "--json", "time", "log", "RINT-86", "30", "--date", "2026-09-30", "--note", "x", "--timezone-offset-minutes", "-60" },
+        .POST,
+        "/mcp/time/log",
+        "{\"task\":\"RINT-86\",\"minutes\":30,\"date\":\"2026-09-30\",\"timezone_offset_minutes\":-60,\"note\":\"x\"}",
+    );
+    try expectRequest(
+        &.{ "time", "log", "RINT-86", "30" },
+        .POST,
+        "/mcp/time/log",
+        "{\"task\":\"RINT-86\",\"minutes\":30}",
+    );
+    try expectRequest(
+        &.{ "time", "log", "RINT-86", "30", "--note", "" },
+        .POST,
+        "/mcp/time/log",
+        "{\"task\":\"RINT-86\",\"minutes\":30,\"note\":\"\"}",
+    );
+}
+
+test "time update accepts note-only and date-only changes without minutes" {
+    try expectRequest(
+        &.{ "time", "update", "119", "--note", "x" },
+        .POST,
+        "/mcp/time/update",
+        "{\"entry_id\":119,\"note\":\"x\"}",
+    );
+    try expectRequest(
+        &.{ "time", "edit", "119", "--note", "" },
+        .POST,
+        "/mcp/time/update",
+        "{\"entry_id\":119,\"note\":\"\"}",
+    );
+    try expectRequest(
+        &.{ "time", "update", "119", "--date", "2026-09-30", "--timezone-offset-minutes", "-60" },
+        .POST,
+        "/mcp/time/update",
+        "{\"entry_id\":119,\"date\":\"2026-09-30\",\"timezone_offset_minutes\":-60}",
+    );
+    try expectRequest(
+        &.{ "time", "update", "119", "--minutes", "25", "--date", "2026-09-30", "--note", "corrected" },
+        .POST,
+        "/mcp/time/update",
+        "{\"entry_id\":119,\"minutes\":25,\"date\":\"2026-09-30\",\"note\":\"corrected\"}",
+    );
+}
+
+test "time mutations reject empty changes and metadata on negative corrections" {
+    try expectDispatchError(error.InvalidOptions, &.{ "time", "update", "119" });
+    try expectDispatchError(error.InvalidOptions, &.{ "time", "update", "119", "--timezone-offset-minutes", "-60" });
+    try expectDispatchError(error.InvalidInteger, &.{ "time", "update", "119", "--minutes", "0", "--note", "x" });
+    try expectDispatchError(error.InvalidInteger, &.{ "time", "log", "RINT-86", "0", "--note", "x" });
+    try expectDispatchError(error.InvalidInteger, &.{ "time", "log", "RINT-86", "30", "--timezone-offset-minutes", "invalid" });
+    for ([_][]const u8{ "--note", "--date", "--timezone-offset-minutes" }) |flag| {
+        try expectDispatchError(error.InvalidOptions, &.{ "time", "log", "RINT-86", "-30", flag, "1" });
+    }
+}
+
 test "router dispatches task and decision aliases" {
     try expectRequest(
         &.{ "task", "list", "--project", "15" },

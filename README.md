@@ -74,6 +74,29 @@ hypertask time delete 119
 
 Entry IDs are available from `hypertask time report`. `time edit` is an alias for `time update`.
 
+Positive `time log` requests accept `--note <text>`, `--date <YYYY-MM-DD>` and
+`--timezone-offset-minutes <n>` (the same local-date offset convention as
+`time update`). Negative corrections do not accept these metadata flags.
+Unknown time-command flags are rejected.
+
+`time update` accepts any combination of `--minutes`, `--date` and `--note`;
+at least one is required. Omitted fields are not sent, and `--note ""` clears
+the note. A timezone offset alone is not a change.
+
+```bash
+hypertask --json time log RINT-86 30 --date 2026-09-30 --note "x"
+hypertask time update 119 --note "Corrected"
+hypertask time update 119 --date 2026-09-30 --timezone-offset-minutes -60
+```
+
+**Server compatibility:** the current MCP server's `/api/mcp/time/log` route
+only reads task and minutes, ignoring note/date/timezone fields. Its
+`/api/mcp/time/update` route accepts note/date/timezone fields but still requires
+minutes (1–1440). The CLI sends the fields above, but creation metadata and
+updates without minutes require server changes before they work end to end.
+The server interprets dates at local noon and trims notes to 500 characters
+(empty notes become null).
+
 ## Updating pages
 
 `pages update` and `pages append` keep the existing page content type unless

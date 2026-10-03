@@ -128,6 +128,24 @@ fn unknownOption(
     return error.UnknownOption;
 }
 
+test "time log metadata options are known and time mutation unknown options are rejected" {
+    var parsed = try args_mod.parse(std.testing.allocator, &.{ "--json", "time", "log", "RINT-86", "30", "--date", "2026-09-30", "--note", "x", "--timezone-offset-minutes", "-60" });
+    defer parsed.deinit();
+    try rejectUnknownOptions(std.testing.allocator, &parsed);
+    try parsed.requireValues();
+
+    for ([_][]const []const u8{
+        &.{ "time", "log", "RINT-86", "30", "--bogus" },
+        &.{ "time", "log", "RINT-86", "30", "--bogus", "x" },
+        &.{ "time", "update", "119", "--note", "x", "--bogus" },
+        &.{ "time", "edit", "119", "--note", "x", "--bogus" },
+    }) |argv| {
+        var unknown = try args_mod.parse(std.testing.allocator, argv);
+        defer unknown.deinit();
+        try std.testing.expectError(error.UnknownOption, rejectUnknownOptions(std.testing.allocator, &unknown));
+    }
+}
+
 test "agents get --id is a known option" {
     const argv = [_][]const u8{ "agents", "get", "--id", "agent-1" };
     var parsed = try args_mod.parse(std.testing.allocator, &argv);
