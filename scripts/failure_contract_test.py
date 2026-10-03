@@ -84,7 +84,11 @@ class StubHandler(BaseHTTPRequestHandler):
             self.respond(500, {"success": False, "error": "server broke"})
 
     def do_POST(self) -> None:
-        if self.path == "/mcp/token/refresh":
+        if self.path in ("/mcp/time/log", "/mcp/time/update"):
+            length = int(self.headers.get("Content-Length", "0"))
+            body = json.loads(self.rfile.read(length))
+            self.respond(200, {"success": True, "request": body})
+        elif self.path == "/mcp/token/refresh":
             self.respond(200, {"success": False, "error": "token refresh did not run"})
         else:
             self.respond(500, {"success": False, "error": "Internal server error", "message": "Forbidden"})
@@ -211,11 +215,33 @@ def main() -> None:
         "accepted flags:",
     )
 
+    for args in (
+        ("time", "log", "RINT-86", "30", "--bogus"),
+        ("time", "log", "RINT-86", "30", "--bogus", "x"),
+        ("time", "update", "119", "--note", "x", "--bogus"),
+    ):
+        assert_failure(run(*args, api_url="http://127.0.0.1:1"), 2, "unknown option: --bogus", "accepted flags:")
+    assert_failure(run("time", "update", "119"), 2, "provide at least one field to change")
+    assert_failure(run("time", "update", "119", "--timezone-offset-minutes", "-60"), 2, "provide at least one field to change")
+    assert_failure(run("time", "log", "RINT-86", "30", "--note"), 2, "missing value for --note")
+    assert_failure(run("time", "log", "RINT-86", "-30", "--note", "x"), 2, "negative time corrections do not accept")
+
     server = ThreadingHTTPServer(("127.0.0.1", 0), StubHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     api_url = f"http://127.0.0.1:{server.server_port}"
     try:
+        for args, expected in (
+            (("--json", "time", "log", "RINT-86", "30", "--date", "2026-09-30", "--note", "x", "--timezone-offset-minutes", "-60"),
+             {"task": "RINT-86", "minutes": 30, "date": "2026-09-30", "note": "x", "timezone_offset_minutes": -60}),
+            (("time", "update", "119", "--note", "x"), {"entry_id": 119, "note": "x"}),
+            (("time", "update", "119", "--date", "2026-09-30"), {"entry_id": 119, "date": "2026-09-30"}),
+            (("time", "edit", "119", "--note", ""), {"entry_id": 119, "note": ""}),
+        ):
+            process = run(*args, api_url=api_url)
+            assert process.returncode == 0, (process.returncode, process.stdout, process.stderr)
+            assert json.loads(process.stdout)["request"] == expected, process.stdout
+
         success_false = run("task", "get", "HTPR-1", api_url=api_url)
         assert_failure(success_false, 4, "task read did not run")
 

@@ -31,27 +31,38 @@ fn log(context: *const Context) !void {
         std.debug.print("minutes must not be zero\n", .{});
         return error.InvalidInteger;
     }
-    if (minutes < 0) return correctLatest(context, task, minutes);
+    const date = context.args.get("date");
+    const note = context.args.get("note");
+    const timezone_offset: ?i64 = if (context.args.get("timezone-offset-minutes")) |value| try common.int(value, "timezone-offset-minutes") else null;
+    if (minutes < 0) {
+        if (date != null or note != null or timezone_offset != null) {
+            std.debug.print("negative time corrections do not accept --date, --note or --timezone-offset-minutes; use time update with an entry id\n", .{});
+            return error.InvalidOptions;
+        }
+        return correctLatest(context, task, minutes);
+    }
 
     var body = try json.Object.init(context.allocator);
     defer body.deinit();
     try body.string("task", task);
     try body.integer("minutes", minutes);
+    if (date) |value| try body.string("date", value);
+    if (timezone_offset) |value| try body.integer("timezone_offset_minutes", value);
+    if (note) |value| try body.string("note", value);
     try context.call(.POST, "/mcp/time/log", try body.finish());
 }
 
 fn update(context: *const Context) !void {
     const entry_id = try common.positiveInt(try context.args.requirePositional(2, "entry-id"), "entry-id");
-    const minutes = try common.positiveInt(try context.args.require("minutes"), "minutes");
+    const minutes: ?i64 = if (context.args.get("minutes")) |value| try common.positiveInt(value, "minutes") else null;
+    const date = context.args.get("date");
+    const note = context.args.get("note");
+    if (minutes == null and date == null and note == null) {
+        std.debug.print("provide at least one field to change: --minutes, --date or --note\n", .{});
+        return error.InvalidOptions;
+    }
     const timezone_offset: ?i64 = if (context.args.get("timezone-offset-minutes")) |value| try common.int(value, "timezone-offset-minutes") else null;
-    try updateEntry(
-        context,
-        entry_id,
-        minutes,
-        context.args.get("date"),
-        timezone_offset,
-        context.args.get("note"),
-    );
+    try updateEntry(context, entry_id, minutes, date, timezone_offset, note);
 }
 
 fn delete(context: *const Context) !void {
@@ -130,7 +141,7 @@ fn integerField(object: std.json.ObjectMap, name: []const u8) ?i64 {
 fn updateEntry(
     context: *const Context,
     entry_id: i64,
-    minutes: i64,
+    minutes: ?i64,
     date: ?[]const u8,
     timezone_offset: ?i64,
     note: ?[]const u8,
@@ -149,7 +160,7 @@ fn deleteEntry(context: *const Context, entry_id: i64) !void {
 fn updateBody(
     allocator: std.mem.Allocator,
     entry_id: i64,
-    minutes: i64,
+    minutes: ?i64,
     date: ?[]const u8,
     timezone_offset: ?i64,
     note: ?[]const u8,
@@ -157,7 +168,7 @@ fn updateBody(
     var body = try json.Object.init(allocator);
     defer body.deinit();
     try body.integer("entry_id", entry_id);
-    try body.integer("minutes", minutes);
+    if (minutes) |value| try body.integer("minutes", value);
     if (date) |value| try body.string("date", value);
     if (timezone_offset) |value| try body.integer("timezone_offset_minutes", value);
     if (note) |value| try body.string("note", value);
