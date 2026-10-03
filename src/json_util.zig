@@ -123,15 +123,6 @@ fn allDigits(value: []const u8) bool {
     return true;
 }
 
-pub fn appendRawField(w: anytype, key: []const u8, raw_value: []const u8, first: *bool) !void {
-    if (!first.*) try w.writeByte(',');
-    first.* = false;
-    try w.writeByte('"');
-    try w.writeAll(key);
-    try w.writeAll("\":");
-    try w.writeAll(raw_value);
-}
-
 pub fn isJson(value: []const u8) bool {
     if (value.len == 0) return false;
     return value[0] == '{' or value[0] == '[' or std.mem.eql(u8, value, "null") or
@@ -157,4 +148,68 @@ test "object escapes fields" {
     try object.string("value", "a\"b\n");
     try object.integer("count", 2);
     try std.testing.expectEqualStrings("{\"value\":\"a\\\"b\\n\",\"count\":2}", try object.finish());
+}
+
+pub fn objectField(value: std.json.Value, name: []const u8) ?std.json.Value {
+    if (value != .object) return null;
+    const field = value.object.get(name) orelse return null;
+    return if (field == .object) field else null;
+}
+
+pub fn stringField(value: std.json.Value, name: []const u8) ?[]const u8 {
+    if (value != .object) return null;
+    const field = value.object.get(name) orelse return null;
+    return if (field == .string) field.string else null;
+}
+
+pub fn integerField(value: std.json.Value, name: []const u8, comptime string_fallback: bool) ?i64 {
+    if (value != .object) return null;
+    const field = value.object.get(name) orelse return null;
+    return switch (field) {
+        .integer => |number| number,
+        .number_string => |text| std.fmt.parseInt(i64, text, 10) catch null,
+        .string => |text| if (string_fallback) std.fmt.parseInt(i64, text, 10) catch null else null,
+        else => null,
+    };
+}
+
+pub fn arrayField(value: std.json.Value, name: []const u8) ?[]const std.json.Value {
+    if (value != .object) return null;
+    const field = value.object.get(name) orelse return null;
+    return if (field == .array) field.array.items else null;
+}
+
+test "field accessors guard objects and preserve strict integer consumers" {
+    const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator,
+        \\{"text":"hello","integer":42,"encoded":"42","invalid":"4.2","overflow":"9223372036854775808","object":{},"array":[],"null":null}
+    , .{});
+    defer parsed.deinit();
+    const value = parsed.value;
+    try std.testing.expectEqualStrings("hello", stringField(value, "text").?);
+    try std.testing.expectEqual(@as(i64, 42), integerField(value, "integer", false).?);
+    try std.testing.expectEqual(@as(i64, 42), integerField(value, "encoded", true).?);
+    try std.testing.expect(integerField(value, "encoded", false) == null);
+    try std.testing.expect(integerField(value, "invalid", true) == null);
+    try std.testing.expect(integerField(value, "overflow", true) == null);
+    try std.testing.expect(objectField(value, "object") != null);
+    try std.testing.expectEqual(@as(usize, 0), arrayField(value, "array").?.len);
+    for ([_]std.json.Value{ .null, .{ .integer = 1 }, .{ .string = "text" } }) |scalar| {
+        try std.testing.expect(stringField(scalar, "text") == null);
+        try std.testing.expect(integerField(scalar, "integer", true) == null);
+        try std.testing.expect(objectField(scalar, "object") == null);
+        try std.testing.expect(arrayField(scalar, "array") == null);
+    }
+    try std.testing.expect(stringField(value, "missing") == null);
+    try std.testing.expect(stringField(value, "null") == null);
+    try std.testing.expect(objectField(value, "text") == null);
+    try std.testing.expect(arrayField(value, "object") == null);
+}
+
+test "raw fields share object comma state and escape their names" {
+    var object = try Object.init(std.testing.allocator);
+    defer object.deinit();
+    try object.raw("first", "{}");
+    try object.string("second", "text");
+    try object.raw("quoted\"name", "[1,2]");
+    try std.testing.expectEqualStrings("{\"first\":{},\"second\":\"text\",\"quoted\\\"name\":[1,2]}", try object.finish());
 }

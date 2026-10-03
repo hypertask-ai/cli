@@ -1,13 +1,12 @@
 const std = @import("std");
 const Context = @import("../command_context.zig").Context;
 const config = @import("../config.zig");
-const http = @import("../http.zig");
 const json = @import("../json_util.zig");
 const output = @import("../output.zig");
 
 pub fn login(context: *const Context) !void {
     const login_token = context.args.get("token") orelse return output.invalidOptions("browser login is unavailable in hypertask; use `hypertask login --token <jwt>`");
-    try config.saveToken(context.allocator, login_token, context.args.get("api-url") orelse context.cfg.api_url);
+    try config.saveToken(context.cfg, login_token, context.args.get("api-url") orelse context.cfg.api_url);
     try context.print("{\"success\":true,\"saved\":true,\"configPath\":\"~/.hypertask/config.json\"}");
 }
 
@@ -17,7 +16,7 @@ pub fn logout(context: *const Context) !void {
         return;
     }
     if (context.cfg.token.len != 0) {
-        var response = http.request(context.allocator, context.cfg, .DELETE, "/mcp/token", null) catch null;
+        var response = context.fetchRaw(.DELETE, "/mcp/token", null) catch null;
         if (response) |*value| value.deinit();
     }
     try config.clear(context.allocator);
@@ -114,15 +113,15 @@ pub fn token(context: *const Context, subcommand: []const u8) !void {
     try context.requireAuth();
     var response = try context.fetch(.POST, "/mcp/token/refresh", null);
     defer response.deinit();
-    const status_code = @intFromEnum(response.status);
-    if (status_code < 200 or status_code >= 300) return output.finish(&response);
+
+    if (!response.isSuccess()) return output.finish(&response);
 
     var saved = false;
     if (context.args.get("token") == null and !try config.hasEnvironmentToken(context.allocator)) {
         const parsed = try std.json.parseFromSlice(std.json.Value, context.allocator, response.body, .{});
         defer parsed.deinit();
         if (parsed.value.object.get("token")) |token_value| if (token_value == .string) {
-            try config.saveToken(context.allocator, token_value.string, context.cfg.api_url);
+            try config.saveToken(context.cfg, token_value.string, context.cfg.api_url);
             saved = true;
         };
     }

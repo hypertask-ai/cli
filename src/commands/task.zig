@@ -79,7 +79,7 @@ fn list(context: *const Context) !void {
     }
     var response = try context.fetch(.GET, path.path(), null);
     defer response.deinit();
-    if (response.status.class() == .success and !try std.json.validate(context.allocator, response.body)) {
+    if (response.isSuccess() and !try std.json.validate(context.allocator, response.body)) {
         return error.InvalidResponse;
     }
     try context.finish(&response);
@@ -196,7 +196,7 @@ fn descriptionHistory(context: *const Context) !void {
 }
 
 fn descriptionRestore(context: *const Context) !void {
-    var body = try identifierBody(context, try context.args.requirePositional(2, "ticket-or-id"));
+    var body = try identifierBody(context, try context.args.requirePositional(2, "ticket-or-id"), null);
     defer body.deinit();
     try body.integer("version_id", try common.positiveInt(try context.args.require("version"), "version"));
     try context.call(.POST, "/mcp/tasks/description-restore", try body.finish());
@@ -252,21 +252,40 @@ fn related(context: *const Context) !void {
     try context.call(.GET, path.path(), null);
 }
 
+fn applyCommonFields(context: *const Context, body: *json.Object, project_id: ?i64, ticket: ?[]const u8, resolved_task: *?resolve.Task) !void {
+    if (try descriptionValue(context)) |value| {
+        try body.string("description", value);
+        if (context.args.has("markdown")) try body.string("content_type", "markdown");
+    }
+    // Preserve create/update field order, including due_date before priority only on update.
+    if (ticket != null) {
+        if (context.args.get("pull-request")) |value| try body.string("pull_request_url", value);
+        if (context.args.has("clear-due")) try body.nullValue("due_date") else if (context.args.get("due")) |value| try body.string("due_date", value);
+        if (context.args.get("status")) |value| try body.string("status", value);
+    }
+    if (context.args.get("priority")) |value| try body.integer("priority", try priority(value));
+    if (context.args.get("estimate")) |value| try body.integer("estimate", try common.int(value, "estimate"));
+    if (ticket == null) {
+        if (context.args.get("due")) |value| try body.string("due_date", value);
+    }
+    if (context.args.get("section")) |value| {
+        const project = project_id orelse blk: {
+            if (resolved_task.* == null) resolved_task.* = try resolve.task(context, ticket.?);
+            break :blk if (context.args.get("project")) |project_value| try common.positiveInt(project_value, "project") else resolved_task.*.?.project_id;
+        };
+        try body.integer(if (ticket == null) "section_id" else "sectionId", try resolve.sectionId(context, project, value));
+    }
+    if (ticket != null and context.args.has("clear-parent")) try body.nullValue("parent_task_id") else if (context.args.get("parent-task")) |value| try body.integer("parent_task_id", (try resolve.task(context, value)).id);
+}
+
 fn create(context: *const Context) !void {
     const project = try common.positiveInt(try context.args.require("project"), "project");
     var body = try json.Object.init(context.allocator);
     defer body.deinit();
     try body.integer("project_id", project);
     try body.string("title", try context.args.require("title"));
-    if (try descriptionValue(context)) |value| {
-        try body.string("description", value);
-        if (context.args.has("markdown")) try body.string("content_type", "markdown");
-    }
-    if (context.args.get("priority")) |value| try body.integer("priority", try priority(value));
-    if (context.args.get("estimate")) |value| try body.integer("estimate", try common.int(value, "estimate"));
-    if (context.args.get("due")) |value| try body.string("due_date", value);
-    if (context.args.get("section")) |value| try body.integer("section_id", try resolve.sectionId(context, project, value));
-    if (context.args.get("parent-task")) |value| try body.integer("parent_task_id", (try resolve.task(context, value)).id);
+    var resolved_task: ?resolve.Task = null;
+    try applyCommonFields(context, &body, project, null, &resolved_task);
     const labels = try resolveLabelIds(context, try common.optionList(context, "labels"), project, true);
     if (labels.len != 0) try body.identifiers("labels", labels);
     const assignees = try common.optionList(context, "assignee");
@@ -284,30 +303,18 @@ fn create(context: *const Context) !void {
 
 fn update(context: *const Context) !void {
     const ticket = try context.args.requirePositional(2, "ticket-or-task-id");
-    var body = try identifierBody(context, ticket);
+    var resolved_task: ?resolve.Task = null;
+    var body = try identifierBody(context, ticket, &resolved_task);
     defer body.deinit();
     if (context.args.get("title")) |value| try body.string("title", value);
-    if (try descriptionValue(context)) |value| {
-        try body.string("description", value);
-        if (context.args.has("markdown")) try body.string("content_type", "markdown");
-    }
-    if (context.args.get("pull-request")) |value| try body.string("pull_request_url", value);
-    if (context.args.has("clear-due")) try body.nullValue("due_date") else if (context.args.get("due")) |value| try body.string("due_date", value);
-    if (context.args.get("status")) |value| try body.string("status", value);
-    if (context.args.get("priority")) |value| try body.integer("priority", try priority(value));
-    if (context.args.get("estimate")) |value| try body.integer("estimate", try common.int(value, "estimate"));
-    if (context.args.get("section")) |value| {
-        const found = try resolve.task(context, ticket);
-        const project = if (context.args.get("project")) |project_value| try common.positiveInt(project_value, "project") else found.project_id;
-        try body.integer("sectionId", try resolve.sectionId(context, project, value));
-    }
-    if (context.args.has("clear-parent")) try body.nullValue("parent_task_id") else if (context.args.get("parent-task")) |value| try body.integer("parent_task_id", (try resolve.task(context, value)).id);
+    try applyCommonFields(context, &body, null, ticket, &resolved_task);
     const label_inputs = try common.optionList(context, "labels");
     const add_label_inputs = try collectLabelOptions(context, &.{ "add-labels", "add-label" });
     const remove_label_inputs = try collectLabelOptions(context, &.{ "remove-labels", "remove-label" });
     if (label_inputs.len != 0 and (add_label_inputs.len != 0 or remove_label_inputs.len != 0)) return error.InvalidOptions;
     if (label_inputs.len != 0 or add_label_inputs.len != 0 or remove_label_inputs.len != 0) {
-        const task_row = try resolve.task(context, ticket);
+        if (resolved_task == null) resolved_task = try resolve.task(context, ticket);
+        const task_row = resolved_task.?;
         if (label_inputs.len != 0) {
             const labels = try resolveLabelIds(context, label_inputs, task_row.project_id, true);
             try body.identifiers("labels", labels);
@@ -362,7 +369,7 @@ fn assign(context: *const Context, intent: []const u8) !void {
     if (!self_flag and std.mem.eql(u8, intent, "unassign") and resolve.isNumeric(assignee.?)) {
         return unassignById(context, identifier, assignee.?);
     }
-    var body = try identifierBody(context, identifier);
+    var body = try identifierBody(context, identifier, null);
     defer body.deinit();
     if (self_flag) {
         try body.boolean("assign_self", true);
@@ -374,8 +381,7 @@ fn assign(context: *const Context, intent: []const u8) !void {
     try body.string("intent", intent);
     var response = try context.fetch(.POST, "/mcp/assignees/assign", try body.finish());
     defer response.deinit();
-    const code = @intFromEnum(response.status);
-    if (code < 200 or code >= 300) return context.finish(&response);
+    if (!response.isSuccess()) return context.finish(&response);
     // HTPR-6311: an agent id request must be confirmed by that exact agent id
     // in the resulting assignees, so a wrong or stuck attachment cannot pass
     // silently (the response's top-level `agent` field is the calling session,
@@ -415,8 +421,7 @@ fn unassignByIdCore(context: *const Context, allocator: std.mem.Allocator, ident
     try addIdentifierQuery(&list_path, context, identifier);
     var list_response = try context.fetch(.GET, list_path.path(), null);
     defer list_response.deinit();
-    const list_code = @intFromEnum(list_response.status);
-    if (list_code < 200 or list_code >= 300) return error.CommandFailed;
+    if (!list_response.isSuccess()) return error.CommandFailed;
 
     const document = std.json.parseFromSliceLeaky(std.json.Value, allocator, list_response.body, .{}) catch return error.InvalidResponse;
     var agent_ids: std.ArrayListUnmanaged([]const u8) = .{};
@@ -468,7 +473,7 @@ fn postAssigneeMutationQuiet(
     identifier: []const u8,
     target: BulkAssigneeTarget,
 ) !void {
-    var body = try identifierBody(context, identifier);
+    var body = try identifierBody(context, identifier, null);
     defer body.deinit();
     switch (target) {
         .assign_self => try body.boolean("assign_self", true),
@@ -478,8 +483,7 @@ fn postAssigneeMutationQuiet(
     try body.string("intent", "unassign");
     var response = try context.fetch(.POST, "/mcp/assignees/assign", try body.finish());
     defer response.deinit();
-    const code = @intFromEnum(response.status);
-    if (code < 200 or code >= 300) return error.CommandFailed;
+    if (!response.isSuccess()) return error.CommandFailed;
     try requireAssigneeSuccess(allocator, response.body);
     switch (target) {
         .agent_id => |value| if (agentInAssignees(allocator, response.body, value) != false) return stuckAssigneeAgent(value),
@@ -525,7 +529,7 @@ fn postAssigneeMutation(
     identifier: []const u8,
     target: AssigneeTarget,
 ) ![]const u8 {
-    var body = try identifierBody(context, identifier);
+    var body = try identifierBody(context, identifier, null);
     defer body.deinit();
     switch (target) {
         .agent_id => |value| try body.string("agent_id", value),
@@ -534,8 +538,7 @@ fn postAssigneeMutation(
     try body.string("intent", "unassign");
     var response = try context.fetch(.POST, "/mcp/assignees/assign", try body.finish());
     defer response.deinit();
-    const code = @intFromEnum(response.status);
-    if (code < 200 or code >= 300) {
+    if (!response.isSuccess()) {
         try context.finish(&response);
         return error.CommandFailed;
     }
@@ -612,7 +615,7 @@ fn stuckAssigneeUser(user_id: i64) error{AssigneeNotRemoved} {
 }
 
 fn moveToInbox(context: *const Context) !void {
-    var body = try identifierBody(context, try context.args.requirePositional(2, "ticket-or-task-id"));
+    var body = try identifierBody(context, try context.args.requirePositional(2, "ticket-or-task-id"), null);
     defer body.deinit();
     if (context.args.get("user")) |value| try body.integer("user_id", try common.positiveInt(value, "user"));
     try context.call(.POST, "/mcp/inbox/move", try body.finish());
@@ -633,7 +636,7 @@ fn move(context: *const Context) !void {
     }
     const section = context.args.get("section") orelse context.args.get("to-section") orelse return error.MissingOption;
     const found = try resolve.task(context, identifier);
-    var body = try identifierBody(context, identifier);
+    var body = try identifierBody(context, identifier, null);
     defer body.deinit();
     try body.integer("sectionId", try resolve.sectionId(context, found.project_id, section));
     var response = try context.fetch(.POST, "/mcp/tasks/update", try body.finish());
@@ -664,8 +667,7 @@ fn searchValue(context: *const Context, value: []const u8) !void {
 
     var response = try context.fetch(.GET, path.path(), null);
     defer response.deinit();
-    const code = @intFromEnum(response.status);
-    if (code < 200 or code >= 300) return context.finish(&response);
+    if (!response.isSuccess()) return context.finish(&response);
 
     var arena = std.heap.ArenaAllocator.init(context.allocator);
     defer arena.deinit();
@@ -675,30 +677,72 @@ fn searchValue(context: *const Context, value: []const u8) !void {
     const tasks = document.object.getPtr("tasks") orelse return error.InvalidResponse;
     if (tasks.* != .array) return error.InvalidResponse;
 
-    for (tasks.array.items) |*task| {
-        if (hasDescription(task.*)) {
-            try addSearchTaskLink(allocator, task);
-            continue;
+    const batch_size = 4;
+    var offset: usize = 0;
+    while (offset < tasks.array.items.len) : (offset += batch_size) {
+        const batch = tasks.array.items[offset..@min(offset + batch_size, tasks.array.items.len)];
+        var details: [batch_size]SearchDetail = @splat(.{});
+        defer for (&details) |*detail| detail.deinit(context.allocator);
+        for (batch, 0..) |task, index| {
+            if (hasDescription(task)) continue;
+            const id = if (task == .object) task.object.get("id") else null;
+            if (id == null or id.? != .integer) {
+                details[index].result = error.InvalidResponse;
+                continue;
+            }
+            details[index].path = try std.fmt.allocPrint(context.allocator, "/mcp/tasks?task_id={d}", .{id.?.integer});
+            if (context.request_recorder != null) {
+                details[index].result = context.fetch(.GET, details[index].path.?, null);
+            } else {
+                if (std.Thread.spawn(.{}, SearchDetail.fetch, .{ &details[index], context })) |thread| {
+                    details[index].thread = thread;
+                } else |_| {
+                    details[index].fetch(context);
+                }
+            }
         }
-        if (task.* != .object) return error.InvalidResponse;
-        const id_value = task.object.get("id") orelse return error.InvalidResponse;
-        if (id_value != .integer) return error.InvalidResponse;
-        const id = try std.fmt.allocPrint(context.allocator, "{d}", .{id_value.integer});
-        defer context.allocator.free(id);
-        var detail_path = try query.Builder.init(context.allocator, "/mcp/tasks");
-        defer detail_path.deinit();
-        try detail_path.add("task_id", id);
-        var detail_response = try context.fetch(.GET, detail_path.path(), null);
-        defer detail_response.deinit();
-        const detail_code = @intFromEnum(detail_response.status);
-        if (detail_code < 200 or detail_code >= 300) return context.finish(&detail_response);
-        try mergeSearchTask(allocator, task, detail_response.body);
+        for (&details) |*detail| detail.join();
+        for (batch, 0..) |*task, index| {
+            if (hasDescription(task.*)) {
+                try addSearchTaskLink(allocator, task);
+                continue;
+            }
+            var detail_response = try details[index].result;
+            if (output.responseReportsFailure(context.allocator, detail_response.body)) return output.finish(&detail_response);
+            if (!detail_response.isSuccess()) return context.finish(&detail_response);
+            try mergeSearchTask(allocator, task, detail_response.body);
+        }
     }
 
     const enriched = try std.json.Stringify.valueAlloc(context.allocator, document, .{});
     defer context.allocator.free(enriched);
     try context.print(enriched);
 }
+
+const SearchDetail = struct {
+    path: ?[]u8 = null,
+    thread: ?std.Thread = null,
+    result: anyerror!http.Response = error.InvalidResponse,
+
+    fn fetch(self: *SearchDetail, context: *const Context) void {
+        // The client and response allocator are thread-safe; command arenas are not.
+        self.result = http.request(context.client, std.heap.page_allocator, context.cfg, .GET, self.path.?, null);
+    }
+
+    fn join(self: *SearchDetail) void {
+        if (self.thread) |thread| thread.join();
+        self.thread = null;
+    }
+
+    fn deinit(self: *SearchDetail, allocator: std.mem.Allocator) void {
+        self.join();
+        if (self.path) |path| allocator.free(path);
+        if (self.result) |response_value| {
+            var response = response_value;
+            response.deinit();
+        } else |_| {}
+    }
+};
 
 fn addIdentifierQuery(path: *query.Builder, context: *const Context, identifier: []const u8) !void {
     // Bare digits with --project need a read-only dual lookup before encoding so
@@ -711,11 +755,12 @@ fn addIdentifierQuery(path: *query.Builder, context: *const Context, identifier:
     try resolve.addTaskIdentifierQueryForProject(path, context.allocator, identifier, context.args.get("project"));
 }
 
-fn identifierBody(context: *const Context, identifier: []const u8) !json.Object {
+fn identifierBody(context: *const Context, identifier: []const u8, resolved_task: ?*?resolve.Task) !json.Object {
     var body = try json.Object.init(context.allocator);
     errdefer body.deinit();
     if (resolve.isNumeric(identifier) and resolve.internalId(identifier) == null and context.args.get("project") != null) {
         const found = try resolve.task(context, identifier);
+        if (resolved_task) |cached| cached.* = found;
         try body.integer("task_id", found.id);
         return body;
     }
@@ -805,8 +850,7 @@ fn collectAssignedTaskIds(
         try path.add("offset", offset_text);
         var response = try context.fetch(.GET, path.path(), null);
         defer response.deinit();
-        const code = @intFromEnum(response.status);
-        if (code < 200 or code >= 300) return error.CommandFailed;
+        if (!response.isSuccess()) return error.CommandFailed;
 
         var page_arena = std.heap.ArenaAllocator.init(context.allocator);
         defer page_arena.deinit();
@@ -816,7 +860,7 @@ fn collectAssignedTaskIds(
         if (tasks == null or tasks.? != .array) return error.InvalidResponse;
         if (tasks.?.array.items.len == 0) break;
         for (tasks.?.array.items) |row| {
-            const id = jsonIntegerField(row, "id") orelse return error.InvalidResponse;
+            const id = json.integerField(row, "id", true) orelse return error.InvalidResponse;
             const entry = try seen.getOrPut(id);
             if (entry.found_existing) continue;
             try task_ids.append(allocator, id);
@@ -824,16 +868,6 @@ fn collectAssignedTaskIds(
         if (tasks.?.array.items.len < bulk_unassign_page_size) break;
         offset += tasks.?.array.items.len;
     }
-}
-
-fn jsonIntegerField(value: std.json.Value, key: []const u8) ?i64 {
-    if (value != .object) return null;
-    const field = value.object.get(key) orelse return null;
-    return switch (field) {
-        .integer => |number| number,
-        .string => |text| std.fmt.parseInt(i64, text, 10) catch null,
-        else => null,
-    };
 }
 
 fn priority(value: []const u8) !i64 {
@@ -872,8 +906,7 @@ fn clearTaskAssignees(context: *const Context, identifier: []const u8) !void {
     try addIdentifierQuery(&list_path, context, identifier);
     var list_response = try context.fetch(.GET, list_path.path(), null);
     defer list_response.deinit();
-    const list_code = @intFromEnum(list_response.status);
-    if (list_code < 200 or list_code >= 300) return error.CommandFailed;
+    if (!list_response.isSuccess()) return error.CommandFailed;
 
     const document = std.json.parseFromSliceLeaky(std.json.Value, allocator, list_response.body, .{}) catch return error.InvalidResponse;
     var user_ids: std.ArrayListUnmanaged(i64) = .{};
@@ -936,32 +969,19 @@ fn resolveLabelIds(context: *const Context, inputs: []const []const u8, project_
     };
     if (!needs_lookup) return inputs;
     const project = project_id orelse return error.MissingProject;
-    var path = try query.Builder.init(context.allocator, "/mcp/projects");
-    defer path.deinit();
-    try path.add("limit", "100");
-    try path.add("offset", "0");
-    var response = try context.fetchRaw(.GET, path.path(), null);
+    const path = try std.fmt.allocPrint(context.allocator, "/mcp/projects/{d}/labels", .{project});
+    defer context.allocator.free(path);
+    var response = try context.fetchRaw(.GET, path, null);
     defer response.deinit();
-    const code = @intFromEnum(response.status);
     if (resolve.projectAccessDeniedResponse(context.allocator, response.status, response.body)) return resolve.projectAccessDenied(project);
-    if (code < 200 or code >= 300) {
+    if (!response.isSuccess()) {
         try context.finish(&response);
         return error.CommandFailed;
     }
     const document = try std.json.parseFromSlice(std.json.Value, context.allocator, response.body, .{});
     defer document.deinit();
-    const projects = document.value.object.get("projects") orelse return error.InvalidResponse;
-    if (projects != .array) return error.InvalidResponse;
-    var available: ?std.json.Value = null;
-    for (projects.array.items) |candidate| {
-        if (candidate != .object) continue;
-        const id = candidate.object.get("id") orelse continue;
-        if (id == .integer and id.integer == project) {
-            available = candidate.object.get("labels") orelse return error.InvalidResponse;
-            break;
-        }
-    }
-    const labels = available orelse return resolve.projectAccessDenied(project);
+    if (document.value != .object) return error.InvalidResponse;
+    const labels = document.value.object.get("labels") orelse return error.InvalidResponse;
     if (labels != .array) return error.InvalidResponse;
     var result: std.ArrayListUnmanaged([]const u8) = .{};
     for (inputs) |input| {
@@ -1064,13 +1084,11 @@ fn releaseMutationLease(context: *const Context, task_id: i64) !void {
 }
 
 fn requireSuccess(context: *const Context, response: *http.Response) !void {
-    const code = @intFromEnum(response.status);
-    if (code < 200 or code >= 300) return context.finish(response);
+    if (!response.isSuccess()) return context.finish(response);
 }
 
 fn taskMutationBody(context: *const Context, response: *http.Response) ![]u8 {
-    const code = @intFromEnum(response.status);
-    if (code < 200 or code >= 300 or output.responseReportsFailure(context.allocator, response.body)) {
+    if (!response.isSuccess() or output.responseReportsFailure(context.allocator, response.body)) {
         try output.finish(response);
         return error.CommandFailed;
     }

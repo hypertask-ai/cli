@@ -72,8 +72,8 @@ fn resolveFieldId(context: *const Context) ![]const u8 {
     try path.add("project_id", project);
     var response = try context.fetch(.GET, path.path(), null);
     defer response.deinit();
-    const code = @intFromEnum(response.status);
-    if (code < 200 or code >= 300) {
+
+    if (!response.isSuccess()) {
         try context.finish(&response);
         return error.CommandFailed;
     }

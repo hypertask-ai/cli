@@ -19,8 +19,7 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
         if (context.args.has("include-activity")) try path.add("include_activity", "true");
         var response = try context.fetch(.GET, path.path(), null);
         defer response.deinit();
-        const code = @intFromEnum(response.status);
-        if (code < 200 or code >= 300) return output.finish(&response);
+        if (!response.isSuccess()) return output.finish(&response);
         const body = try addHasMore(context.allocator, response.body);
         defer context.allocator.free(body);
         return context.print(body);
@@ -46,8 +45,7 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
         try attachments.validateInputs(context, attach_inputs);
         var response = try context.fetch(.POST, "/mcp/comments", try body.finish());
         defer response.deinit();
-        const code = @intFromEnum(response.status);
-        if (code < 200 or code >= 300) return output.finish(&response);
+        if (!response.isSuccess()) return output.finish(&response);
         const parsed = try std.json.parseFromSlice(std.json.Value, context.allocator, response.body, .{});
         defer parsed.deinit();
         const comment_value = parsed.value.object.get("comment") orelse return error.InvalidResponse;
@@ -106,8 +104,7 @@ fn improve(context: *const Context, ticket: []const u8, text: []const u8) ![]con
     try body.string("command", try improve_command.parse(context.allocator, context.args.get("improve-command") orelse "improve-readability"));
     var response = try context.fetch(.POST, "/mcp/ai/improve", try body.finish());
     defer response.deinit();
-    const code = @intFromEnum(response.status);
-    if (code < 200 or code >= 300) return error.CommandFailed;
+    if (!response.isSuccess()) return error.CommandFailed;
     const parsed = try std.json.parseFromSlice(std.json.Value, context.allocator, response.body, .{});
     defer parsed.deinit();
     const html = parsed.value.object.get("html") orelse return error.InvalidResponse;

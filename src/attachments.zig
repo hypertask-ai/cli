@@ -72,8 +72,8 @@ fn uploadOne(context: *const Context, ticket: []const u8, comment_id: ?i64, inpu
     try body.raw("files", files);
     var response = try context.fetch(.POST, "/mcp/tasks/attachments", try body.finish());
     defer response.deinit();
-    const code = @intFromEnum(response.status);
-    if (code < 200 or code >= 300) {
+
+    if (!response.isSuccess()) {
         try context.finish(&response);
         return error.CommandFailed;
     }
@@ -165,7 +165,9 @@ test "attachment uploads reject successful responses with no linked attachment" 
     var recorder = common.RequestRecorder.init(allocator);
     defer recorder.deinit();
     recorder.responses = &.{"{\"success\":true,\"attachments\":[]}"};
-    const context = Context{ .allocator = allocator, .args = &parsed, .cfg = &cfg, .json = true, .request_recorder = &recorder };
+    var client = std.http.Client{ .allocator = allocator };
+    defer client.deinit();
+    const context = Context{ .client = &client, .allocator = allocator, .args = &parsed, .cfg = &cfg, .json = true, .request_recorder = &recorder };
     try std.testing.expectError(error.InvalidResponse, upload(&context, "HTPR-6834", 7, &.{"https://example.test/a.png"}));
 }
 
@@ -185,7 +187,9 @@ test "attachment uploads send every repeated input separately and retain the com
         "{\"success\":true,\"attachments\":[{\"id\":2}]}",
         "{\"success\":true,\"attachments\":[{\"id\":3}]}",
     };
-    const context = Context{ .allocator = allocator, .args = &parsed, .cfg = &cfg, .json = true, .request_recorder = &recorder };
+    var client = std.http.Client{ .allocator = allocator };
+    defer client.deinit();
+    const context = Context{ .client = &client, .allocator = allocator, .args = &parsed, .cfg = &cfg, .json = true, .request_recorder = &recorder };
     const result = try upload(&context, "HTPR-6834", 7, try common.optionList(&context, "attach"));
     try std.testing.expectEqual(@as(usize, 3), recorder.responses_index);
     try std.testing.expectEqualStrings("{\"success\":true,\"attachment_status\":\"complete\",\"attachments\":[{\"id\":1},{\"id\":2},{\"id\":3}]}", result);

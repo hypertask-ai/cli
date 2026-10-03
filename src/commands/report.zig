@@ -14,7 +14,7 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
         return context.call(.GET, path.path(), null);
     }
     const slug = try context.args.requirePositional(2, "slug");
-    if (std.mem.eql(u8, subcommand, "delete") and !context.args.has("confirm")) return error.ConfirmationRequired;
+    if (std.mem.eql(u8, subcommand, "delete")) try common.requireDeleteConfirmation(context.args.has("confirm"));
     var body = try json.Object.init(context.allocator);
     defer body.deinit();
     try body.integer("project_id", project);

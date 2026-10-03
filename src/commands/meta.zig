@@ -124,8 +124,8 @@ fn invalidMethod(value: []const u8) error{InvalidMethod} {
 fn contextResponses(context_value: *const Context) ![2]@import("../http.zig").Response {
     var user_context = try context_value.fetch(.GET, "/mcp/user/context", null);
     errdefer user_context.deinit();
-    const user_code = @intFromEnum(user_context.status);
-    if (user_code < 200 or user_code >= 300) {
+
+    if (!user_context.isSuccess()) {
         try output.finish(&user_context);
         return error.CommandFailed;
     }
@@ -135,8 +135,8 @@ fn contextResponses(context_value: *const Context) ![2]@import("../http.zig").Re
     try path.add("limit", "100");
     var projects = try context_value.fetch(.GET, path.path(), null);
     errdefer projects.deinit();
-    const projects_code = @intFromEnum(projects.status);
-    if (projects_code < 200 or projects_code >= 300) {
+
+    if (!projects.isSuccess()) {
         try output.finish(&projects);
         return error.CommandFailed;
     }

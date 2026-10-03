@@ -84,8 +84,7 @@ fn correctLatest(context: *const Context, task: []const u8, minutes: i64) !void 
 
     var response = try context.fetch(.GET, path.path(), null);
     defer response.deinit();
-    const status = @intFromEnum(response.status);
-    if (status < 200 or status >= 300) return context.finish(&response);
+    if (!response.isSuccess()) return context.finish(&response);
 
     const change = correctionPlan(context.allocator, response.body, -minutes) catch |err| {
         switch (err) {
@@ -116,8 +115,8 @@ fn correctionPlan(allocator: std.mem.Allocator, report_body: []const u8, decreme
         if (entry_value != .object) continue;
         const ended_at = entry_value.object.get("endedAt") orelse continue;
         if (ended_at == .null) continue;
-        const entry_id = integerField(entry_value.object, "id") orelse continue;
-        const seconds = integerField(entry_value.object, "seconds") orelse continue;
+        const entry_id = json.integerField(entry_value, "id", false) orelse continue;
+        const seconds = json.integerField(entry_value, "seconds", false) orelse continue;
         if (entry_id <= 0 or seconds < 0) continue;
         if (seconds == 0 or @rem(seconds, 60) != 0) return error.NonMinuteAlignedTimeEntry;
 
@@ -127,15 +126,6 @@ fn correctionPlan(allocator: std.mem.Allocator, report_body: []const u8, decreme
         return .{ .update = .{ .entry_id = entry_id, .minutes = current_minutes - decrement } };
     }
     return error.NoCompletedTimeEntry;
-}
-
-fn integerField(object: std.json.ObjectMap, name: []const u8) ?i64 {
-    const value = object.get(name) orelse return null;
-    return switch (value) {
-        .integer => |integer| integer,
-        .number_string => |number| std.fmt.parseInt(i64, number, 10) catch null,
-        else => null,
-    };
 }
 
 fn updateEntry(

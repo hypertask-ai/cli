@@ -10,7 +10,7 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
     if (std.mem.eql(u8, subcommand, "list")) return list(context);
     if (std.mem.eql(u8, subcommand, "show")) return show(context);
     if (std.mem.eql(u8, subcommand, "update")) return update(context);
-    if (std.mem.eql(u8, subcommand, "manifest")) return simpleProjectGet(context, "manifest");
+    if (std.mem.eql(u8, subcommand, "manifest")) return projectResource(context, "manifest", .GET, null);
     if (std.mem.eql(u8, subcommand, "playbook")) return playbook(context);
     if (std.mem.eql(u8, subcommand, "instructions")) return instructions(context);
     if (std.mem.eql(u8, subcommand, "members")) return projectResource(context, "members", .GET, null);
@@ -55,8 +55,8 @@ fn show(context: *const Context) !void {
             try path.addInt("offset", offset);
             var response = try context.fetch(.GET, path.path(), null);
             defer response.deinit();
-            const code = @intFromEnum(response.status);
-            if (code < 200 or code >= 300) return output.finish(&response);
+
+            if (!response.isSuccess()) return output.finish(&response);
             const document = try std.json.parseFromSlice(std.json.Value, context.allocator, response.body, .{});
             defer document.deinit();
             const projects = document.value.object.get("projects") orelse return error.InvalidResponse;
@@ -78,12 +78,6 @@ fn show(context: *const Context) !void {
         }
     }
     return error.ProjectNotFound;
-}
-
-fn simpleProjectGet(context: *const Context, resource: []const u8) !void {
-    const id = try common.positiveInt(try context.args.requirePositional(2, "project-id"), "project-id");
-    const path = try std.fmt.allocPrint(context.allocator, "/mcp/projects/{d}/{s}", .{ id, resource });
-    try context.call(.GET, path, null);
 }
 
 fn update(context: *const Context) !void {

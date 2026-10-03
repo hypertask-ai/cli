@@ -58,7 +58,7 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
         const path = try agentArchivePath(context.allocator, try context.args.require("id"));
         try context.callWithToken(token, .POST, path, null);
     } else if (std.mem.eql(u8, subcommand, "delete")) {
-        try requireDeleteConfirmation(context.args.has("confirm"));
+        try common.requireDeleteConfirmation(context.args.has("confirm"));
         const path = try agentPath(context.allocator, try context.args.require("id"));
         try context.callWithToken(token, .DELETE, path, null);
     } else if (std.mem.eql(u8, subcommand, "rotate-token")) {
@@ -127,10 +127,6 @@ fn uniqueProjectIds(
         if (!entry.found_existing) try result.append(allocator, project_id);
     }
     return result.toOwnedSlice(allocator);
-}
-
-fn requireDeleteConfirmation(confirmed: bool) !void {
-    if (!confirmed) return error.ConfirmationRequired;
 }
 
 fn requireAgentId(context: *const Context) ![]const u8 {
@@ -205,8 +201,8 @@ test "agent project updates normalize IDs and reject unsafe changes" {
 }
 
 test "agent mutations use the owned-agent endpoint" {
-    try std.testing.expectError(error.ConfirmationRequired, requireDeleteConfirmation(false));
-    try requireDeleteConfirmation(true);
+    try std.testing.expectError(error.ConfirmationRequired, common.requireDeleteConfirmation(false));
+    try common.requireDeleteConfirmation(true);
 
     const path = try agentPath(std.testing.allocator, "agent-id");
     defer std.testing.allocator.free(path);

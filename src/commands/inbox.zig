@@ -26,8 +26,8 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
 fn list(context: *const Context) !void {
     var response = try context.fetch(.GET, "/mcp/inbox/list", null);
     defer response.deinit();
-    const code = @intFromEnum(response.status);
-    if (code < 200 or code >= 300) return context.finish(&response);
+
+    if (!response.isSuccess()) return context.finish(&response);
     if (context.request_recorder != null) return;
 
     if (context.json) {

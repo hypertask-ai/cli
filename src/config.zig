@@ -156,10 +156,8 @@ fn homeDirectory(allocator: std.mem.Allocator) ![]u8 {
     return error.NoHome;
 }
 
-pub fn saveToken(allocator: std.mem.Allocator, token: []const u8, api_url: ?[]const u8) !void {
-    var existing = try load(allocator, null, null, null);
-    defer existing.deinit();
-    try writeConfig(allocator, token, existing.management_key, api_url orelse existing.api_url);
+pub fn saveToken(existing: *const Config, token: []const u8, api_url: ?[]const u8) !void {
+    try writeConfig(existing.allocator, token, existing.management_key, api_url orelse existing.api_url);
 }
 
 pub fn saveManagementKey(allocator: std.mem.Allocator, management_key: []const u8) !void {

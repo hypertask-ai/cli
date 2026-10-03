@@ -37,34 +37,32 @@ pub fn normalizedTicket(allocator: std.mem.Allocator, value: []const u8) ![]u8 {
     return result;
 }
 
+const IdentifierSink = union(enum) {
+    query: *query_mod.Builder,
+    body: *json.Object,
+
+    fn string(self: IdentifierSink, name: []const u8, value: []const u8) !void {
+        switch (self) {
+            .query => |path| try path.add(name, value),
+            .body => |body| try body.string(name, value),
+        }
+    }
+
+    fn integer(self: IdentifierSink, name: []const u8, value: []const u8, label: []const u8) !void {
+        const number = try common.positiveInt(value, label);
+        switch (self) {
+            .query => |path| try path.add(name, value),
+            .body => |body| try body.integer(name, number),
+        }
+    }
+};
+
 pub fn addTaskIdentifierQuery(path: *query_mod.Builder, allocator: std.mem.Allocator, identifier: []const u8) !void {
     return addTaskIdentifierQueryForProject(path, allocator, identifier, null);
 }
 
 pub fn addTaskIdentifierQueryForProject(path: *query_mod.Builder, allocator: std.mem.Allocator, identifier: []const u8, project: ?[]const u8) !void {
-    if (internalId(identifier)) |task_id| {
-        _ = try common.positiveInt(task_id, "task-id");
-        return path.add("task_id", task_id);
-    }
-    if (isNumeric(identifier)) {
-        // Bare digits are the internal list `id`. Board indexes need --project and
-        // go through resolve.task (dual lookup); pure encoders with --project keep
-        // unique_index for callers that have not resolved yet.
-        _ = try common.positiveInt(identifier, "task-id");
-        if (project) |project_id| {
-            _ = try common.positiveInt(project_id, "project");
-            try path.add("unique_index", identifier);
-            return path.add("project_id", project_id);
-        }
-        return path.add("task_id", identifier);
-    }
-    const ticket = try normalizedTicket(allocator, identifier);
-    defer allocator.free(ticket);
-    try path.add("ticket_number", ticket);
-    if (project) |project_id| {
-        _ = try common.positiveInt(project_id, "project");
-        try path.add("project_id", project_id);
-    }
+    return addTaskIdentifier(.{ .query = path }, allocator, identifier, project);
 }
 
 pub fn addTaskIdentifierBody(body: *json.Object, allocator: std.mem.Allocator, identifier: []const u8) !void {
@@ -72,20 +70,23 @@ pub fn addTaskIdentifierBody(body: *json.Object, allocator: std.mem.Allocator, i
 }
 
 pub fn addTaskIdentifierBodyForProject(body: *json.Object, allocator: std.mem.Allocator, identifier: []const u8, project: ?[]const u8) !void {
-    if (internalId(identifier)) |task_id| {
-        return body.integer("task_id", try common.positiveInt(task_id, "task-id"));
-    }
+    return addTaskIdentifier(.{ .body = body }, allocator, identifier, project);
+}
+
+fn addTaskIdentifier(sink: IdentifierSink, allocator: std.mem.Allocator, identifier: []const u8, project: ?[]const u8) !void {
+    if (internalId(identifier)) |task_id| return sink.integer("task_id", task_id, "task-id");
     if (isNumeric(identifier)) {
+        const label = if (sink == .body and project != null) "ticket" else "task-id";
         if (project) |project_id| {
-            try body.integer("unique_index", try common.positiveInt(identifier, "ticket"));
-            return body.integer("project_id", try common.positiveInt(project_id, "project"));
+            try sink.integer("unique_index", identifier, label);
+            return sink.integer("project_id", project_id, "project");
         }
-        return body.integer("task_id", try common.positiveInt(identifier, "task-id"));
+        return sink.integer("task_id", identifier, label);
     }
     const ticket = try normalizedTicket(allocator, identifier);
     defer allocator.free(ticket);
-    try body.string("ticket_number", ticket);
-    if (project) |project_id| try body.integer("project_id", try common.positiveInt(project_id, "project"));
+    try sink.string("ticket_number", ticket);
+    if (project) |project_id| try sink.integer("project_id", project_id, "project");
 }
 
 /// Resolve an identifier to one internal task. Bare digits without --project are
@@ -157,7 +158,7 @@ fn fetchTaskOptional(context: *const Context, key: []const u8, value: []const u8
     defer response.deinit();
     const code = @intFromEnum(response.status);
     if (code == 404) return null;
-    if (code < 200 or code >= 300) return error.CommandFailed;
+    if (!response.isSuccess()) return error.CommandFailed;
     const parsed = try std.json.parseFromSlice(std.json.Value, context.allocator, response.body, .{});
     defer parsed.deinit();
     if (parsed.value != .object) return error.InvalidResponse;
@@ -172,18 +173,9 @@ fn fetchTaskOptional(context: *const Context, key: []const u8, value: []const u8
     const tasks = parsed.value.object.get("tasks") orelse return null;
     if (tasks != .array or tasks.array.items.len == 0) return null;
     const row = tasks.array.items[0];
-    const id = jsonInteger(row, "id") orelse return error.InvalidResponse;
-    const project_id = jsonInteger(row, "projectId") orelse jsonInteger(row, "project_id") orelse return error.InvalidResponse;
+    const id = json.integerField(row, "id", true) orelse return error.InvalidResponse;
+    const project_id = json.integerField(row, "projectId", true) orelse json.integerField(row, "project_id", true) orelse return error.InvalidResponse;
     return .{ .id = id, .project_id = project_id };
-}
-
-fn jsonInteger(value: std.json.Value, key: []const u8) ?i64 {
-    const field = value.object.get(key) orelse return null;
-    return switch (field) {
-        .integer => |number| number,
-        .string => |text| std.fmt.parseInt(i64, text, 10) catch null,
-        else => null,
-    };
 }
 
 pub fn projectAccessDenied(project_id: i64) error{ProjectAccessDenied} {
@@ -214,14 +206,14 @@ pub fn sectionId(context: *const Context, project_id: i64, value: []const u8) !i
     var response = try context.fetchRaw(.GET, path, null);
     defer response.deinit();
     if (projectAccessDeniedResponse(context.allocator, response.status, response.body)) return projectAccessDenied(project_id);
-    if (@intFromEnum(response.status) < 200 or @intFromEnum(response.status) >= 300) return error.CommandFailed;
+    if (!response.isSuccess()) return error.CommandFailed;
     const parsed = try std.json.parseFromSlice(std.json.Value, context.allocator, response.body, .{});
     defer parsed.deinit();
     const sections = parsed.value.object.get("sections") orelse return error.InvalidResponse;
     for (sections.array.items) |row| {
         const title_value = row.object.get("section_title") orelse continue;
         if (title_value != .string or !std.ascii.eqlIgnoreCase(title_value.string, value)) continue;
-        return jsonInteger(row, "id") orelse return error.InvalidResponse;
+        return json.integerField(row, "id", true) orelse return error.InvalidResponse;
     }
 
     std.debug.print("section not found: {s}\nsections may only contain:", .{value});

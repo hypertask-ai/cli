@@ -24,7 +24,10 @@ fn expectRequestCountWithResponses(argv: []const []const u8, responses: []const 
     var recorder = command_context.RequestRecorder.init(allocator);
     defer recorder.deinit();
     recorder.responses = responses;
+    var client = std.http.Client{ .allocator = allocator };
+    defer client.deinit();
     const context = command_context.Context{
+        .client = &client,
         .allocator = allocator,
         .args = &parsed,
         .cfg = &cfg,
@@ -59,7 +62,10 @@ fn expectDispatchErrorWithResponses(argv: []const []const u8, responses: []const
     var recorder = command_context.RequestRecorder.init(allocator);
     defer recorder.deinit();
     recorder.responses = responses;
+    var client = std.http.Client{ .allocator = allocator };
+    defer client.deinit();
     const context = command_context.Context{
+        .client = &client,
         .allocator = allocator,
         .args = &parsed,
         .cfg = &cfg,
@@ -221,7 +227,7 @@ test "every HTPR-6530 list command forwards --limit" {
 test "tasks list resolves --labels into a labels query filter" {
     try expectRequestWithResponses(
         &.{ "tasks", "list", "--project", "15", "--labels", "auto-error" },
-        &.{"{\"projects\":[{\"id\":15,\"labels\":[{\"id\":\"auto-error-label-id\",\"name\":\"auto-error\"}]}]}"},
+        &.{"{\"labels\":[{\"id\":\"auto-error-label-id\",\"name\":\"auto-error\"}]}"},
         .GET,
         "/mcp/tasks?project_id=15&labels=auto-error-label-id&limit=10&offset=0",
         null,
@@ -231,7 +237,7 @@ test "tasks list resolves --labels into a labels query filter" {
 test "tasks list --label alias also filters" {
     try expectRequestWithResponses(
         &.{ "tasks", "list", "--project", "15", "--label", "auto-error" },
-        &.{"{\"projects\":[{\"id\":15,\"labels\":[{\"id\":\"auto-error-label-id\",\"name\":\"auto-error\"}]}]}"},
+        &.{"{\"labels\":[{\"id\":\"auto-error-label-id\",\"name\":\"auto-error\"}]}"},
         .GET,
         "/mcp/tasks?project_id=15&labels=auto-error-label-id&limit=10&offset=0",
         null,
@@ -394,35 +400,35 @@ test "command handlers build request bodies and query strings without HTTP" {
     );
     try expectRequestWithResponses(
         &.{ "task", "update", "HTPR-6234", "--project", "15", "--add-labels", "QA ✅" },
-        &.{ "{\"tasks\":[{\"id\":35007,\"projectId\":15}]}", "{\"projects\":[{\"id\":15,\"labels\":[{\"id\":\"qa-label-id\",\"name\":\"QA ✅\"}]}]}" },
+        &.{ "{\"tasks\":[{\"id\":35007,\"projectId\":15}]}", "{\"labels\":[{\"id\":\"qa-label-id\",\"name\":\"QA ✅\"}]}" },
         .POST,
         "/mcp/tasks/update",
         "{\"ticket_number\":\"HTPR-6234\",\"project_id\":15,\"add_labels\":[\"qa-label-id\"]}",
     );
     try expectRequestWithResponses(
         &.{ "task", "update", "HTPR-6479", "--project", "15", "--add-label", "youtube" },
-        &.{ "{\"tasks\":[{\"id\":35007,\"projectId\":15}]}", "{\"projects\":[{\"id\":15,\"labels\":[{\"id\":\"youtube-id\",\"name\":\"youtube\"}]}]}" },
+        &.{ "{\"tasks\":[{\"id\":35007,\"projectId\":15}]}", "{\"labels\":[{\"id\":\"youtube-id\",\"name\":\"youtube\"}]}" },
         .POST,
         "/mcp/tasks/update",
         "{\"ticket_number\":\"HTPR-6479\",\"project_id\":15,\"add_labels\":[\"youtube-id\"]}",
     );
     try expectRequestWithResponses(
         &.{ "task", "update", "HTPR-6479", "--project", "15", "--labels", "youtube" },
-        &.{ "{\"tasks\":[{\"id\":35007,\"projectId\":15}]}", "{\"projects\":[{\"id\":15,\"labels\":[{\"id\":\"youtube-id\",\"name\":\"youtube\"}]}]}" },
+        &.{ "{\"tasks\":[{\"id\":35007,\"projectId\":15}]}", "{\"labels\":[{\"id\":\"youtube-id\",\"name\":\"youtube\"}]}" },
         .POST,
         "/mcp/tasks/update",
         "{\"ticket_number\":\"HTPR-6479\",\"project_id\":15,\"labels\":[\"youtube-id\"]}",
     );
     try expectRequestWithResponses(
         &.{ "task", "update", "HTPR-6234", "--project", "15", "--remove-labels", "11111111-2222-4333-8444-555555555555", "--add-labels", "CLI" },
-        &.{ "{\"tasks\":[{\"id\":35007,\"projectId\":15}]}", "{\"projects\":[{\"id\":15,\"labels\":[{\"id\":\"cli-label-id\",\"name\":\"CLI\"}]}]}", "{\"projects\":[{\"id\":15,\"labels\":[]}]}" },
+        &.{ "{\"tasks\":[{\"id\":35007,\"projectId\":15}]}", "{\"labels\":[{\"id\":\"cli-label-id\",\"name\":\"CLI\"}]}", "{\"labels\":[]}" },
         .POST,
         "/mcp/tasks/update",
         "{\"ticket_number\":\"HTPR-6234\",\"project_id\":15,\"add_labels\":[\"cli-label-id\"],\"remove_labels\":[\"11111111-2222-4333-8444-555555555555\"]}",
     );
     try expectRequestWithResponses(
         &.{ "task", "update", "HTPR-6479", "--project", "15", "--remove-label", "CLI" },
-        &.{ "{\"tasks\":[{\"id\":35007,\"projectId\":15}]}", "{\"projects\":[{\"id\":15,\"labels\":[{\"id\":\"cli-label-id\",\"name\":\"CLI\"}]}]}" },
+        &.{ "{\"tasks\":[{\"id\":35007,\"projectId\":15}]}", "{\"labels\":[{\"id\":\"cli-label-id\",\"name\":\"CLI\"}]}" },
         .POST,
         "/mcp/tasks/update",
         "{\"ticket_number\":\"HTPR-6479\",\"project_id\":15,\"remove_labels\":[\"cli-label-id\"]}",
@@ -906,4 +912,19 @@ test "task update label catalog states replace vs add" {
     try std.testing.expect(std.mem.indexOf(u8, catalog, "Replace the ticket's entire label set") != null);
     try std.testing.expect(std.mem.indexOf(u8, catalog, "--add-label <list>") != null);
     try std.testing.expect(std.mem.indexOf(u8, catalog, "--remove-label <list>") != null);
+}
+
+test "update reuses ticket resolution for section and labels" {
+    try expectRequestCountWithResponses(
+        &.{ "task", "update", "HTPR-6805", "--section", "Done", "--labels", "CLI" },
+        &.{
+            "{\"tasks\":[{\"id\":35007,\"projectId\":101}]}",
+            "{\"sections\":[{\"id\":2,\"section_title\":\"Done\"}]}",
+            "{\"labels\":[{\"id\":\"cli-label-id\",\"name\":\"CLI\"}]}",
+        },
+        4,
+        .POST,
+        "/mcp/tasks/update",
+        "{\"ticket_number\":\"HTPR-6805\",\"sectionId\":2,\"labels\":[\"cli-label-id\"]}",
+    );
 }

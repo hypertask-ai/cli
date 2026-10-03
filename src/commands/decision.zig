@@ -28,7 +28,7 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
         _ = try common.positiveInt(id, "id");
         try context.call(.GET, try std.fmt.allocPrint(context.allocator, "/mcp/decisions/{s}", .{id}), null);
     } else if (std.mem.eql(u8, subcommand, "answer") or std.mem.eql(u8, subcommand, "cancel")) {
-        if (!context.args.has("confirm")) return error.ConfirmationRequired;
+        try common.requireDeleteConfirmation(context.args.has("confirm"));
         const id = try context.args.requirePositional(2, "id");
         var body = try json.Object.init(context.allocator);
         defer body.deinit();

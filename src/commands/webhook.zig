@@ -7,7 +7,7 @@ const query = @import("../query.zig");
 pub fn run(context: *const Context, subcommand: []const u8) !void {
     const agent = context.args.get("agent") orelse "self";
     if (std.mem.eql(u8, subcommand, "get") or std.mem.eql(u8, subcommand, "delete")) {
-        if (std.mem.eql(u8, subcommand, "delete") and !context.args.has("confirm")) return error.ConfirmationRequired;
+        if (std.mem.eql(u8, subcommand, "delete")) try common.requireDeleteConfirmation(context.args.has("confirm"));
         var path = try query.Builder.init(context.allocator, "/mcp/webhooks");
         defer path.deinit();
         try path.add("agent_id", agent);
