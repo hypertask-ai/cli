@@ -74,6 +74,23 @@ hypertask time delete 119
 
 Entry IDs are available from `hypertask time report`. `time edit` is an alias for `time update`.
 
+## Updating pages
+
+`pages update` and `pages append` keep the existing page content type unless
+`--canvas` (HTML canvas), `--html`, or `--markdown` is passed. The CLI omits
+`content_type` when no type flag is given; `pages create` still defaults to Markdown.
+`--markdown-file` reads content unchanged and does not select a content type.
+
+```bash
+hypertask pages update 265 --markdown-file report.html
+hypertask pages update 265 --markdown-file report.html --canvas
+hypertask pages update 265 --content "# Report" --markdown
+```
+
+This relies on the server preserving the existing type when `content_type` is
+omitted. Servers that default omitted types to Markdown need a matching fix;
+until then, pass `--canvas` explicitly when updating an HTML canvas page.
+
 ## Install
 
 Linux and macOS customers can install the latest checksum-verified release:
