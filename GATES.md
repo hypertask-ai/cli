@@ -53,7 +53,7 @@ Parity qualification: no non-expiring live parity token is available, and the sa
 - [x] G8: Zig unit and contract tests pass
   CHECK: zig build test --summary all
   EXPECT: Build Summary:
-  EVIDENCE: automatic-evidence=v1; definition-sha256=dbfaf4f8da146414cfd1db348ecea86726f363625c439fb0281518074df36d93; exit=0; EXPECT=matched; output-sha256=197e5ecef88c71ce61f240902fc45f08da6321d77fe753ee73bd08a0699462fc; output-bytes=4308; shell=/bin/sh; cwd=/home/valentin/projects/cli-wt-6805; path=fd5351737ae0/31 entries
+  EVIDENCE: automatic-evidence=v1; definition-sha256=dbfaf4f8da146414cfd1db348ecea86726f363625c439fb0281518074df36d93; exit=0; EXPECT=matched; output-sha256=7cab8d5b80cc8f5da8a9a2fb5ab777f6e6541247a27e4e5edb42032c5fc64c30; output-bytes=4308; shell=/bin/sh; cwd=/home/valentin/projects/cli-wt-6805; path=fd5351737ae0/31 entries
 
 - [x] G9: the full python3 scripts/parity_test.py suite passes against isolated fixtures and the frozen Node CLI without board mutations
   CHECK: python3 scripts/htpr_6805_test.py --parity
@@ -65,5 +65,5 @@ Parity qualification: no non-expiring live parity token is available, and the sa
   EXPECT: hygiene verification passed
   EVIDENCE: automatic-evidence=v1; definition-sha256=7c728620c0cf7a1bfd23a48e349ea8b0234c3b352563dd60c5d91b8060f2c8da; exit=0; EXPECT=matched; output-sha256=a5b3359677108080c36b523402da2ea6ab3fd06cca8f18adc6374dd19c1abfd1; output-bytes=28; shell=/bin/sh; cwd=/home/valentin/projects/cli-wt-6805; path=fd5351737ae0/31 entries
 
-- [ ] G11: the reviewed change is committed locally on htpr-6805 with the required message and coauthor, without a push or PR
-  EVIDENCE: pending
+- [x] G11: the reviewed change is committed locally on htpr-6805 with the required message and coauthor, without a push or PR
+  EVIDENCE: Manual review verified implementation commit 3c40f9f on htpr-6805 with subject HTPR-6805: deduplicate CLI internals and reuse HTTP connections and final trailer Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>. git status --short was empty after that commit. Only this worktree was edited; no stash, push, PR, fleet install, or board-write command was issued. A separate local proof-only commit records this completed ledger. Debug and ReleaseFast each passed 145/145 unit tests plus all three HTTP contract suites; the ReleaseFast Windows x64 build passed 3/3 build steps.
