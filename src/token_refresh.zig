@@ -5,17 +5,18 @@ const http = @import("http.zig");
 const refresh_window_seconds: i64 = 7 * std.time.s_per_day;
 
 const Dependencies = struct {
-    fn request(_: *Dependencies, allocator: std.mem.Allocator, cfg: *const config.Config) !http.Response {
-        return http.request(allocator, cfg, .POST, "/mcp/token/refresh", null);
+    client: *std.http.Client,
+    fn request(self: *Dependencies, allocator: std.mem.Allocator, cfg: *const config.Config) !http.Response {
+        return http.request(self.client, allocator, cfg, .POST, "/mcp/token/refresh", null);
     }
 
-    fn persist(_: *Dependencies, allocator: std.mem.Allocator, token: []const u8, api_url: []const u8) !void {
-        try config.saveToken(allocator, token, api_url);
+    fn persist(_: *Dependencies, cfg: *const config.Config, token: []const u8) !void {
+        try config.saveToken(cfg, token, cfg.api_url);
     }
 };
 
-pub fn maybeRefresh(allocator: std.mem.Allocator, cfg: *config.Config) !void {
-    var dependencies = Dependencies{};
+pub fn maybeRefresh(client: *std.http.Client, allocator: std.mem.Allocator, cfg: *config.Config) !void {
+    var dependencies = Dependencies{ .client = client };
     try maybeRefreshWith(allocator, cfg, &dependencies, std.time.timestamp());
 }
 
@@ -24,8 +25,8 @@ fn maybeRefreshWith(allocator: std.mem.Allocator, cfg: *config.Config, dependenc
 
     var response = dependencies.request(allocator, cfg) catch return;
     defer response.deinit();
-    const status_code = @intFromEnum(response.status);
-    if (status_code < 200 or status_code >= 300) return;
+
+    if (!response.isSuccess()) return;
 
     const RefreshBody = struct { token: ?[]const u8 = null };
     const parsed = std.json.parseFromSlice(RefreshBody, allocator, response.body, .{
@@ -36,7 +37,7 @@ fn maybeRefreshWith(allocator: std.mem.Allocator, cfg: *config.Config, dependenc
     const token = parsed.value.token orelse return;
     if (token.len == 0) return;
 
-    try dependencies.persist(allocator, token, cfg.api_url);
+    try dependencies.persist(cfg, token);
     try cfg.replaceToken(token);
 }
 
@@ -101,7 +102,7 @@ const FakeDependencies = struct {
         };
     }
 
-    fn persist(self: *FakeDependencies, _: std.mem.Allocator, token: []const u8, _: []const u8) !void {
+    fn persist(self: *FakeDependencies, _: *const config.Config, token: []const u8) !void {
         self.persisted_token = try self.allocator.dupe(u8, token);
     }
 };

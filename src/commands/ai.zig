@@ -46,8 +46,8 @@ fn write(context: *const Context) !void {
         const rows = task_document.value.object.get("tasks") orelse return error.InvalidResponse;
         if (rows.array.items.len != 1) return error.TaskNotFound;
         const task_value = rows.array.items[0];
-        task_id = integerField(task_value, "id") orelse return error.InvalidResponse;
-        project = integerField(task_value, "projectId") orelse return error.InvalidResponse;
+        task_id = json.integerField(task_value, "id", false) orelse return error.InvalidResponse;
+        project = json.integerField(task_value, "projectId", false) orelse return error.InvalidResponse;
         if (task_value.object.get("title")) |value| {
             if (value == .string) task_title = try context.allocator.dupe(u8, value.string);
         }
@@ -71,29 +71,29 @@ fn write(context: *const Context) !void {
     if (!context.args.has("apply")) return context.call(.POST, "/mcp/ai/task-writer", try body.finish());
     var generated = try context.fetch(.POST, "/mcp/ai/task-writer", try body.finish());
     defer generated.deinit();
-    const generated_code = @intFromEnum(generated.status);
-    if (generated_code < 200 or generated_code >= 300) return output.finish(&generated);
+
+    if (!generated.isSuccess()) return output.finish(&generated);
     const document = try std.json.parseFromSlice(std.json.Value, context.allocator, generated.body, .{});
     defer document.deinit();
-    const produced_mode = stringField(document.value, "mode") orelse return error.InvalidResponse;
+    const produced_mode = json.stringField(document.value, "mode") orelse return error.InvalidResponse;
     if (!std.mem.eql(u8, produced_mode, requested_mode)) return error.ModeMismatch;
     var apply_body = try json.Object.init(context.allocator);
     defer apply_body.deinit();
     try apply_body.integer("task_id", task_id.?);
-    const html = stringField(document.value, "html") orelse "";
+    const html = json.stringField(document.value, "html") orelse "";
     const apply_path = if (std.mem.eql(u8, produced_mode, "write_with_ai")) "/mcp/comments" else "/mcp/tasks/update";
     if (std.mem.eql(u8, produced_mode, "write_with_ai")) {
         try apply_body.string("text", html);
     } else {
         if (html.len != 0) try apply_body.string("description", html);
-        if (stringField(document.value, "title")) |value| try apply_body.string("title", value);
-        if (integerField(document.value, "priority")) |value| try apply_body.integer("priority", value);
-        if (integerField(document.value, "estimate")) |value| try apply_body.integer("estimate", value);
+        if (json.stringField(document.value, "title")) |value| try apply_body.string("title", value);
+        if (json.integerField(document.value, "priority", false)) |value| try apply_body.integer("priority", value);
+        if (json.integerField(document.value, "estimate", false)) |value| try apply_body.integer("estimate", value);
     }
     var applied = try context.fetch(.POST, apply_path, try apply_body.finish());
     defer applied.deinit();
-    const applied_code = @intFromEnum(applied.status);
-    if (applied_code < 200 or applied_code >= 300) return output.finish(&applied);
+
+    if (!applied.isSuccess()) return output.finish(&applied);
     try context.print(try json.mergeRawField(context.allocator, generated.body, "applied", "true"));
 }
 
@@ -102,14 +102,4 @@ fn writerMode(value: []const u8) error{InvalidOptions}![]const u8 {
     if (std.mem.eql(u8, value, "write-with-ai")) return "write_with_ai";
     std.debug.print("invalid mode: {s}\nvalid modes: task-writer, write-with-ai\n", .{value});
     return error.InvalidOptions;
-}
-
-fn integerField(value: std.json.Value, name: []const u8) ?i64 {
-    const field = value.object.get(name) orelse return null;
-    return if (field == .integer) field.integer else null;
-}
-
-fn stringField(value: std.json.Value, name: []const u8) ?[]const u8 {
-    const field = value.object.get(name) orelse return null;
-    return if (field == .string) field.string else null;
 }

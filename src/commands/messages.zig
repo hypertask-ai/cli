@@ -24,8 +24,8 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
 
     var response = try context.fetch(.GET, "/mcp/inbox/list", null);
     defer response.deinit();
-    const code = @intFromEnum(response.status);
-    if (code < 200 or code >= 300) return context.finish(&response);
+
+    if (!response.isSuccess()) return context.finish(&response);
     if (context.request_recorder != null) return;
 
     const result = try pollResponse(context.allocator, response.body, since);

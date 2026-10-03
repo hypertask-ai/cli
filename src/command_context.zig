@@ -47,6 +47,7 @@ pub const RequestRecorder = struct {
 };
 
 pub const Context = struct {
+    client: *std.http.Client,
     allocator: std.mem.Allocator,
     args: *const args.Parsed,
     cfg: *const config.Config,
@@ -64,8 +65,7 @@ pub const Context = struct {
 
     pub fn finish(self: *const Context, response: *http.Response) !void {
         if (self.request_recorder != null) {
-            const code = @intFromEnum(response.status);
-            if (code < 200 or code >= 300) return error.CommandFailed;
+            if (!response.isSuccess()) return error.CommandFailed;
             return;
         }
         try output.finishResponse(self.allocator, response, self.json);
@@ -90,12 +90,12 @@ pub const Context = struct {
     pub fn fetchRaw(self: *const Context, method: std.http.Method, path: []const u8, body: ?[]const u8) !http.Response {
         try self.requireAuth();
         if (self.request_recorder) |recorder| return recorder.fetch(method, path, body);
-        return http.request(self.allocator, self.cfg, method, path, body);
+        return http.request(self.client, self.allocator, self.cfg, method, path, body);
     }
 
     pub fn callWithToken(self: *const Context, token: []const u8, method: std.http.Method, path: []const u8, body: ?[]const u8) !void {
         if (token.len == 0) return error.NoToken;
-        var response = if (self.request_recorder) |recorder| try recorder.fetch(method, path, body) else try http.requestWithToken(self.allocator, self.cfg.api_url, token, method, path, body);
+        var response = if (self.request_recorder) |recorder| try recorder.fetch(method, path, body) else try http.requestWithToken(self.client, self.allocator, self.cfg.api_url, token, method, path, body);
         defer response.deinit();
         try self.finish(&response);
     }
@@ -141,4 +141,8 @@ pub fn optionList(context: *const Context, name: []const u8) ![]const []const u8
 
 pub fn managementToken(context: *const Context) []const u8 {
     return context.args.get("management-key") orelse context.cfg.managementToken();
+}
+
+pub fn requireDeleteConfirmation(confirmed: bool) !void {
+    if (!confirmed) return error.ConfirmationRequired;
 }

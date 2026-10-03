@@ -15,9 +15,8 @@ pub fn printResponse(allocator: std.mem.Allocator, body: []const u8, json: bool)
 }
 
 pub fn finish(response: *http.Response) !void {
-    const code = @intFromEnum(response.status);
     try print(response.body);
-    if (code < 200 or code >= 300) return apiError(response.status);
+    if (!response.isSuccess()) return apiError(response.status);
     if (responseReportsFailure(response.allocator, response.body)) return error.ApiFailure;
 }
 
@@ -38,56 +37,66 @@ fn apiError(status: std.http.Status) anyerror {
     };
 }
 
+const ErrorInfo = struct {
+    err: anyerror,
+    code: u8,
+    summary: ?[]const u8 = null,
+};
+
+const error_info = [_]ErrorInfo{
+    .{ .err = error.BrokenPipe, .code = 141 },
+    .{ .err = error.AmbiguousTaskIdentifier, .code = 2, .summary = "command input is invalid" },
+    .{ .err = error.ApiInvalidInput, .code = 2, .summary = "the server rejected the command input" },
+    .{ .err = error.ConfirmationRequired, .code = 2 },
+    .{ .err = error.ConflictingProjectChanges, .code = 2, .summary = "command input is invalid" },
+    .{ .err = error.FileNotFound, .code = 2, .summary = "command input is invalid" },
+    .{ .err = error.InvalidFilter, .code = 2, .summary = "command input is invalid" },
+    .{ .err = error.InvalidInteger, .code = 2, .summary = "command input is invalid" },
+    .{ .err = error.InvalidJsonObject, .code = 2, .summary = "command input is invalid" },
+    .{ .err = error.InvalidManifest, .code = 2, .summary = "command input is invalid" },
+    .{ .err = error.InvalidMethod, .code = 2, .summary = "command input is invalid" },
+    .{ .err = error.InvalidOptions, .code = 2, .summary = "command input is invalid" },
+    .{ .err = error.InvalidProject, .code = 2, .summary = "command input is invalid" },
+    .{ .err = error.InvalidTicket, .code = 2, .summary = "command input is invalid" },
+    .{ .err = error.MissingAgentIdentity, .code = 2, .summary = "required command input is missing" },
+    .{ .err = error.MissingArgument, .code = 2, .summary = "required command input is missing" },
+    .{ .err = error.MissingOption, .code = 2, .summary = "required command input is missing" },
+    .{ .err = error.MissingOptionValue, .code = 2, .summary = "required command input is missing" },
+    .{ .err = error.MissingProject, .code = 2, .summary = "required command input is missing" },
+    .{ .err = error.MissingProjectChanges, .code = 2, .summary = "required command input is missing" },
+    .{ .err = error.MissingSubcommand, .code = 2, .summary = "required command input is missing" },
+    .{ .err = error.MissingTask, .code = 2, .summary = "required command input is missing" },
+    .{ .err = error.MissingWebhookSecret, .code = 2, .summary = "required command input is missing" },
+    .{ .err = error.NoToken, .code = 2, .summary = "authentication token is missing" },
+    .{ .err = error.UnknownOption, .code = 2, .summary = "the command does not accept that option" },
+    .{ .err = error.UnknownCommand, .code = 1, .summary = "command not found" },
+    .{ .err = error.ApiAuthentication, .code = 4, .summary = "this token does not have the required access" },
+    .{ .err = error.ApiFailure, .code = 4, .summary = "the server could not complete the command" },
+    .{ .err = error.ApiNotFound, .code = 4, .summary = "the requested item was not found" },
+    .{ .err = error.AssigneeNotConfirmed, .code = 4, .summary = "the server could not complete the command" },
+    .{ .err = error.AssigneeNotRemoved, .code = 4, .summary = "the server could not complete the command" },
+    .{ .err = error.CapabilityAgentMismatch, .code = 4, .summary = "this token does not have the required access" },
+    .{ .err = error.CapabilityAgentOverride, .code = 4, .summary = "this token does not have the required access" },
+    .{ .err = error.CapabilityExpired, .code = 4, .summary = "this token does not have the required access" },
+    .{ .err = error.CapabilityTicketMismatch, .code = 4, .summary = "this token does not have the required access" },
+    .{ .err = error.CommandFailed, .code = 4, .summary = "the server could not complete the command" },
+    .{ .err = error.FieldNotFound, .code = 4, .summary = "the requested item was not found" },
+    .{ .err = error.InvalidResponse, .code = 4, .summary = "the server returned a response the CLI could not use" },
+    .{ .err = error.LabelNotFound, .code = 4, .summary = "the requested item was not found" },
+    .{ .err = error.ModeMismatch, .code = 4, .summary = "the server returned a response the CLI could not use" },
+    .{ .err = error.ProjectAccessDenied, .code = 4, .summary = "this token does not have the required access" },
+    .{ .err = error.ProjectNotFound, .code = 4, .summary = "the requested item was not found" },
+    .{ .err = error.SectionNotFound, .code = 4 },
+    .{ .err = error.TaskNotFound, .code = 4, .summary = "the requested item was not found" },
+};
+
+fn errorInfo(err: anyerror) ErrorInfo {
+    for (error_info) |info| if (info.err == err) return info;
+    return .{ .err = err, .code = 1 };
+}
+
 pub fn exitCode(err: anyerror) u8 {
-    return switch (err) {
-        error.BrokenPipe => 141,
-        error.AmbiguousTaskIdentifier,
-        error.ApiInvalidInput,
-        error.ConfirmationRequired,
-        error.ConflictingProjectChanges,
-        error.FileNotFound,
-        error.InvalidFilter,
-        error.InvalidInteger,
-        error.InvalidJsonObject,
-        error.InvalidManifest,
-        error.InvalidMethod,
-        error.InvalidOptions,
-        error.InvalidProject,
-        error.InvalidTicket,
-        error.MissingAgentIdentity,
-        error.MissingArgument,
-        error.MissingOption,
-        error.MissingOptionValue,
-        error.MissingProject,
-        error.MissingProjectChanges,
-        error.MissingSubcommand,
-        error.MissingTask,
-        error.MissingWebhookSecret,
-        error.NoToken,
-        error.UnknownOption,
-        => 2,
-        error.UnknownCommand => 1,
-        error.ApiAuthentication,
-        error.ApiFailure,
-        error.ApiNotFound,
-        error.AssigneeNotConfirmed,
-        error.AssigneeNotRemoved,
-        error.CapabilityAgentMismatch,
-        error.CapabilityAgentOverride,
-        error.CapabilityExpired,
-        error.CapabilityTicketMismatch,
-        error.CommandFailed,
-        error.FieldNotFound,
-        error.InvalidResponse,
-        error.LabelNotFound,
-        error.ModeMismatch,
-        error.ProjectAccessDenied,
-        error.ProjectNotFound,
-        error.SectionNotFound,
-        error.TaskNotFound,
-        => 4,
-        else => 1,
-    };
+    return errorInfo(err).code;
 }
 
 pub fn printFailure(err: anyerror) void {
@@ -98,45 +107,7 @@ pub fn printFailure(err: anyerror) void {
         return;
     }
 
-    const summary: ?[]const u8 = switch (err) {
-        error.MissingAgentIdentity,
-        error.MissingArgument,
-        error.MissingOption,
-        error.MissingOptionValue,
-        error.MissingProject,
-        error.MissingProjectChanges,
-        error.MissingSubcommand,
-        error.MissingTask,
-        error.MissingWebhookSecret,
-        => "required command input is missing",
-        error.AmbiguousTaskIdentifier,
-        error.ConflictingProjectChanges,
-        error.FileNotFound,
-        error.InvalidFilter,
-        error.InvalidInteger,
-        error.InvalidJsonObject,
-        error.InvalidManifest,
-        error.InvalidMethod,
-        error.InvalidOptions,
-        error.InvalidProject,
-        error.InvalidTicket,
-        => "command input is invalid",
-        error.UnknownOption => "the command does not accept that option",
-        error.UnknownCommand => "command not found",
-        error.NoToken => "authentication token is missing",
-        error.ApiAuthentication,
-        error.CapabilityAgentMismatch,
-        error.CapabilityAgentOverride,
-        error.CapabilityExpired,
-        error.CapabilityTicketMismatch,
-        error.ProjectAccessDenied,
-        => "this token does not have the required access",
-        error.ApiNotFound, error.FieldNotFound, error.LabelNotFound, error.ProjectNotFound, error.TaskNotFound => "the requested item was not found",
-        error.ApiInvalidInput => "the server rejected the command input",
-        error.ApiFailure, error.AssigneeNotConfirmed, error.AssigneeNotRemoved, error.CommandFailed => "the server could not complete the command",
-        error.InvalidResponse, error.ModeMismatch => "the server returned a response the CLI could not use",
-        else => null,
-    };
+    const summary = errorInfo(err).summary;
     if (summary) |message| {
         std.debug.print("hypertask: {s}\n", .{message});
     } else {
@@ -186,8 +157,7 @@ fn nextStep(err: anyerror) []const u8 {
 }
 
 pub fn finishResponse(allocator: std.mem.Allocator, response: *http.Response, json: bool) !void {
-    const code = @intFromEnum(response.status);
-    if (code < 200 or code >= 300 or responseReportsFailure(allocator, response.body)) return finish(response);
+    if (!response.isSuccess() or responseReportsFailure(allocator, response.body)) return finish(response);
     try printResponse(allocator, response.body, json);
 }
 

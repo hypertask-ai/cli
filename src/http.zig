@@ -6,6 +6,11 @@ pub const Response = struct {
     body: []u8,
     allocator: std.mem.Allocator,
 
+    pub fn isSuccess(self: Response) bool {
+        const code = @intFromEnum(self.status);
+        return code >= 200 and code < 300;
+    }
+
     pub fn deinit(self: *Response) void {
         self.allocator.free(self.body);
         self.* = undefined;
@@ -44,16 +49,18 @@ fn buildRequestHeaders(authorization: []const u8, body: ?[]const u8) RequestHead
 }
 
 pub fn request(
+    client: *std.http.Client,
     allocator: std.mem.Allocator,
     cfg: *const config.Config,
     method: std.http.Method,
     path_and_query: []const u8,
     body: ?[]const u8,
 ) !Response {
-    return requestWithToken(allocator, cfg.api_url, cfg.token, method, path_and_query, body);
+    return requestWithToken(client, allocator, cfg.api_url, cfg.token, method, path_and_query, body);
 }
 
 pub fn requestWithToken(
+    client: *std.http.Client,
     allocator: std.mem.Allocator,
     api_url: []const u8,
     token: []const u8,
@@ -66,7 +73,7 @@ pub fn requestWithToken(
     const authorization = try std.fmt.allocPrint(allocator, "Bearer {s}", .{token});
     defer allocator.free(authorization);
     const headers = buildRequestHeaders(authorization, requestPayload(method, body));
-    return send(allocator, method, url, headers.headers[0..headers.count], body);
+    return send(client, allocator, method, url, headers.headers[0..headers.count], body);
 }
 
 fn effectivePort(uri: std.Uri) ?u16 {
@@ -106,14 +113,13 @@ fn withoutAuthorization(headers: []const std.http.Header, buffer: []std.http.Hea
 /// Hypertask bearer token is never added here, so a command can post to a
 /// handler running on the author's own machine without leaking credentials.
 pub fn send(
+    client: *std.http.Client,
     allocator: std.mem.Allocator,
     method: std.http.Method,
     url: []const u8,
     extra_headers: []const std.http.Header,
     body: ?[]const u8,
 ) !Response {
-    var client = std.http.Client{ .allocator = allocator };
-    defer client.deinit();
     var response_buffer: std.Io.Writer.Allocating = .init(allocator);
     defer response_buffer.deinit();
 
@@ -213,24 +219,24 @@ pub fn send(
     }
 }
 
-pub fn get(allocator: std.mem.Allocator, cfg: *const config.Config, path: []const u8) !Response {
-    return request(allocator, cfg, .GET, path, null);
+pub fn get(client: *std.http.Client, allocator: std.mem.Allocator, cfg: *const config.Config, path: []const u8) !Response {
+    return request(client, allocator, cfg, .GET, path, null);
 }
 
-pub fn post(allocator: std.mem.Allocator, cfg: *const config.Config, path: []const u8, body: []const u8) !Response {
-    return request(allocator, cfg, .POST, path, body);
+pub fn post(client: *std.http.Client, allocator: std.mem.Allocator, cfg: *const config.Config, path: []const u8, body: []const u8) !Response {
+    return request(client, allocator, cfg, .POST, path, body);
 }
 
-pub fn put(allocator: std.mem.Allocator, cfg: *const config.Config, path: []const u8, body: []const u8) !Response {
-    return request(allocator, cfg, .PUT, path, body);
+pub fn put(client: *std.http.Client, allocator: std.mem.Allocator, cfg: *const config.Config, path: []const u8, body: []const u8) !Response {
+    return request(client, allocator, cfg, .PUT, path, body);
 }
 
-pub fn patch(allocator: std.mem.Allocator, cfg: *const config.Config, path: []const u8, body: []const u8) !Response {
-    return request(allocator, cfg, .PATCH, path, body);
+pub fn patch(client: *std.http.Client, allocator: std.mem.Allocator, cfg: *const config.Config, path: []const u8, body: []const u8) !Response {
+    return request(client, allocator, cfg, .PATCH, path, body);
 }
 
-pub fn delete(allocator: std.mem.Allocator, cfg: *const config.Config, path: []const u8, body: ?[]const u8) !Response {
-    return request(allocator, cfg, .DELETE, path, body);
+pub fn delete(client: *std.http.Client, allocator: std.mem.Allocator, cfg: *const config.Config, path: []const u8, body: ?[]const u8) !Response {
+    return request(client, allocator, cfg, .DELETE, path, body);
 }
 
 test "body-capable methods receive an empty payload instead of panicking" {
@@ -272,4 +278,11 @@ test "HTTPS redirects cannot downgrade to HTTP" {
     const http = try std.Uri.parse("http://example.com/next");
     try std.testing.expect(isHttpsDowngrade(https, http));
     try std.testing.expect(!isHttpsDowngrade(http, https));
+}
+
+test "HTTP success includes precisely the 2xx range" {
+    for ([_]u16{ 199, 200, 204, 299, 300, 400, 500 }) |code| {
+        const response = Response{ .status = @enumFromInt(code), .body = &.{}, .allocator = std.testing.allocator };
+        try std.testing.expectEqual(code >= 200 and code < 300, response.isSuccess());
+    }
 }

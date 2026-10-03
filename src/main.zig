@@ -42,11 +42,14 @@ fn run() !void {
 
     var cfg = try config.load(allocator, parsed.get("token"), parsed.get("api-url"), parsed.get("management-key"));
     defer cfg.deinit();
+    var client = std.http.Client{ .allocator = std.heap.page_allocator };
+    defer client.deinit();
     const explicit_refresh = parsed.positional.len >= 2 and
         std.mem.eql(u8, parsed.positional[0], "token") and
         std.mem.eql(u8, parsed.positional[1], "refresh");
-    if (!explicit_refresh) try token_refresh.maybeRefresh(allocator, &cfg);
+    if (!explicit_refresh) try token_refresh.maybeRefresh(&client, allocator, &cfg);
     const context = Context{
+        .client = &client,
         .allocator = allocator,
         .args = &parsed,
         .cfg = &cfg,

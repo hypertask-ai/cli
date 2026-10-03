@@ -65,11 +65,6 @@ fn note(comptime format: []const u8, arguments: anytype) void {
     std.debug.print(format ++ "\n", arguments);
 }
 
-fn stringField(value: std.json.Value, name: []const u8) ?[]const u8 {
-    const field = if (value == .object) value.object.get(name) else null;
-    return if (field != null and field.? == .string) field.?.string else null;
-}
-
 /// Header values must survive an HTTP request unchanged. A recorded payload is
 /// server-written, but it is still remote data being spliced into a header.
 fn isHeaderSafe(value: []const u8) bool {
@@ -84,11 +79,7 @@ fn fetchSubscription(context: *const Context, agent_id: []const u8) !http.Respon
     try path.add("agent_id", agent_id);
     var response = try context.fetch(.GET, path.path(), null);
     errdefer response.deinit();
-    const code = @intFromEnum(response.status);
-    if (code < 200 or code >= 300) {
-        try output.print(response.body);
-        return error.ApiFailure;
-    }
+    try requireSuccess(context, &response);
     return response;
 }
 
@@ -155,13 +146,13 @@ pub fn selectRun(allocator: std.mem.Allocator, deliveries: []const std.json.Valu
         const payload = if (delivery == .object) delivery.object.get("payload") orelse continue else continue;
         if (payload != .object) continue;
         saw_payload = true;
-        const payload_run = stringField(payload, "runId") orelse continue;
+        const payload_run = json.stringField(payload, "runId") orelse continue;
         if (!std.mem.eql(u8, payload_run, run_id)) continue;
         if (index == deliveries.len - 1) oldest_matches = true;
 
-        const event = stringField(payload, "event") orelse
+        const event = json.stringField(payload, "event") orelse
             return fail("a recorded delivery has no event name", .{}, error.ApiFailure);
-        const delivery_id = stringField(payload, "deliveryId") orelse
+        const delivery_id = json.stringField(payload, "deliveryId") orelse
             return fail("a recorded delivery has no delivery id", .{}, error.ApiFailure);
         if (!isHeaderSafe(event) or !isHeaderSafe(delivery_id)) {
             return fail("a recorded delivery has an unusable event or delivery id", .{}, error.ApiFailure);
@@ -248,11 +239,11 @@ fn replay(context: *const Context) !void {
         };
         var status: i64 = 0;
         var error_text: ?[]const u8 = null;
-        if (http.send(context.allocator, .POST, handler_url, &headers, recorded.body)) |sent| {
+        if (http.send(context.client, context.allocator, .POST, handler_url, &headers, recorded.body)) |sent| {
             var delivered = sent;
             defer delivered.deinit();
             status = @intFromEnum(delivered.status);
-            if (status < 200 or status >= 300) failed = true;
+            if (!delivered.isSuccess()) failed = true;
         } else |err| {
             failed = true;
             error_text = @errorName(err);
@@ -355,7 +346,7 @@ fn readState(allocator: std.mem.Allocator, path: []const u8) !?std.json.Parsed(s
 fn subscriptionUrl(root: std.json.Value, allocator: std.mem.Allocator) !?[]u8 {
     const subscription = if (root == .object) root.object.get("subscription") else null;
     if (subscription == null or subscription.? != .object) return null;
-    const url = stringField(subscription.?, "url") orelse return null;
+    const url = json.stringField(subscription.?, "url") orelse return null;
     return try allocator.dupe(u8, url);
 }
 
@@ -379,8 +370,11 @@ fn postConfigure(context: *const Context, agent_id: []const u8, url: []const u8)
 fn configureUrl(context: *const Context, agent_id: []const u8, url: []const u8) !void {
     var response = try postConfigure(context, agent_id, url);
     defer response.deinit();
-    const code = @intFromEnum(response.status);
-    if (code < 200 or code >= 300 or output.responseReportsFailure(context.allocator, response.body)) {
+    try requireSuccess(context, &response);
+}
+
+fn requireSuccess(context: *const Context, response: *const http.Response) !void {
+    if (!response.isSuccess() or output.responseReportsFailure(context.allocator, response.body)) {
         try output.print(response.body);
         return error.ApiFailure;
     }
@@ -395,7 +389,7 @@ pub fn hostNotResolvedYet(allocator: std.mem.Allocator, status: u16, body: []con
     if (status != 400) return false;
     const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch return false;
     defer parsed.deinit();
-    const message = stringField(parsed.value, "error") orelse return false;
+    const message = json.stringField(parsed.value, "error") orelse return false;
     return std.mem.indexOf(u8, message, "could not be resolved") != null or
         std.mem.indexOf(u8, message, "did not resolve") != null;
 }
@@ -409,7 +403,7 @@ fn installUrl(context: *const Context, agent_id: []const u8, url: []const u8) !b
         var response = try postConfigure(context, agent_id, url);
         defer response.deinit();
         const code: u16 = @intFromEnum(response.status);
-        if (code >= 200 and code < 300 and !output.responseReportsFailure(context.allocator, response.body)) return true;
+        if (response.isSuccess() and !output.responseReportsFailure(context.allocator, response.body)) return true;
         if (!hostNotResolvedYet(context.allocator, code, response.body)) {
             try output.print(response.body);
             // A 4xx is the server refusing the URL, so it provably stored
@@ -465,7 +459,7 @@ fn restore(context: *const Context, agent_id: []const u8, path: []const u8, inst
 fn recoverStaleState(context: *const Context, agent_id: []const u8, path: []const u8) !void {
     const parsed = try readState(context.allocator, path) orelse return;
     defer parsed.deinit();
-    const installed = stringField(parsed.value, "installed") orelse {
+    const installed = json.stringField(parsed.value, "installed") orelse {
         std.fs.cwd().deleteFile(path) catch {};
         return;
     };
