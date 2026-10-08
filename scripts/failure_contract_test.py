@@ -20,6 +20,8 @@ def run(*args: str, api_url: str | None = None) -> subprocess.CompletedProcess[s
     env = os.environ.copy()
     with tempfile.TemporaryDirectory() as home:
         env["HOME"] = home
+        # These writes target only the loopback fixture, not a Hypertask board.
+        env.update(VCC_HELPER="0", VCC_HELPER_PROC_ROOT=str(Path(home) / "no-proc"))
         env.pop("HT_AGENT_TOKEN", None)
         env.pop("HT_TOKEN", None)
         env.pop("HYPERTASKS_JWT_TOKEN", None)

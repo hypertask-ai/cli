@@ -279,6 +279,8 @@ fn applyCommonFields(context: *const Context, body: *json.Object, project_id: ?i
 }
 
 fn create(context: *const Context) !void {
+    // Refuse before description notices or preparatory lookups.
+    try @import("../helper_guard.zig").check(context.allocator, .POST, "/mcp/tasks/create");
     const project = try common.positiveInt(try context.args.require("project"), "project");
     var body = try json.Object.init(context.allocator);
     defer body.deinit();
@@ -302,6 +304,7 @@ fn create(context: *const Context) !void {
 }
 
 fn update(context: *const Context) !void {
+    try @import("../helper_guard.zig").check(context.allocator, .POST, "/mcp/tasks/update");
     const ticket = try context.args.requirePositional(2, "ticket-or-task-id");
     var resolved_task: ?resolve.Task = null;
     var body = try identifierBody(context, ticket, &resolved_task);

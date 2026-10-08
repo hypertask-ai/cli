@@ -41,6 +41,8 @@ def run(
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["HOME"] = home
+    # These writes target only the loopback fixture, not a Hypertask board.
+    env.update(VCC_HELPER="0", VCC_HELPER_PROC_ROOT=str(Path(home) / "no-proc"))
     names = ["HT_TOKEN", "HYPERTASKS_JWT_TOKEN", "HYPERTASKS_API_URL"]
     if strip_identity:
         # HTPR-6313: agent identity must come only from the caller so the
@@ -398,8 +400,8 @@ def main() -> None:
             ], f"cross-board move requests were {requests}")
 
             # HTPR-6313: an agent command run without any agent identity must
-            # fail loudly — non-zero exit, error on stderr, nothing on stdout,
-            # no network call — so a caller checking $? never sees success.
+            # fail loudly, non-zero exit, error on stderr, nothing on stdout,
+            # no network call, so a caller checking $? never sees success.
             identity_args = ("agent", "new-tickets", "--project", "4874"), ("agent", "poll", "--project", "4874")
             with Handler.lock:
                 before = len(Handler.requests)

@@ -18,12 +18,13 @@ JSON is the default output. Pass `--human` for the minimal human-readable mode.
 
 ## Failure contract
 
-A command exits `0` only when it did what its arguments requested. Every failure prints what happened and one `Next:` action. Invalid finite values also list the accepted values.
+A command exits `0` only when it did what its arguments requested. Every failure except a helper write refusal prints what happened and one `Next:` action. Invalid finite values also list the accepted values.
 
 Exit codes are stable:
 
 - `1`: unknown command or local runtime failure
 - `2`: missing or invalid command input
+- `3`: helpers are refused board writes; report changes to your runner instead
 - `4`: server rejection, permission failure, or missing server-side item
 
 Scripts may use the exit code category, while people and agents should follow the `Next:` line.

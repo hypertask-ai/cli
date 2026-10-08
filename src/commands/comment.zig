@@ -25,6 +25,8 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
         return context.print(body);
     }
     if (std.mem.eql(u8, subcommand, "add")) {
+        // Refuse before normalization notices or optional AI generation.
+        try @import("../helper_guard.zig").check(context.allocator, .POST, "/mcp/comments");
         if (context.args.get("improve-command") != null and !context.args.has("improve")) return error.InvalidOptions;
         var text = if (context.args.get("file")) |path| try common.readFile(context.allocator, path, 1024 * 1024) else context.args.get("text") orelse context.args.get("body") orelse return error.MissingOption;
         const ticket = try context.args.requirePositional(2, "ticket-or-task-id");
