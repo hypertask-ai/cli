@@ -73,6 +73,8 @@ def main():
             large.write_bytes(b"x" * (LIMIT + 1))
             missing = home / "missing.png"
             env = os.environ.copy()
+            # These writes target only the loopback fixture, not a Hypertask board.
+            env.update(VCC_HELPER="0", VCC_HELPER_PROC_ROOT=str(home / "no-proc"))
             for name in ("HT_TOKEN", "HT_AGENT_TOKEN", "HYPERTASKS_JWT_TOKEN", "HYPERTASKS_API_URL"):
                 env.pop(name, None)
             env.update(HOME=str(home), HT_TOKEN="test-token", HYPERTASKS_API_URL=f"http://127.0.0.1:{server.server_port}")

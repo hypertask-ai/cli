@@ -76,6 +76,34 @@ fn expectDispatchErrorWithResponses(argv: []const []const u8, responses: []const
     try std.testing.expectError(expected, router.dispatch(&context));
 }
 
+test "helper write command refuses before HTTP and read command reaches HTTP" {
+    const helper_guard = @import("helper_guard.zig");
+    helper_guard.testing.helper = true;
+    defer helper_guard.testing.helper = null;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    var cfg = config.Config{ .allocator = allocator, .token = "test-token", .api_url = "not-a-url" };
+    defer cfg.deinit();
+    var client = std.http.Client{ .allocator = allocator };
+    defer client.deinit();
+    var write_args = try args.parse(allocator, &.{ "comment", "add", "TEST-1", "--text", "blocked" });
+    defer write_args.deinit();
+    var context = command_context.Context{
+        .client = &client,
+        .allocator = allocator,
+        .args = &write_args,
+        .cfg = &cfg,
+        .json = true,
+    };
+    try std.testing.expectError(error.HelperWriteForbidden, router.dispatch(&context));
+    var read_args = try args.parse(allocator, &.{ "task", "list", "--project", "15" });
+    defer read_args.deinit();
+    context.args = &read_args;
+    try std.testing.expectError(error.UnexpectedCharacter, router.dispatch(&context));
+    try std.testing.expectError(error.HelperWriteForbidden, @import("http.zig").send(&client, allocator, .POST, "not-a-url", &.{}, "{}"));
+}
+
 test "time log forwards optional note date and timezone fields" {
     try expectRequest(
         &.{ "--json", "time", "log", "RINT-86", "30", "--date", "2026-09-30", "--note", "x", "--timezone-offset-minutes", "-60" },

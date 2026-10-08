@@ -1,5 +1,6 @@
 const std = @import("std");
 const config = @import("config.zig");
+const helper_guard = @import("helper_guard.zig");
 
 pub const Response = struct {
     status: std.http.Status,
@@ -68,6 +69,7 @@ pub fn requestWithToken(
     path_and_query: []const u8,
     body: ?[]const u8,
 ) !Response {
+    try helper_guard.check(allocator, method, path_and_query);
     const url = try std.fmt.allocPrint(allocator, "{s}{s}", .{ api_url, path_and_query });
     defer allocator.free(url);
     const authorization = try std.fmt.allocPrint(allocator, "Bearer {s}", .{token});
@@ -120,6 +122,7 @@ pub fn send(
     extra_headers: []const std.http.Header,
     body: ?[]const u8,
 ) !Response {
+    try helper_guard.checkUrl(allocator, method, url);
     var response_buffer: std.Io.Writer.Allocating = .init(allocator);
     defer response_buffer.deinit();
 

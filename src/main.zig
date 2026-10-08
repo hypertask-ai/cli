@@ -61,6 +61,7 @@ fn run() !void {
 test {
     _ = @import("args.zig");
     _ = @import("http.zig");
+    _ = @import("helper_guard.zig");
     _ = @import("improve_command.zig");
     _ = @import("json_util.zig");
     _ = @import("option_validate.zig");
