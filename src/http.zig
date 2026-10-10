@@ -193,25 +193,38 @@ pub fn send(
             const content_encoding = response.head.content_encoding;
             const expected_length = response.head.content_length;
             const decompress_buffer: []u8 = switch (content_encoding) {
-                .identity => &.{},
+                // Zig 0.15.2's buffered flate decoder overruns its window on
+                // fixed-Huffman matches. Decode directly into the growing writer.
+                .identity, .deflate, .gzip => &.{},
                 .zstd => try allocator.alloc(u8, std.compress.zstd.default_window_len),
-                .deflate, .gzip => try allocator.alloc(u8, std.compress.flate.max_window_len),
                 .compress => return error.UnsupportedCompressionMethod,
             };
             defer if (decompress_buffer.len != 0) allocator.free(decompress_buffer);
             var transfer_buffer: [64]u8 = undefined;
-            var decompress: std.http.Decompress = undefined;
-            const reader = response.readerDecompressing(&transfer_buffer, &decompress, decompress_buffer);
+            const reader = response.reader(&transfer_buffer);
             const written = reader.streamRemaining(&response_buffer.writer) catch |err| switch (err) {
                 error.ReadFailed => return response.bodyErr() orelse error.HttpTransferFailed,
                 else => |e| return e,
             };
-            if (content_encoding == .identity) {
-                if (expected_length) |expected| if (written < expected) return error.HttpRequestTruncated;
-            }
+            if (expected_length) |expected| if (written < expected) return error.HttpRequestTruncated;
+
+            var decoded_buffer: std.Io.Writer.Allocating = .init(allocator);
+            defer decoded_buffer.deinit();
+            const response_body = if (content_encoding == .identity) response_buffer.written() else decoded: {
+                // Flate can probe EOF more than once; Zig's Content-Length
+                // reader changes union state on the first EOF and cannot repeat it.
+                var input: std.Io.Reader = .fixed(response_buffer.written());
+                var decompress: std.http.Decompress = undefined;
+                const decoder = decompress.init(&input, decompress_buffer, content_encoding);
+                _ = decoder.streamRemaining(&decoded_buffer.writer) catch |err| switch (err) {
+                    error.ReadFailed => return error.HttpTransferFailed,
+                    else => |e| return e,
+                };
+                break :decoded decoded_buffer.written();
+            };
             return .{
                 .status = response.head.status,
-                .body = try allocator.dupe(u8, response_buffer.written()),
+                .body = try allocator.dupe(u8, response_body),
                 .allocator = allocator,
             };
         };
