@@ -42,6 +42,10 @@ pub fn build(b: *std.Build) void {
     output_parity_test_step.dependOn(&output_parity_tests.step);
     test_step.dependOn(&output_parity_tests.step);
 
+    const paged_list_tests = b.addSystemCommand(&.{ python, "scripts/paged_list_test.py" });
+    paged_list_tests.addArtifactArg(exe);
+    test_step.dependOn(&paged_list_tests.step);
+
     const failure_contract_tests = b.addSystemCommand(&.{ python, "scripts/failure_contract_test.py" });
     failure_contract_tests.addArtifactArg(exe);
     test_step.dependOn(&failure_contract_tests.step);
