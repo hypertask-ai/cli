@@ -221,21 +221,7 @@ fn pollTicket(context: *const Context, seen: *std.StringHashMap(void), result: *
         const agent = json.objectField(comment, "agent");
         const ours = if (agent) |value| if (json.stringField(value, "id")) |id_value| std.mem.eql(u8, id_value, agent_id) else false else false;
         if (json.arrayField(comment, "reactions")) |reactions| {
-            for (reactions) |reaction| {
-                const reaction_id = json.integerField(reaction, "id", true) orelse continue;
-                const reaction_key = try state_store.stateKey(context.allocator, ticket, "r:", reaction_id);
-                defer context.allocator.free(reaction_key);
-                const already_seen = reaction_id <= previous_cursors.reaction or state_store.seenContains(seen, ticket, reaction_key, reaction_id, true);
-                cursors.reaction = @max(cursors.reaction, reaction_id);
-                if (already_seen) continue;
-                if (ours) {
-                    const emoji = try boundedText(context.allocator, json.stringField(reaction, "emoji") orelse "", 32);
-                    defer context.allocator.free(emoji);
-                    const html = try boundedText(context.allocator, json.stringField(comment, "text") orelse "", 160);
-                    defer context.allocator.free(html);
-                    try result.writer(context.allocator).print("REACTION {s} {s} on your comment: {s}\n", .{ ticket, emoji, html });
-                }
-            }
+            for (reactions) |reaction| try pollReaction(context.allocator, seen, result, ticket, ours, comment, reaction);
         }
 
         const key = try state_store.stateKey(context.allocator, ticket, "", id);
@@ -260,6 +246,57 @@ fn pollTicket(context: *const Context, seen: *std.StringHashMap(void), result: *
         });
     }
     try state_store.compactTicketState(context.allocator, seen, ticket, cursors);
+}
+
+/// Reaction ids are UUID strings, so they are tracked by exact text in the seen set (no numeric cursor).
+/// Reactions by agents (`isAgent: true`) are never reported: only people's reactions reach the agent.
+fn pollReaction(allocator: std.mem.Allocator, seen: *std.StringHashMap(void), result: *std.ArrayListUnmanaged(u8), ticket: []const u8, ours: bool, comment: std.json.Value, reaction: std.json.Value) !void {
+    var id_buffer: [32]u8 = undefined;
+    const reaction_id = json.stringField(reaction, "id") orelse blk: {
+        const number = json.integerField(reaction, "id", false) orelse return;
+        break :blk std.fmt.bufPrint(&id_buffer, "{d}", .{number}) catch return;
+    };
+    if (reaction_id.len == 0) return;
+    const reaction_key = try std.fmt.allocPrint(allocator, "{s}:r:{s}", .{ ticket, reaction_id });
+    defer allocator.free(reaction_key);
+    if (seen.contains(reaction_key)) return;
+    try state_store.putLine(allocator, seen, reaction_key);
+    if (!ours) return;
+    if (reaction == .object) {
+        if (reaction.object.get("isAgent")) |flag| if (flag == .bool and flag.bool) return;
+    }
+    const emoji = try boundedText(allocator, json.stringField(reaction, "emoji") orelse "", 32);
+    defer allocator.free(emoji);
+    const html = try boundedText(allocator, json.stringField(comment, "text") orelse "", 160);
+    defer allocator.free(html);
+    try result.writer(allocator).print("REACTION {s} {s} on your comment: {s}\n", .{ ticket, emoji, html });
+}
+
+test "agent inbox reads text reaction ids and skips agent reactions" {
+    const allocator = std.testing.allocator;
+    var seen = std.StringHashMap(void).init(allocator);
+    defer state_store.deinitLineSet(allocator, &seen);
+    var result: std.ArrayListUnmanaged(u8) = .{};
+    defer result.deinit(allocator);
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator,
+        \\{"text":"<p>done</p>","reactions":[
+        \\{"id":"0b8f3c1e-1111-4222-8333-444455556666","emoji":"👍","isAgent":false},
+        \\{"id":"9c1d2e3f-aaaa-4bbb-8ccc-ddddeeeeffff","emoji":"🤖","isAgent":true,"agentName":"Dev 2"}]}
+    , .{});
+    defer parsed.deinit();
+    const reactions = json.arrayField(parsed.value, "reactions").?;
+    for (reactions) |reaction| try pollReaction(allocator, &seen, &result, "HTPR-1", true, parsed.value, reaction);
+    try std.testing.expect(std.mem.indexOf(u8, result.items, "👍") != null);
+    try std.testing.expect(std.mem.indexOf(u8, result.items, "🤖") == null);
+    // Seen again: nothing new is reported.
+    const before = result.items.len;
+    for (reactions) |reaction| try pollReaction(allocator, &seen, &result, "HTPR-1", true, parsed.value, reaction);
+    try std.testing.expectEqual(before, result.items.len);
+    // Not our comment: tracked but never reported.
+    var other: std.ArrayListUnmanaged(u8) = .{};
+    defer other.deinit(allocator);
+    try pollReaction(allocator, &seen, &other, "HTPR-2", false, parsed.value, reactions[0]);
+    try std.testing.expectEqual(@as(usize, 0), other.items.len);
 }
 
 fn newTickets(context: *const Context) !void {
