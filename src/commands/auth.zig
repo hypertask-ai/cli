@@ -5,7 +5,7 @@ const json = @import("../json_util.zig");
 const output = @import("../output.zig");
 
 pub fn login(context: *const Context) !void {
-    const login_token = context.args.get("token") orelse return output.invalidOptions("browser login is unavailable in hypertask; use `hypertask login --token <jwt>`");
+    const login_token = context.args.get("token") orelse return output.invalidOptions("Create or open an agent at https://app.hypertask.ai/agents, copy its token, then run: hypertask login --token <token>");
     try config.saveToken(context.cfg, login_token, context.args.get("api-url") orelse context.cfg.api_url);
     try context.print("{\"success\":true,\"saved\":true,\"configPath\":\"~/.hypertask/config.json\"}");
 }

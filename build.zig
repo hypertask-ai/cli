@@ -57,4 +57,8 @@ pub fn build(b: *std.Build) void {
     const helper_guard_tests = b.addSystemCommand(&.{ python, "scripts/helper_guard_test.py" });
     helper_guard_tests.addArtifactArg(exe);
     test_step.dependOn(&helper_guard_tests.step);
+
+    const no_login_tests = b.addSystemCommand(&.{ python, "scripts/no_login_discovery_test.py" });
+    no_login_tests.addArtifactArg(exe);
+    test_step.dependOn(&no_login_tests.step);
 }

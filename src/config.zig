@@ -29,7 +29,7 @@ pub const Config = struct {
 
     pub fn requireToken(self: *const Config) !void {
         if (self.token.len == 0) {
-            std.debug.print("no token: run `hypertask login --token <jwt>` or pass --token / HT_TOKEN\n", .{});
+            std.debug.print("no token: " ++ token_hint ++ ", or pass --token / HT_TOKEN\n", .{});
             return error.NoToken;
         }
     }
@@ -56,7 +56,19 @@ const environment_token_names = [_][]const u8{
     "HT_TOKEN",
 };
 
+pub const token_hint = "create or open an agent at https://app.hypertask.ai/agents, copy its token, then run: hypertask login --token <token>";
+
 pub fn load(allocator: std.mem.Allocator, token_override: ?[]const u8, api_url_override: ?[]const u8, management_override: ?[]const u8) !Config {
+    const result = try loadAllowingEmptyToken(allocator, token_override, api_url_override, management_override);
+    if (result.token.len == 0) {
+        var empty = result;
+        empty.deinit();
+        return error.NoToken;
+    }
+    return result;
+}
+
+pub fn loadAllowingEmptyToken(allocator: std.mem.Allocator, token_override: ?[]const u8, api_url_override: ?[]const u8, management_override: ?[]const u8) !Config {
     var result = Config{ .allocator = allocator };
     errdefer result.deinit();
 
@@ -86,7 +98,6 @@ pub fn load(allocator: std.mem.Allocator, token_override: ?[]const u8, api_url_o
         const trimmed = result.api_url[0 .. result.api_url.len - 1];
         try setOwned(allocator, &result.owned_api_url, &result.api_url, trimmed);
     }
-    if (result.token.len == 0) return error.NoToken;
     return result;
 }
 
