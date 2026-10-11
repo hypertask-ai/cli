@@ -1,5 +1,6 @@
 const std = @import("std");
 const http = @import("http.zig");
+const config = @import("config.zig");
 
 pub fn print(body: []const u8) !void {
     const stdout = std.fs.File.stdout();
@@ -124,7 +125,7 @@ fn nextStep(err: anyerror) []const u8 {
         error.SectionNotFound => "retry with one of the sections listed above.",
         error.LabelNotFound => "retry with one of the labels listed above.",
         error.AmbiguousTaskIdentifier => "retry with the full ticket key or internal id described above.",
-        error.NoToken => "run `hypertask login --token <jwt>`.",
+        error.NoToken => config.token_hint ++ ".",
         error.MissingAgentIdentity => "pass --agent-id or set HT_AGENT_ID, then retry.",
         error.MissingWebhookSecret => "set the webhook secret environment variable named above, then retry.",
         error.ApiAuthentication => "ask the project owner to add this token.",

@@ -40,7 +40,12 @@ fn run() !void {
     try router.validateCommandPath(allocator, parsed.positional, !parsed.has("help"));
     if (parsed.has("help")) return router.printHelp(allocator, parsed.positional);
 
-    var cfg = try config.load(allocator, parsed.get("token"), parsed.get("api-url"), parsed.get("management-key"));
+    const root = parsed.positional[0];
+    const needs_no_token = std.mem.eql(u8, root, "capabilities") or std.mem.eql(u8, root, "commands") or std.mem.eql(u8, root, "login");
+    var cfg = if (needs_no_token)
+        try config.loadAllowingEmptyToken(allocator, parsed.get("token"), parsed.get("api-url"), parsed.get("management-key"))
+    else
+        try config.load(allocator, parsed.get("token"), parsed.get("api-url"), parsed.get("management-key"));
     defer cfg.deinit();
     var client = std.http.Client{ .allocator = std.heap.page_allocator };
     defer client.deinit();
