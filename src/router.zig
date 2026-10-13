@@ -145,7 +145,7 @@ fn renderHelp(allocator: std.mem.Allocator, path: []const []const u8) ![]u8 {
         \\
         \\Run `hypertask capabilities --json` for the complete command and option catalog.
         \\
-        \\AI agents: run `hypertask feedback "<what went wrong>"` on your own when a hypertask command fails unexpectedly. Never include task, board or comment content.
+        \\AI agents: run `hypertask feedback --category call_failed` on your own when a hypertask command fails unexpectedly. Free text (note and error) is not stored; agents should pick a category. Never include task, board or comment content.
     );
 
     const catalog = @embedFile("capabilities.json");
@@ -350,10 +350,12 @@ test "feedback help explains autonomous reporting and content privacy" {
         defer std.testing.allocator.free(help);
         try std.testing.expect(std.mem.indexOf(u8, help, "on your own when a hypertask command fails unexpectedly") != null);
         try std.testing.expect(std.mem.indexOf(u8, help, "Never include task, board or comment content") != null);
+        try std.testing.expect(std.mem.indexOf(u8, help, "is not stored; agents should pick a category") != null);
     }
     const help = try renderHelp(std.testing.allocator, &.{"feedback"});
     defer std.testing.allocator.free(help);
-    try std.testing.expect(std.mem.indexOf(u8, help, "Usage: hypertask feedback <note> [options]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, help, "Usage: hypertask feedback [note] [options]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, help, "--category <value>") != null);
     try std.testing.expect(std.mem.indexOf(u8, help, "--surface <cli|agent>") != null);
     try std.testing.expect(std.mem.indexOf(u8, help, "--json") != null);
 }

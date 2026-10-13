@@ -56,15 +56,24 @@ def main() -> None:
             assert filed.returncode == 0, filed.stderr
             assert filed.stdout == "Filed TEST-1: https://example.test/1\n", filed.stdout
             assert Handler.requests == [("/api/mcp/feedback", "Bearer test-token", "application/json", {
-                "surface": "cli", "client": "hypertask-cli", "note": "Unexpected failure",
+                "surface": "cli", "client": "hypertask-cli", "category": "other", "note": "Unexpected failure",
             })], Handler.requests
+
+            categories = ("call_failed", "empty_result", "unexpected_result", "auth_failed", "slow",
+                          "user_reported_broken", "other")
+            for flags, category in [((), "other"), *((('--category', value), value) for value in categories)]:
+                category_only = run("feedback", *flags)
+                assert category_only.returncode == 0, category_only.stderr
+                assert Handler.requests[-1][3] == {
+                    "surface": "cli", "client": "hypertask-cli", "category": category,
+                }, Handler.requests[-1]
 
             Handler.response = {**RESULT, "deduped": True, "count": 3}
             deduped = run("feedback", "Unexpected failure")
             assert deduped.returncode == 0, deduped.stderr
             assert deduped.stdout == "Added to TEST-1 (seen 3 times): https://example.test/1\n", deduped.stdout
 
-            raw = run("feedback", 'Failed "again"\n', "--tool", "task get", "--status", "503",
+            raw = run("feedback", 'Failed "again"\n', "--category", "call_failed", "--tool", "task get", "--status", "503",
                       "--error-code", "upstream-error", "--error", "Unavailable", "--surface", "agent", "--json")
             assert raw.returncode == 0, raw.stderr
             assert raw.stdout == json.dumps(Handler.response) + "\n", raw.stdout
@@ -72,9 +81,24 @@ def main() -> None:
             assert raw_with_human.returncode == 0, raw_with_human.stderr
             assert raw_with_human.stdout == json.dumps(Handler.response) + "\n", raw_with_human.stdout
             assert Handler.requests[-2][3] == {
-                "surface": "agent", "client": "hypertask-cli", "tool": "task get", "status": 503,
+                "surface": "agent", "client": "hypertask-cli", "category": "call_failed", "tool": "task get", "status": 503,
                 "errorCode": "upstream-error", "error": "Unavailable", "note": 'Failed "again"\n',
             }, Handler.requests[-2]
+
+            Handler.status = 400
+            for key, message in (
+                ("error", "tool must not contain credentials"),
+                ("error", "client must not contain credentials"),
+                ("error", "errorCode must not contain credentials"),
+                ("message", "Invalid feedback metadata"),
+            ):
+                Handler.response = {"success": False, key: message}
+                for flags in ((), ("--json",)):
+                    rejected = run("feedback", "--category", "call_failed", *flags)
+                    assert rejected.returncode == 2, (rejected.returncode, rejected.stderr)
+                    assert f"hypertask feedback: {message}\n" in rejected.stderr, rejected.stderr
+                    assert json.loads(rejected.stdout) == Handler.response, rejected.stdout
+                    assert "Filed" not in rejected.stdout and "Added to" not in rejected.stdout
 
             for status, message in ((404, "Feedback is not enabled for this account"),
                                     (429, "Feedback rate limit reached, try again later")):
@@ -99,7 +123,9 @@ def main() -> None:
 
             requests_before = len(Handler.requests)
             for args, message in (
-                (("feedback",), "required argument: note"),
+                (("feedback", "--category"), "missing value for --category"),
+                *(((("feedback", "--category", value), "valid categories:")
+                  for value in ("", "broken", "CALL_FAILED", "call-failed"))),
                 (("feedback", "failure", "extra"), "unexpected argument: extra"),
                 (("feedback", "failure", "--tool"), "missing value for --tool"),
                 (("feedback", "failure", "--surface", "web"), "valid surfaces: cli, agent"),
@@ -124,13 +150,18 @@ def main() -> None:
                 assert help_output.returncode == 0, help_output.stderr
                 assert "on your own when a hypertask command fails unexpectedly" in help_output.stdout
                 assert "Never include task, board or comment content" in help_output.stdout
+                assert "Free text (note and error) is not stored; agents should pick a category" in help_output.stdout
+                if args:
+                    assert "Usage: hypertask feedback [note] [options]" in help_output.stdout
+                    assert all(category in help_output.stdout for category in categories)
             catalog = run("capabilities", "--json")
             assert catalog.returncode == 0, catalog.stderr
             feedback = next(command for command in json.loads(catalog.stdout)["commands"] if command["name"] == "feedback")
             assert {option["flags"] for option in feedback["options"]} == {
-                "--tool <command name>", "--status <http status>", "--error-code <slug>",
+                "--category <value>", "--tool <command name>", "--status <http status>", "--error-code <slug>",
                 "--error <message>", "--surface <cli|agent>", "--json",
             }, feedback
+            assert feedback["arguments"] == [{"name": "note", "required": False, "variadic": False}], feedback
     finally:
         server.shutdown()
         server.server_close()
