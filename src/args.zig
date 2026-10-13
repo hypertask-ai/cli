@@ -58,6 +58,14 @@ pub const Parsed = struct {
         return values.toOwnedSlice(allocator);
     }
 
+    /// True when `name` was given as a bare switch, without a value.
+    pub fn hasFlag(self: *const Parsed, name: []const u8) bool {
+        for (self.options) |option| {
+            if (std.mem.eql(u8, option.name, name) and option.value == null) return true;
+        }
+        return false;
+    }
+
     pub fn require(self: *const Parsed, name: []const u8) ![]const u8 {
         return self.get(name) orelse return missingOption(name);
     }
@@ -106,6 +114,13 @@ pub fn parse(allocator: std.mem.Allocator, argv: []const []const u8) !Parsed {
         }
 
         const name = canonicalName(raw);
+        // `pages restore` and `task description-restore` take `--version <id>`;
+        // a numeric value after the long flag is that id, not the global switch.
+        if (std.mem.eql(u8, raw, "version") and i + 1 < argv.len and isPositiveInteger(argv[i + 1])) {
+            i += 1;
+            try options.append(allocator, .{ .name = name, .value = argv[i] });
+            continue;
+        }
         if (isBoolean(name)) {
             try options.append(allocator, .{ .name = name, .value = null });
             continue;
@@ -130,6 +145,12 @@ pub fn parse(allocator: std.mem.Allocator, argv: []const []const u8) !Parsed {
         .allocator = allocator,
         .missing_value = missing_value,
     };
+}
+
+fn isPositiveInteger(value: []const u8) bool {
+    if (value.len == 0) return false;
+    for (value) |byte| if (!std.ascii.isDigit(byte)) return false;
+    return true;
 }
 
 fn isNegativeInteger(value: []const u8) bool {
