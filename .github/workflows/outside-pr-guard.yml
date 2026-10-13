@@ -1,0 +1,115 @@
+# pull_request_target is safe here: this workflow never checks out PR code.
+# It runs only this trusted script and reads PR metadata through the GitHub API.
+name: Outside PR guard
+
+on:
+  pull_request_target:
+    types: [opened, reopened]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: PR number to inspect (dry run only)
+        type: string
+        required: false
+      simulate_author:
+        description: Author login to simulate instead of fetching a PR
+        type: string
+        required: false
+      simulate_fork:
+        description: Simulate a fork rather than a same-repo branch
+        type: boolean
+        default: false
+        required: false
+
+concurrency:
+  group: outside-pr-guard-${{ github.event.pull_request.number || inputs.pr_number || inputs.simulate_author || github.run_id }}
+  cancel-in-progress: false
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  outside-pr-guard:
+    name: outside-pr-guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7
+        with:
+          script: |
+            const marker = '<!-- outside-pr-guard -->';
+
+            async function run() {
+              const { owner, repo } = context.repo;
+              const base = `${owner}/${repo}`;
+              const dispatch = context.eventName === 'workflow_dispatch';
+              const inputs = context.payload.inputs || {};
+              let pr;
+
+              if (dispatch && inputs.simulate_author) {
+                const author = inputs.simulate_author;
+                const fork = inputs.simulate_fork === true || inputs.simulate_fork === 'true';
+                pr = {
+                  number: 0,
+                  user: { login: author, type: 'User' },
+                  head: { repo: { full_name: fork ? `${author}/${repo}` : base } },
+                  base: { repo: { full_name: base } },
+                };
+              } else {
+                const prNumber = context.payload.pull_request?.number || inputs.pr_number;
+                if (!prNumber) {
+                  core.setFailed('Provide pr_number or simulate_author to inspect a PR.');
+                  return;
+                }
+                // Read fresh metadata, not the potentially stale webhook payload.
+                ({ data: pr } = await github.rest.pulls.get({
+                  owner, repo, pull_number: Number(prNumber),
+                }));
+              }
+
+              const login = pr.user.login;
+              const head = pr.head.repo?.full_name || '(deleted fork)';
+              let trusted = false;
+              let reason;
+              if (head === base) {
+                trusted = true;
+                reason = 'same-repo branch';
+              } else if (pr.user.type === 'Bot' && login === 'dependabot[bot]') {
+                trusted = true;
+                reason = 'Dependabot bot';
+              } else {
+                try {
+                  const { data: { permission } } = await github.rest.repos.getCollaboratorPermissionLevel({
+                    owner, repo, username: login,
+                  });
+                  trusted = ['admin', 'maintain', 'write'].includes(permission);
+                  reason = `author has ${permission || 'none'} access`;
+                } catch (err) {
+                  if (err.status !== 404) throw err;
+                  reason = 'author is not a collaborator';
+                }
+              }
+
+              const decision = `PR #${pr.number} by ${login} from ${head}: ${trusted ? 'trusted' : 'outside'} (${reason})`;
+              core.info(decision);
+              await core.summary.addRaw(decision).write();
+              if (trusted || context.eventName !== 'pull_request_target') return;
+
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner, repo, issue_number: pr.number,
+              });
+              if (!comments.some((comment) => (comment.body || '').includes(marker))) {
+                await github.rest.issues.createComment({
+                  owner, repo, issue_number: pr.number,
+                  body: `${marker}\n\nThanks for taking the time to contribute! This project does not accept pull requests from outside the team. Please [open an issue describing the bug or idea](https://github.com/${base}/issues/new) and the team will pick it up and do the code work. See [CONTRIBUTING.md](https://github.com/${base}/blob/HEAD/CONTRIBUTING.md) for more information.`,
+                });
+              }
+              await github.rest.pulls.update({ owner, repo, pull_number: pr.number, state: 'closed' });
+            }
+
+            try {
+              await run();
+            } catch (err) {
+              core.setFailed(`outside-pr-guard failed: ${err.message}`);
+            }

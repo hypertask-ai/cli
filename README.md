@@ -252,3 +252,7 @@ Write parity is opt-in. It creates one clearly named throwaway task per implemen
 ```bash
 python3 scripts/parity_test.py --write --token "$HYPERTASKS_JWT_TOKEN"
 ```
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for bug reports, ideas, and our contribution policy.
