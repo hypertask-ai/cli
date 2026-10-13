@@ -972,3 +972,33 @@ test "update reuses ticket resolution for section and labels" {
         "{\"ticket_number\":\"HTPR-6805\",\"sectionId\":2,\"labels\":[\"cli-label-id\"]}",
     );
 }
+
+test "feedback posts only explicit metadata and note" {
+    const response = "{\"success\":true,\"ticketNumber\":\"TEST-1\",\"url\":\"https://example.test/1\",\"deduped\":false,\"count\":1}";
+    try expectRequestCountWithResponses(
+        &.{ "feedback", "Unexpected failure" },
+        &.{response},
+        1,
+        .POST,
+        "/mcp/feedback",
+        "{\"surface\":\"cli\",\"client\":\"hypertask-cli\",\"note\":\"Unexpected failure\"}",
+    );
+    try expectRequestCountWithResponses(
+        &.{ "feedback", "Failed \"again\"\n", "--tool", "task get", "--status", "503", "--error-code", "upstream-error", "--error", "Unavailable", "--surface", "agent", "--json" },
+        &.{response},
+        1,
+        .POST,
+        "/mcp/feedback",
+        "{\"surface\":\"agent\",\"client\":\"hypertask-cli\",\"tool\":\"task get\",\"status\":503,\"errorCode\":\"upstream-error\",\"error\":\"Unavailable\",\"note\":\"Failed \\\"again\\\"\\n\"}",
+    );
+}
+
+test "feedback rejects missing note invalid surface and invalid status" {
+    try expectDispatchError(error.MissingArgument, &.{"feedback"});
+    try expectDispatchError(error.InvalidOptions, &.{ "feedback", "failure", "--surface", "web" });
+    for ([_][]const u8{ "abc", "99", "600", "-1" }) |status| {
+        try expectDispatchError(error.InvalidInteger, &.{ "feedback", "failure", "--status", status });
+    }
+    try expectDispatchErrorWithResponses(&.{ "feedback", "failure" }, &.{"{\"success\":false,\"error\":\"not filed\"}"}, error.CommandFailed);
+    try expectDispatchErrorWithResponses(&.{ "feedback", "failure" }, &.{"{}"}, error.InvalidResponse);
+}

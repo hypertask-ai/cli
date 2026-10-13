@@ -257,6 +257,7 @@ def architecture() -> None:
         "src/commands/project.zig",
         "src/commands/section.zig",
         "src/commands/fields.zig",
+        "src/commands/feedback.zig",
         "src/commands/task.zig",
         "src/commands/draft.zig",
         "src/commands/comment.zig",
