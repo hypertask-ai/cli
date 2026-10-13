@@ -359,6 +359,22 @@ test "project update sends the new title" {
     );
 }
 
+test "pages restore takes --version <id> instead of the global version switch" {
+    try expectRequest(
+        &.{ "pages", "restore", "642", "--version", "3427" },
+        .POST,
+        "/mcp/pages/restore",
+        "{\"id\":642,\"version_id\":3427}",
+    );
+    try expectRequest(
+        &.{ "pages", "restore", "--version", "3427", "642" },
+        .POST,
+        "/mcp/pages/restore",
+        "{\"id\":642,\"version_id\":3427}",
+    );
+    try expectDispatchError(error.MissingOption, &.{ "pages", "restore", "642" });
+}
+
 test "project delete requires explicit confirmation" {
     try expectDispatchError(error.ConfirmationRequired, &.{ "projects", "delete", "15" });
 }
