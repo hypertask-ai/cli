@@ -5,9 +5,10 @@ const Context = @import("command_context.zig").Context;
 const option_validate = @import("option_validate.zig");
 const output = @import("output.zig");
 const router = @import("router.zig");
+const error_reports = @import("error_reports.zig");
 const token_refresh = @import("token_refresh.zig");
 
-const version = "0.2.17 (zig)";
+const version = "0.2.18 (zig)";
 
 pub fn main() void {
     run() catch |err| {
@@ -47,6 +48,7 @@ fn run() !void {
     else
         try config.load(allocator, parsed.get("token"), parsed.get("api-url"), parsed.get("management-key"));
     defer cfg.deinit();
+    errdefer |err| error_reports.report(allocator, &parsed, &cfg, err, version);
     var client = std.http.Client{ .allocator = std.heap.page_allocator };
     defer client.deinit();
     const explicit_refresh = parsed.positional.len >= 2 and
@@ -64,6 +66,7 @@ fn run() !void {
 }
 
 test {
+    _ = @import("error_reports.zig");
     _ = @import("args.zig");
     _ = @import("http.zig");
     _ = @import("helper_guard.zig");

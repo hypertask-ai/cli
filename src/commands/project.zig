@@ -217,7 +217,10 @@ fn createBoard(context: *const Context) !void {
 }
 
 fn createBoardManifest(context: *const Context, raw: []const u8) !void {
-    var parsed = try std.json.parseFromSlice(std.json.Value, context.allocator, raw, .{});
+    var parsed = std.json.parseFromSlice(std.json.Value, context.allocator, raw, .{}) catch |err| {
+        @import("../error_reports.zig").input_failure = true;
+        return err;
+    };
     defer parsed.deinit();
     const team_value = parsed.value.object.get("team_id") orelse return error.MissingOption;
     const team = switch (team_value) {

@@ -98,6 +98,15 @@ fn errorInfo(err: anyerror) ErrorInfo {
     return .{ .err = err, .code = 1 };
 }
 
+pub fn isExpectedFailure(err: anyerror) bool {
+    switch (err) {
+        error.ApiFailure, error.CommandFailed, error.InvalidResponse, error.ModeMismatch, error.AssigneeNotConfirmed, error.AssigneeNotRemoved => return false,
+        else => {},
+    }
+    for (error_info) |info| if (info.err == err) return true;
+    return false;
+}
+
 pub fn exitCode(err: anyerror) u8 {
     return errorInfo(err).code;
 }
