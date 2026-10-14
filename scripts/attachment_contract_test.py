@@ -24,6 +24,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        if self.path == "/mcp/cli-error":
+            # Telemetry is not an attachment operation; its contract has its own fixture.
+            self.send_response(204)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         self.requests.append((self.path, body))
         if self.path == "/mcp/comments":
             response = {"success": True, "comment": {"id": 7, "attachments": []}}

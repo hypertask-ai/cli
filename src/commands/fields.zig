@@ -45,7 +45,10 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
 }
 
 fn normalizeOptions(context: *const Context, raw: []const u8) ![]const u8 {
-    const parsed = try std.json.parseFromSlice(std.json.Value, context.allocator, raw, .{});
+    const parsed = std.json.parseFromSlice(std.json.Value, context.allocator, raw, .{}) catch |err| {
+        @import("../error_reports.zig").input_failure = true;
+        return err;
+    };
     defer parsed.deinit();
     if (parsed.value != .array) return error.InvalidOptions;
     var result: std.ArrayListUnmanaged(u8) = .{};

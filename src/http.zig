@@ -2,6 +2,9 @@ const std = @import("std");
 const config = @import("config.zig");
 const helper_guard = @import("helper_guard.zig");
 
+// Command-thread status only; the reporting worker cannot overwrite it.
+pub threadlocal var last_status: ?u16 = null;
+
 pub const Response = struct {
     status: std.http.Status,
     body: []u8,
@@ -122,6 +125,7 @@ pub fn send(
     extra_headers: []const std.http.Header,
     body: ?[]const u8,
 ) !Response {
+    last_status = null;
     try helper_guard.checkUrl(allocator, method, url);
     var response_buffer: std.Io.Writer.Allocating = .init(allocator);
     defer response_buffer.deinit();
@@ -165,6 +169,7 @@ pub fn send(
                 try req.sendBodiless();
             }
             var response = try req.receiveHead(&.{});
+            last_status = @intFromEnum(response.head.status);
 
             if (payload == null and method != .HEAD and response.head.status.class() == .redirect and
                 response.head.status != .not_modified)

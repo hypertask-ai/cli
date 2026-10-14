@@ -18,6 +18,7 @@ pub fn validateInputs(context: *const Context, inputs: []const []const u8) !void
 
 fn readFile(context: *const Context, input: []const u8) ![]u8 {
     return std.fs.cwd().readFileAlloc(context.allocator, input, max_file_size) catch |err| {
+        @import("error_reports.zig").input_failure = true;
         std.debug.print("cannot attach '{s}': {s}\n", .{ input, @errorName(err) });
         if (err == error.FileTooBig) std.debug.print("Local attachments must be at most 3 MiB; use --attach with an https URL for larger files.\n", .{});
         return err;

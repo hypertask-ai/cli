@@ -76,6 +76,22 @@ fn printCommandChoices(commands: []const std.json.Value) void {
     std.debug.print("\n", .{});
 }
 
+pub fn reportCommandPath(allocator: std.mem.Allocator, path: []const []const u8) !?[]u8 {
+    if (path.len == 0) return null;
+    if (std.mem.eql(u8, path[0], "raw")) return try allocator.dupe(u8, "raw");
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, @embedFile("capabilities.json"), .{});
+    defer parsed.deinit();
+    var command = parsed.value;
+    var matched: usize = 0;
+    for (path[0..@min(path.len, 2)]) |segment| {
+        if ((try arrayFieldOrEmpty(command, "commands")).len == 0) break;
+        command = findCommand(command, segment) orelse return null;
+        matched += 1;
+    }
+    if (matched == 0) return null;
+    return try std.mem.join(allocator, " ", path[0..matched]);
+}
+
 pub fn dispatch(context: *const Context) !void {
     const root = context.args.positionalAt(0) orelse return printHelp(context.allocator, &.{});
     if (std.mem.eql(u8, root, "login")) return auth.login(context);
@@ -146,6 +162,7 @@ fn renderHelp(allocator: std.mem.Allocator, path: []const []const u8) ![]u8 {
         \\Run `hypertask capabilities --json` for the complete command and option catalog.
         \\
         \\AI agents: run `hypertask feedback --category call_failed` on your own when a hypertask command fails unexpectedly. Free text (note and error) is not stored; agents should pick a category. Never include task, board or comment content.
+        \\Unexpected failures send command name and error type only, no task content; disable with HYPERTASK_NO_ERROR_REPORTS=1 or error_reports=false in ~/.hypertask/config.json.
     );
 
     const catalog = @embedFile("capabilities.json");

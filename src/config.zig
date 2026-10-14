@@ -13,6 +13,7 @@ pub const TokenSource = enum {
 pub const Config = struct {
     token: []const u8 = "",
     token_source: TokenSource = .saved,
+    error_reports: bool = true,
     management_key: []const u8 = "",
     api_url: []const u8 = default_api_url,
     allocator: std.mem.Allocator,
@@ -48,6 +49,7 @@ const FileConfig = struct {
     token: ?[]const u8 = null,
     managementKey: ?[]const u8 = null,
     apiUrl: ?[]const u8 = null,
+    error_reports: bool = true,
 };
 
 const environment_token_names = [_][]const u8{
@@ -109,6 +111,7 @@ fn loadFile(allocator: std.mem.Allocator, path: []const u8, result: *Config) !vo
         .allocate = .alloc_always,
     }) catch return;
     defer parsed.deinit();
+    result.error_reports = parsed.value.error_reports;
     if (parsed.value.token) |value| try setOwned(allocator, &result.owned_token, &result.token, value);
     if (parsed.value.managementKey) |value| try setOwned(allocator, &result.owned_management_key, &result.management_key, value);
     if (parsed.value.apiUrl) |value| try setOwned(allocator, &result.owned_api_url, &result.api_url, value);
@@ -168,25 +171,27 @@ fn homeDirectory(allocator: std.mem.Allocator) ![]u8 {
 }
 
 pub fn saveToken(existing: *const Config, token: []const u8, api_url: ?[]const u8) !void {
-    try writeConfig(existing.allocator, token, existing.management_key, api_url orelse existing.api_url);
+    try writeConfig(existing.allocator, token, existing.management_key, api_url orelse existing.api_url, existing.error_reports);
 }
 
 pub fn saveManagementKey(allocator: std.mem.Allocator, management_key: []const u8) !void {
     var existing = try load(allocator, null, null, null);
     defer existing.deinit();
-    try writeConfig(allocator, existing.token, management_key, existing.api_url);
+    try writeConfig(allocator, existing.token, management_key, existing.api_url, existing.error_reports);
 }
 
 pub fn clear(allocator: std.mem.Allocator) !void {
-    try writeConfig(allocator, "", "", default_api_url);
+    var existing = try loadAllowingEmptyToken(allocator, null, null, null);
+    defer existing.deinit();
+    try writeConfig(allocator, "", "", default_api_url, existing.error_reports);
 }
 
-fn writeConfig(allocator: std.mem.Allocator, token: []const u8, management_key: []const u8, api_url: []const u8) !void {
+fn writeConfig(allocator: std.mem.Allocator, token: []const u8, management_key: []const u8, api_url: []const u8, error_reports: bool) !void {
     const path = try configPath(allocator);
     defer allocator.free(path);
     const directory = std.fs.path.dirname(path) orelse return error.NoHome;
     try secureConfigDirectory(directory);
-    try writeConfigFile(allocator, path, token, management_key, api_url);
+    try writeConfigFile(allocator, path, token, management_key, api_url, error_reports);
 }
 
 fn secureConfigDirectory(path: []const u8) !void {
@@ -198,12 +203,13 @@ fn secureConfigDirectory(path: []const u8) !void {
     }
 }
 
-fn writeConfigFile(allocator: std.mem.Allocator, path: []const u8, token: []const u8, management_key: []const u8, api_url: []const u8) !void {
+fn writeConfigFile(allocator: std.mem.Allocator, path: []const u8, token: []const u8, management_key: []const u8, api_url: []const u8, error_reports: bool) !void {
     var object = try json.Object.init(allocator);
     defer object.deinit();
     if (token.len != 0) try object.string("token", token);
     if (management_key.len != 0) try object.string("managementKey", management_key);
     try object.string("apiUrl", api_url);
+    try object.boolean("error_reports", error_reports);
     const body = try object.finish();
 
     const temporary_path = try std.fmt.allocPrint(allocator, "{s}.tmp-{x}", .{ path, std.crypto.random.int(u64) });
@@ -230,11 +236,12 @@ test "config file round trips saved values" {
     const path = try std.fs.path.join(std.testing.allocator, &.{ directory, "config.json" });
     defer std.testing.allocator.free(path);
 
-    try writeConfigFile(std.testing.allocator, path, "saved-token", "management-key", "https://example.test/api");
+    try writeConfigFile(std.testing.allocator, path, "saved-token", "management-key", "https://example.test/api", false);
     var loaded = Config{ .allocator = std.testing.allocator };
     defer loaded.deinit();
     try loadFile(std.testing.allocator, path, &loaded);
 
+    try std.testing.expect(!loaded.error_reports);
     try std.testing.expectEqualStrings("saved-token", loaded.token);
     try std.testing.expectEqualStrings("management-key", loaded.management_key);
     try std.testing.expectEqualStrings("https://example.test/api", loaded.api_url);
@@ -261,7 +268,7 @@ test "config writes repair permissive file and directory modes" {
     permissive_file.close();
 
     try secureConfigDirectory(directory_path);
-    try writeConfigFile(std.testing.allocator, config_path, "saved-token", "management-key", default_api_url);
+    try writeConfigFile(std.testing.allocator, config_path, "saved-token", "management-key", default_api_url, true);
 
     var secured_directory = try std.fs.openDirAbsolute(directory_path, .{ .iterate = true });
     defer secured_directory.close();
@@ -291,4 +298,16 @@ test "environment overrides ignore empty values" {
 
     try std.testing.expect(try applyEnvironmentOverride(std.testing.allocator, &owned, &target, "replacement"));
     try std.testing.expectEqualStrings("replacement", target);
+}
+
+test "existing config without error report preference remains enabled" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(.{ .sub_path = "config.json", .data = "{\"token\":\"saved-token\"}" });
+    const path = try tmp.dir.realpathAlloc(std.testing.allocator, "config.json");
+    defer std.testing.allocator.free(path);
+    var loaded = Config{ .allocator = std.testing.allocator };
+    defer loaded.deinit();
+    try loadFile(std.testing.allocator, path, &loaded);
+    try std.testing.expect(loaded.error_reports);
 }

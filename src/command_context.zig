@@ -120,6 +120,7 @@ pub fn positiveInt(value: []const u8, label: []const u8) !i64 {
 
 pub fn readFile(allocator: std.mem.Allocator, path: []const u8, limit: usize) ![]u8 {
     return std.fs.cwd().readFileAlloc(allocator, path, limit) catch |err| {
+        @import("error_reports.zig").input_failure = true;
         std.debug.print("cannot read {s}: {s}\n", .{ path, @errorName(err) });
         return err;
     };
