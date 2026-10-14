@@ -972,3 +972,52 @@ test "update reuses ticket resolution for section and labels" {
         "{\"ticket_number\":\"HTPR-6805\",\"sectionId\":2,\"labels\":[\"cli-label-id\"]}",
     );
 }
+
+test "feedback posts default category and explicit metadata and note" {
+    const response = "{\"success\":true,\"ticketNumber\":\"TEST-1\",\"url\":\"https://example.test/1\",\"deduped\":false,\"count\":1}";
+    try expectRequestCountWithResponses(
+        &.{ "feedback", "Unexpected failure" },
+        &.{response},
+        1,
+        .POST,
+        "/mcp/feedback",
+        "{\"surface\":\"cli\",\"client\":\"hypertask-cli\",\"category\":\"other\",\"note\":\"Unexpected failure\"}",
+    );
+    try expectRequestCountWithResponses(
+        &.{ "feedback", "Failed \"again\"\n", "--category", "call_failed", "--tool", "task get", "--status", "503", "--error-code", "upstream-error", "--error", "Unavailable", "--surface", "agent", "--json" },
+        &.{response},
+        1,
+        .POST,
+        "/mcp/feedback",
+        "{\"surface\":\"agent\",\"client\":\"hypertask-cli\",\"category\":\"call_failed\",\"tool\":\"task get\",\"status\":503,\"errorCode\":\"upstream-error\",\"error\":\"Unavailable\",\"note\":\"Failed \\\"again\\\"\\n\"}",
+    );
+}
+
+test "feedback accepts every category without a note" {
+    const response = "{\"success\":true,\"ticketNumber\":\"TEST-1\",\"url\":\"https://example.test/1\",\"deduped\":false,\"count\":1}";
+    try expectRequestCountWithResponses(
+        &.{"feedback"},
+        &.{response},
+        1,
+        .POST,
+        "/mcp/feedback",
+        "{\"surface\":\"cli\",\"client\":\"hypertask-cli\",\"category\":\"other\"}",
+    );
+    for ([_][]const u8{ "call_failed", "empty_result", "unexpected_result", "auth_failed", "slow", "user_reported_broken", "other" }) |category| {
+        const body = try std.fmt.allocPrint(std.testing.allocator, "{{\"surface\":\"cli\",\"client\":\"hypertask-cli\",\"category\":\"{s}\"}}", .{category});
+        defer std.testing.allocator.free(body);
+        try expectRequestCountWithResponses(&.{ "feedback", "--category", category }, &.{response}, 1, .POST, "/mcp/feedback", body);
+    }
+}
+
+test "feedback rejects invalid category surface and status" {
+    for ([_][]const u8{ "", "broken", "CALL_FAILED", "call-failed" }) |category| {
+        try expectDispatchError(error.InvalidOptions, &.{ "feedback", "--category", category });
+    }
+    try expectDispatchError(error.InvalidOptions, &.{ "feedback", "failure", "--surface", "web" });
+    for ([_][]const u8{ "abc", "99", "600", "-1" }) |status| {
+        try expectDispatchError(error.InvalidInteger, &.{ "feedback", "failure", "--status", status });
+    }
+    try expectDispatchErrorWithResponses(&.{ "feedback", "failure" }, &.{"{\"success\":false,\"error\":\"not filed\"}"}, error.CommandFailed);
+    try expectDispatchErrorWithResponses(&.{ "feedback", "failure" }, &.{"{}"}, error.InvalidResponse);
+}
