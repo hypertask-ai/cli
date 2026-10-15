@@ -8,7 +8,7 @@ const router = @import("router.zig");
 const error_reports = @import("error_reports.zig");
 const token_refresh = @import("token_refresh.zig");
 
-const version = "0.2.18 (zig)";
+const version = "0.2.19 (zig)";
 
 pub fn main() void {
     run() catch |err| {
