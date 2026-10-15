@@ -114,6 +114,19 @@ fn withoutAuthorization(headers: []const std.http.Header, buffer: []std.http.Hea
     return buffer[0..count];
 }
 
+fn sendRequestHead(req: *std.http.Client.Request, payload: ?[]const u8) !std.http.Client.Response {
+    if (payload) |value| {
+        req.transfer_encoding = .{ .content_length = value.len };
+        var body_writer = try req.sendBodyUnflushed(&.{});
+        try body_writer.writer.writeAll(value);
+        try body_writer.end();
+        try req.connection.?.flush();
+    } else {
+        try req.sendBodiless();
+    }
+    return req.receiveHead(&.{});
+}
+
 /// Drive one request against an absolute URL with caller-owned headers. The
 /// Hypertask bearer token is never added here, so a command can post to a
 /// handler running on the author's own machine without leaking credentials.
@@ -139,6 +152,7 @@ pub fn send(
     const filtered_headers = try allocator.alloc(std.http.Header, extra_headers.len);
     defer allocator.free(filtered_headers);
     var redirects_remaining: u16 = 3;
+    var retry_available = (method == .GET or method == .HEAD) and payload == null;
 
     while (true) {
         const uri = try std.Uri.parse(current_url);
@@ -159,16 +173,29 @@ pub fn send(
                 .extra_headers = request_extra_headers,
             });
             defer req.deinit();
-            if (payload) |value| {
-                req.transfer_encoding = .{ .content_length = value.len };
-                var body_writer = try req.sendBodyUnflushed(&.{});
-                try body_writer.writer.writeAll(value);
-                try body_writer.end();
-                try req.connection.?.flush();
-            } else {
-                try req.sendBodiless();
-            }
-            var response = try req.receiveHead(&.{});
+            var response = sendRequestHead(&req, payload) catch |err| {
+                const connection = req.connection.?;
+                connection.closing = true;
+                const cause = switch (err) {
+                    error.ReadFailed => connection.getReadError() orelse error.HttpTransferFailed,
+                    error.WriteFailed => connection.stream_writer.err orelse err,
+                    else => err,
+                };
+                const retryable = err == error.ReadFailed or switch (cause) {
+                    error.HttpConnectionClosing,
+                    error.ConnectionResetByPeer,
+                    error.BrokenPipe,
+                    error.HttpRequestTruncated,
+                    => true,
+                    else => false,
+                };
+                if (retry_available and retryable and req.reader.state != .received_head) {
+                    retry_available = false;
+                    continue;
+                }
+                return cause;
+            };
+            retry_available = false;
             last_status = @intFromEnum(response.head.status);
 
             if (payload == null and method != .HEAD and response.head.status.class() == .redirect and
