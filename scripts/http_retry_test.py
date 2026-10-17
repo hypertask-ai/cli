@@ -40,6 +40,14 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", "0")
             self.end_headers()
             return
+        if mode == "limited-always" or (mode == "limited-once" and attempt == 1):
+            self.send_response(429)
+            self.send_header("Retry-After", "1")
+            body = b'{"message":"Rate limit exceeded. Please slow down and try again shortly."}'
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if mode == "status":
             self.send_response(503)
         elif mode == "body":
@@ -129,6 +137,28 @@ def main():
                     assert len(Handler.requests) == attempts, Handler.requests
                 except AssertionError as error:
                     failures.append(f"GET {mode}: {error}")
+            for method, mode, attempts, succeeds in (("GET", "limited-once", 2, True),
+                                                     ("GET", "limited-always", 3, False),
+                                                     ("POST", "limited-always", 1, False)):
+                Handler.requests = []
+                args = [str(CLI), "--token", "offline-fixture", "--api-url", base,
+                        "--json", "raw", method, f"/{mode}"]
+                if method == "POST":
+                    args.append("{}")
+                result = subprocess.run(args, env=env, capture_output=True, text=True, timeout=10)
+                cases += 1
+                try:
+                    assert len(Handler.requests) == attempts, (Handler.requests, result.stderr)
+                    if succeeds:
+                        assert result.returncode == 0, result.stderr
+                        assert json.loads(result.stdout) == {"ok": True}, result.stdout
+                        assert "waiting 1s before retrying" in result.stderr, result.stderr
+                    else:
+                        assert result.returncode == 4, (result.returncode, result.stderr)
+                        assert "rate limiting this login" in result.stderr, result.stderr
+                        assert "could not complete the command" not in result.stderr, result.stderr
+                except AssertionError as error:
+                    failures.append(f"{method} {mode}: {error}")
     finally:
         server.shutdown()
         server.server_close()

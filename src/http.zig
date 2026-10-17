@@ -127,6 +127,24 @@ fn sendRequestHead(req: *std.http.Client.Request, payload: ?[]const u8) !std.htt
     return req.receiveHead(&.{});
 }
 
+const max_rate_limit_waits: u8 = 2;
+const default_rate_limit_wait_seconds: u64 = 5;
+const max_rate_limit_wait_seconds: u64 = 60;
+
+fn retryAfterHeader(head: std.http.Client.Response.Head) ?[]const u8 {
+    var headers = head.iterateHeaders();
+    while (headers.next()) |header| {
+        if (std.ascii.eqlIgnoreCase(header.name, "Retry-After")) return header.value;
+    }
+    return null;
+}
+
+fn rateLimitWaitSeconds(retry_after: ?[]const u8) u64 {
+    const raw = retry_after orelse return default_rate_limit_wait_seconds;
+    const seconds = std.fmt.parseInt(u64, std.mem.trim(u8, raw, " \t"), 10) catch return default_rate_limit_wait_seconds;
+    return std.math.clamp(seconds, 1, max_rate_limit_wait_seconds);
+}
+
 /// Drive one request against an absolute URL with caller-owned headers. The
 /// Hypertask bearer token is never added here, so a command can post to a
 /// handler running on the author's own machine without leaking credentials.
@@ -152,7 +170,9 @@ pub fn send(
     const filtered_headers = try allocator.alloc(std.http.Header, extra_headers.len);
     defer allocator.free(filtered_headers);
     var redirects_remaining: u16 = 3;
-    var retry_available = (method == .GET or method == .HEAD) and payload == null;
+    const idempotent = (method == .GET or method == .HEAD) and payload == null;
+    var retry_available = idempotent;
+    var rate_limit_waits_remaining: u8 = if (idempotent) max_rate_limit_waits else 0;
 
     while (true) {
         const uri = try std.Uri.parse(current_url);
@@ -197,6 +217,15 @@ pub fn send(
             };
             retry_available = false;
             last_status = @intFromEnum(response.head.status);
+
+            if (response.head.status == .too_many_requests and rate_limit_waits_remaining > 0) {
+                rate_limit_waits_remaining -= 1;
+                const wait_seconds = rateLimitWaitSeconds(retryAfterHeader(response.head));
+                std.debug.print("hypertask: the server is rate limiting this login; waiting {d}s before retrying\n", .{wait_seconds});
+                req.connection.?.closing = true;
+                std.Thread.sleep(wait_seconds * std.time.ns_per_s);
+                continue;
+            }
 
             if (payload == null and method != .HEAD and response.head.status.class() == .redirect and
                 response.head.status != .not_modified)
@@ -326,6 +355,14 @@ test "HTTPS redirects cannot downgrade to HTTP" {
     const http = try std.Uri.parse("http://example.com/next");
     try std.testing.expect(isHttpsDowngrade(https, http));
     try std.testing.expect(!isHttpsDowngrade(http, https));
+}
+
+test "rate limit waits follow Retry-After within one minute" {
+    try std.testing.expectEqual(@as(u64, 7), rateLimitWaitSeconds("7"));
+    try std.testing.expectEqual(@as(u64, 1), rateLimitWaitSeconds("0"));
+    try std.testing.expectEqual(@as(u64, 60), rateLimitWaitSeconds("3600"));
+    try std.testing.expectEqual(default_rate_limit_wait_seconds, rateLimitWaitSeconds(null));
+    try std.testing.expectEqual(default_rate_limit_wait_seconds, rateLimitWaitSeconds("Wed, 21 Oct 2026 07:28:00 GMT"));
 }
 
 test "HTTP success includes precisely the 2xx range" {
