@@ -34,6 +34,7 @@ fn apiError(status: std.http.Status) anyerror {
         .bad_request, .unprocessable_entity => error.ApiInvalidInput,
         .unauthorized, .forbidden => error.ApiAuthentication,
         .not_found => error.ApiNotFound,
+        .too_many_requests => error.ApiRateLimited,
         else => error.ApiFailure,
     };
 }
@@ -73,6 +74,7 @@ const error_info = [_]ErrorInfo{
     .{ .err = error.UnknownCommand, .code = 1, .summary = "command not found" },
     .{ .err = error.ApiAuthentication, .code = 4, .summary = "this token does not have the required access" },
     .{ .err = error.ApiFailure, .code = 4, .summary = "the server could not complete the command" },
+    .{ .err = error.ApiRateLimited, .code = 4, .summary = "the server is rate limiting this login (too many requests in the last minute)" },
     .{ .err = error.ApiNotFound, .code = 4, .summary = "the requested item was not found" },
     .{ .err = error.AssigneeNotConfirmed, .code = 4, .summary = "the server could not complete the command" },
     .{ .err = error.AssigneeNotRemoved, .code = 4, .summary = "the server could not complete the command" },
@@ -141,6 +143,7 @@ fn nextStep(err: anyerror) []const u8 {
         error.MissingWebhookSecret => "set the webhook secret environment variable named above, then retry.",
         error.FeedbackNotEnabled => "ask the account owner to enable feedback.",
         error.FeedbackRateLimited => "wait before filing feedback again.",
+        error.ApiRateLimited => "wait one minute, then retry the same command once.",
         error.ApiAuthentication => "ask the project owner to add this token.",
         error.ProjectAccessDenied => "ask the project owner to add it.",
         error.CapabilityAgentMismatch,
