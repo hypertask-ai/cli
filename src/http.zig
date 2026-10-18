@@ -215,10 +215,10 @@ pub fn send(
                 }
                 return cause;
             };
-            retry_available = false;
             last_status = @intFromEnum(response.head.status);
 
             if (response.head.status == .too_many_requests and rate_limit_waits_remaining > 0) {
+                retry_available = false;
                 rate_limit_waits_remaining -= 1;
                 const wait_seconds = rateLimitWaitSeconds(retryAfterHeader(response.head));
                 std.debug.print("hypertask: the server is rate limiting this login; waiting {d}s before retrying\n", .{wait_seconds});
@@ -230,6 +230,7 @@ pub fn send(
             if (payload == null and method != .HEAD and response.head.status.class() == .redirect and
                 response.head.status != .not_modified)
             {
+                retry_available = false;
                 if (redirects_remaining == 0) return error.TooManyHttpRedirects;
                 const location = response.head.location orelse return error.HttpRedirectLocationMissing;
                 if (location.len > redirect_buffer.len) return error.HttpRedirectLocationOversize;
@@ -263,11 +264,33 @@ pub fn send(
             defer if (decompress_buffer.len != 0) allocator.free(decompress_buffer);
             var transfer_buffer: [64]u8 = undefined;
             const reader = response.reader(&transfer_buffer);
-            const written = reader.streamRemaining(&response_buffer.writer) catch |err| switch (err) {
-                error.ReadFailed => return response.bodyErr() orelse error.HttpTransferFailed,
-                else => |e| return e,
+            const body_error: ?anyerror = read_body: {
+                const written = reader.streamRemaining(&response_buffer.writer) catch |err| switch (err) {
+                    error.ReadFailed => break :read_body response.bodyErr() orelse (req.connection.?.getReadError() orelse error.HttpTransferFailed),
+                    else => |e| return e,
+                };
+                if (expected_length) |expected| if (written < expected) break :read_body error.HttpRequestTruncated;
+                break :read_body null;
             };
-            if (expected_length) |expected| if (written < expected) return error.HttpRequestTruncated;
+            if (body_error) |cause| {
+                req.connection.?.closing = true;
+                const retryable = switch (cause) {
+                    error.ConnectionResetByPeer,
+                    error.HttpConnectionClosing,
+                    error.HttpRequestTruncated,
+                    error.HttpChunkTruncated,
+                    error.EndOfStream,
+                    error.HttpTransferFailed,
+                    => true,
+                    else => false,
+                };
+                if (retry_available and retryable) {
+                    retry_available = false;
+                    response_buffer.clearRetainingCapacity();
+                    continue;
+                }
+                return cause;
+            }
 
             var decoded_buffer: std.Io.Writer.Allocating = .init(allocator);
             defer decoded_buffer.deinit();

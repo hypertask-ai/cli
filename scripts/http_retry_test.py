@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pre-head transport retries against loopback only, without real credentials."""
+"""Transport retries against loopback only, without real credentials."""
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -59,6 +59,16 @@ class Handler(BaseHTTPRequestHandler):
             self.connection.shutdown(socket.SHUT_RDWR)
             self.close_connection = True
             return
+        elif mode.startswith("bodyreset") and (mode.endswith("always") or attempt == 1):
+            self.send_response(200)
+            self.send_header("Content-Length", "5000")
+            self.end_headers()
+            self.wfile.write(b'{"items":[' + b'1,' * 50)
+            self.wfile.flush()
+            self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+            self.connection.close()
+            self.close_connection = True
+            return
         elif mode.endswith("always") or attempt == 1:
             self.close_connection = True
             if mode.startswith("reset"):
@@ -95,10 +105,11 @@ def main():
                    "HYPERTASK_NO_ERROR_REPORTS": "1", "VCC_HELPER": "0",
                    "VCC_HELPER_PROC_ROOT": str(Path(home) / "no-proc")}
             base = f"http://127.0.0.1:{server.server_port}"
-            for mode in ("eof", "reset", "partial"):
-                for method in ("GET", "POST", "PUT", "PATCH", "DELETE"):
+            for mode in ("eof", "reset", "partial", "bodyreset"):
+                methods = ("GET", "POST", "PATCH", "DELETE") if mode == "bodyreset" else ("GET", "POST", "PUT", "PATCH", "DELETE")
+                for method in methods:
                     expected_error = {"eof": "HttpConnectionClosing", "reset": "ConnectionResetByPeer",
-                                      "partial": "HttpRequestTruncated"}[mode]
+                                      "partial": "HttpRequestTruncated", "bodyreset": "ConnectionResetByPeer"}[mode]
                     for suffix in ("once", "always"):
                         Handler.requests = []
                         args = [str(CLI), "--token", "offline-fixture", "--api-url", base,
@@ -118,9 +129,11 @@ def main():
                                 assert result.returncode != 0, result.stdout
                                 assert expected_error in result.stderr, result.stderr
                                 assert "ReadFailed" not in result.stderr, result.stderr
+                                if mode == "bodyreset":
+                                    assert "HttpTransferFailed" not in result.stderr, result.stderr
                         except AssertionError as error:
                             failures.append(f"{method} {mode}-{suffix}: {error}")
-            for mode, expected_error, attempts in (("body", "HttpRequestTruncated", 1),
+            for mode, expected_error, attempts in (("body", "HttpRequestTruncated", 2),
                                                    ("continue", "HttpConnectionClosing", 1),
                                                    ("status", "the server could not complete the command", 1),
                                                    ("redirect", "HttpConnectionClosing", 2)):
