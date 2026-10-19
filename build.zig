@@ -58,6 +58,10 @@ pub fn build(b: *std.Build) void {
     attachment_contract_tests.addArtifactArg(exe);
     test_step.dependOn(&attachment_contract_tests.step);
 
+    const comment_kind_tests = b.addSystemCommand(&.{ python, "scripts/comment_kind_test.py" });
+    comment_kind_tests.addArtifactArg(exe);
+    test_step.dependOn(&comment_kind_tests.step);
+
     const helper_guard_tests = b.addSystemCommand(&.{ python, "scripts/helper_guard_test.py" });
     helper_guard_tests.addArtifactArg(exe);
     test_step.dependOn(&helper_guard_tests.step);

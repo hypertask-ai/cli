@@ -27,6 +27,12 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
     if (std.mem.eql(u8, subcommand, "add")) {
         // Refuse before normalization notices or optional AI generation.
         try @import("../helper_guard.zig").check(context.allocator, .POST, "/mcp/comments");
+        const kind = context.args.get("kind");
+        if (kind) |value| {
+            if (!std.mem.eql(u8, value, "question") and !std.mem.eql(u8, value, "qa") and !std.mem.eql(u8, value, "done")) {
+                return output.invalidOptions("--kind must be one of: question, qa, done");
+            }
+        }
         if (context.args.get("improve-command") != null and !context.args.has("improve")) return error.InvalidOptions;
         var text = if (context.args.get("file")) |path| try common.readFile(context.allocator, path, 1024 * 1024) else context.args.get("text") orelse context.args.get("body") orelse return error.MissingOption;
         const ticket = try context.args.requirePositional(2, "ticket-or-task-id");
@@ -41,15 +47,31 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
         defer body.deinit();
         try addIdentifierBody(&body, context, ticket);
         try body.string("text", text);
+        if (kind) |value| try body.string("kind", value);
         if (context.args.has("markdown")) try body.string("content_type", "markdown");
         const attach_inputs = try common.optionList(context, "attach");
-        if (attach_inputs.len == 0) return context.call(.POST, "/mcp/comments", try body.finish());
         try attachments.validateInputs(context, attach_inputs);
         var response = try context.fetch(.POST, "/mcp/comments", try body.finish());
         defer response.deinit();
-        if (!response.isSuccess()) return output.finish(&response);
-        const parsed = try std.json.parseFromSlice(std.json.Value, context.allocator, response.body, .{});
+        if (!response.isSuccess()) return context.finish(&response);
+        const parsed = std.json.parseFromSlice(std.json.Value, context.allocator, response.body, .{}) catch |err| {
+            if (attach_inputs.len == 0) return context.finish(&response);
+            return err;
+        };
         defer parsed.deinit();
+        if (parsed.value == .object) {
+            if (parsed.value.object.get("routedTo")) |routed_to| {
+                if (routed_to == .string and std.mem.eql(u8, routed_to.string, "log")) {
+                    if (attach_inputs.len != 0) std.debug.print("Attachments were not uploaded because no comment was created. Use --kind question|qa|done to post with attachments.\n", .{});
+                    if (context.args.has("json")) {
+                        if (context.request_recorder == null) try output.print(response.body);
+                        return;
+                    }
+                    return context.print("Saved to the agent log (no comment, nobody notified). Use --kind question|qa|done to post a comment for people.");
+                }
+            }
+        }
+        if (attach_inputs.len == 0) return context.finish(&response);
         const comment_value = parsed.value.object.get("comment") orelse return error.InvalidResponse;
         const id_value = comment_value.object.get("id") orelse return error.InvalidResponse;
         const comment_id = switch (id_value) {

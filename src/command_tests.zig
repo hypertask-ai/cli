@@ -1021,3 +1021,50 @@ test "feedback rejects invalid category surface and status" {
     try expectDispatchErrorWithResponses(&.{ "feedback", "failure" }, &.{"{\"success\":false,\"error\":\"not filed\"}"}, error.CommandFailed);
     try expectDispatchErrorWithResponses(&.{ "feedback", "failure" }, &.{"{}"}, error.InvalidResponse);
 }
+
+test "comment add sends each explicit kind and omits it by default" {
+    for ([_][]const u8{ "question", "qa", "done" }) |kind| {
+        const body = try std.fmt.allocPrint(std.testing.allocator, "{{\"ticket_number\":\"HTPR-7341\",\"text\":\"<p>Test</p>\",\"kind\":\"{s}\"}}", .{kind});
+        defer std.testing.allocator.free(body);
+        try expectRequest(
+            &.{ "comment", "add", "HTPR-7341", "--text", "<p>Test</p>", "--kind", kind },
+            .POST,
+            "/mcp/comments",
+            body,
+        );
+    }
+    try expectRequestWithResponses(
+        &.{ "comment", "add", "HTPR-7341", "--text", "<p>Test</p>" },
+        &.{"{\"success\":true,\"comment\":{\"id\":1}}"},
+        .POST,
+        "/mcp/comments",
+        "{\"ticket_number\":\"HTPR-7341\",\"text\":\"<p>Test</p>\"}",
+    );
+}
+
+test "comment add rejects invalid kind before resolving or improving" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    for ([_][]const u8{ "chatter", "Question", "" }) |kind| {
+        var parsed = try args.parse(allocator, &.{ "comment", "add", "7341", "--project", "15", "--text", "Test", "--improve", "--kind", kind });
+        defer parsed.deinit();
+        var cfg = config.Config{ .allocator = allocator, .token = "test-token" };
+        defer cfg.deinit();
+        var recorder = command_context.RequestRecorder.init(allocator);
+        defer recorder.deinit();
+        var client = std.http.Client{ .allocator = allocator };
+        defer client.deinit();
+        const context = command_context.Context{
+            .client = &client,
+            .allocator = allocator,
+            .args = &parsed,
+            .cfg = &cfg,
+            .json = true,
+            .request_recorder = &recorder,
+        };
+        try std.testing.expectError(error.InvalidOptions, router.dispatch(&context));
+        try std.testing.expectEqual(@as(usize, 0), recorder.responses_index);
+        try std.testing.expect(recorder.method == null);
+    }
+}
