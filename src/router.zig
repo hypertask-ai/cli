@@ -348,6 +348,8 @@ test "subcommand help renders command-specific options" {
     const comment_add_help = try renderHelp(std.testing.allocator, &.{ "comment", "add" });
     defer std.testing.allocator.free(comment_add_help);
     try std.testing.expect(std.mem.indexOf(u8, comment_add_help, html_rule) != null);
+    try std.testing.expect(std.mem.indexOf(u8, comment_add_help, "--kind <question|qa|done>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, comment_add_help, "omitted kind leaves chatter routing to the server") != null);
     const task_create_help = try renderHelp(std.testing.allocator, &.{ "task", "create" });
     defer std.testing.allocator.free(task_create_help);
     try std.testing.expect(std.mem.indexOf(u8, task_create_help, html_rule) != null);
