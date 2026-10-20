@@ -676,9 +676,27 @@ fn searchValue(context: *const Context, value: []const u8) !void {
     defer arena.deinit();
     const allocator = arena.allocator();
     var document = try std.json.parseFromSliceLeaky(std.json.Value, allocator, response.body, .{});
-    if (document != .object) return error.InvalidResponse;
-    const tasks = document.object.getPtr("tasks") orelse return error.InvalidResponse;
-    if (tasks.* != .array) return error.InvalidResponse;
+    if (document != .object) {
+        std.debug.print("search response: expected an object\n", .{});
+        return error.InvalidResponse;
+    }
+    const tasks = document.object.getPtr("tasks") orelse {
+        std.debug.print("search response: missing tasks array\n", .{});
+        return error.InvalidResponse;
+    };
+    if (tasks.* != .array) {
+        std.debug.print("search response: expected tasks to be an array\n", .{});
+        return error.InvalidResponse;
+    }
+    for (tasks.array.items, 0..) |task, index| {
+        if (task != .object) {
+            std.debug.print("search response: expected tasks[{d}] to be an object\n", .{index});
+            return error.InvalidResponse;
+        }
+    }
+    if (context.args.get("fields")) |fields| {
+        if (std.mem.trim(u8, fields, " ,\t\r\n").len != 0) return context.print(response.body);
+    }
 
     const batch_size = 4;
     var offset: usize = 0;
@@ -688,8 +706,9 @@ fn searchValue(context: *const Context, value: []const u8) !void {
         defer for (&details) |*detail| detail.deinit(context.allocator);
         for (batch, 0..) |task, index| {
             if (hasDescription(task)) continue;
-            const id = if (task == .object) task.object.get("id") else null;
+            const id = task.object.get("id");
             if (id == null or id.? != .integer) {
+                std.debug.print("search response: expected tasks[{d}].id to be an integer for description lookup\n", .{offset + index});
                 details[index].result = error.InvalidResponse;
                 continue;
             }

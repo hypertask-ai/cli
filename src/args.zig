@@ -167,14 +167,14 @@ fn canonicalName(name: []const u8) []const u8 {
 
 fn isBoolean(name: []const u8) bool {
     const names = [_][]const u8{
-        "help",              "version",   "json",         "human",
-        "force",             "all",       "all-boards",   "enabled",
-        "disabled",          "confirm",   "clear",        "restore",
-        "stdin",             "off",       "has-due-date", "summary",
-        "markdown",          "clear-due", "clear-parent", "comment",
-        "html",              "canvas",    "dry-run",      "apply",
-        "clear-description", "running",   "default",      "clear-labels",
-        "clear-assignees",   "add",       "self",         "yes",
+        "help",              "version",          "json",         "human",
+        "force",             "all",              "all-boards",   "enabled",
+        "disabled",          "confirm",          "clear",        "restore",
+        "stdin",             "off",              "has-due-date", "summary",
+        "markdown",          "clear-due",        "clear-parent", "comment",
+        "html",              "canvas",           "dry-run",      "apply",
+        "clear-description", "running",          "default",      "clear-labels",
+        "clear-assignees",   "add",              "self",         "yes",
         "improve",           "include-activity",
     };
     for (names) |candidate| {
