@@ -1068,3 +1068,87 @@ test "comment add rejects invalid kind before resolving or improving" {
         try std.testing.expect(recorder.method == null);
     }
 }
+
+test "search accepts projected rows without enrichment fields" {
+    const cases = [_]struct { fields: []const u8, row: []const u8 }{
+        .{ .fields = "title", .row = "{\"title\":\"Search\"}" },
+        .{ .fields = "id,title", .row = "{\"id\":32507,\"title\":\"Search\"}" },
+        .{ .fields = "description", .row = "{\"description\":\"\"}" },
+        .{ .fields = "agent", .row = "{}" },
+    };
+    for (cases) |case| {
+        const response = try std.fmt.allocPrint(std.testing.allocator, "{{\"success\":true,\"tasks\":[{s}],\"total\":1,\"boardId\":15,\"nextCursor\":null}}", .{case.row});
+        defer std.testing.allocator.free(response);
+        const path = try std.fmt.allocPrint(std.testing.allocator, "/mcp/tasks/search?q=search&limit=10&fields={s}", .{if (std.mem.eql(u8, case.fields, "id,title")) "id%2Ctitle" else case.fields});
+        defer std.testing.allocator.free(path);
+        try expectRequestCountWithResponses(
+            &.{ "search", "search", "--fields", case.fields },
+            &.{response},
+            1,
+            .GET,
+            path,
+            null,
+        );
+    }
+}
+
+test "search aliases honor projected fields" {
+    const response = "{\"success\":true,\"tasks\":[{\"title\":\"Search\"}],\"total\":1,\"nextCursor\":null}";
+    try expectRequestCountWithResponses(
+        &.{ "tasks", "search", "search", "--fields", "title" },
+        &.{response},
+        1,
+        .GET,
+        "/mcp/tasks/search?q=search&limit=10&fields=title",
+        null,
+    );
+    try expectRequestCountWithResponses(
+        &.{ "tasks", "list", "--search", "search", "--fields", "title" },
+        &.{response},
+        1,
+        .GET,
+        "/mcp/tasks/search?q=search&limit=10&fields=title",
+        null,
+    );
+}
+
+test "search accepts empty results nullable metadata and unknown fields" {
+    for ([_][]const u8{
+        "{\"success\":true,\"tasks\":[],\"total\":0}",
+        "{\"success\":true,\"tasks\":[],\"total\":0,\"nextCursor\":null}",
+        "{\"success\":true,\"tasks\":[{\"id\":1,\"description\":\"Body\",\"ticketNumber\":null,\"dueDate\":null,\"type\":\"future-kind\"}],\"total\":1,\"nextCursor\":\"1\",\"partial\":true}",
+    }) |response| {
+        try expectRequestCountWithResponses(
+            &.{ "search", "search" },
+            &.{response},
+            1,
+            .GET,
+            "/mcp/tasks/search?q=search&limit=10",
+            null,
+        );
+    }
+}
+
+test "search rejects malformed response fields and API failure envelopes" {
+    for ([_][]const u8{ "[]", "{}", "{\"tasks\":null}", "{\"tasks\":{}}", "{\"tasks\":[null]}", "{\"tasks\":[{\"id\":\"1\"}]}" }) |response| {
+        try expectDispatchErrorWithResponses(&.{ "search", "search" }, &.{response}, error.InvalidResponse);
+    }
+    try expectDispatchErrorWithResponses(&.{ "search", "search", "--fields", "title" }, &.{"{\"tasks\":[null]}"}, error.InvalidResponse);
+    try expectDispatchErrorWithResponses(&.{ "search", "search" }, &.{"{\"success\":false,\"error\":\"Search failed\"}"}, error.CommandFailed);
+}
+
+test "search still enriches unprojected empty descriptions" {
+    for ([_][]const u8{ "", " , " }) |fields| {
+        try expectRequestCountWithResponses(
+            &.{ "search", "search", "--fields", fields },
+            &.{
+                "{\"success\":true,\"tasks\":[{\"id\":32507,\"ticketNumber\":\"HTPR-5658\",\"projectId\":15,\"description\":\"\"}],\"total\":1}",
+                "{\"success\":true,\"tasks\":[{\"id\":32507,\"description\":\"Full description\"}]}",
+            },
+            2,
+            .GET,
+            "/mcp/tasks?task_id=32507",
+            null,
+        );
+    }
+}

@@ -109,7 +109,8 @@ class Handler(BaseHTTPRequestHandler):
             }, separators=(",", ":")))
             return
         if route == ("GET", "/mcp/tasks/search"):
-            self.respond(200, fixture("search-empty.json"))
+            name = "search-projected.json" if request["query"].get("fields") == ["title"] else "search-empty.json"
+            self.respond(200, fixture(name))
             return
         if route == ("GET", "/mcp/tasks"):
             if request["query"].get("ticket_number") == ["HTPR-404"]:
@@ -355,6 +356,33 @@ def main() -> None:
                     "body": None,
                 },
             )
+
+            expect_command(
+                binary, token, api_url, home,
+                ("search", "search", "--project", "15", "--limit", "1", "--fields", "title"),
+                "search-projected.json", 0,
+                {
+                    "method": "GET",
+                    "path": "/mcp/tasks/search",
+                    "query": {
+                        "q": ["search"],
+                        "project_id": ["15"],
+                        "fields": ["title"],
+                        "limit": ["1"],
+                    },
+                    "body": None,
+                },
+            )
+
+            projected_human = run(
+                binary, token, api_url, home,
+                "search", "search", "--fields", "title", "--human",
+            )
+            expect(projected_human.returncode == 0, projected_human.stderr)
+            expect(projected_human.stderr == "", projected_human.stderr)
+            expect(projected_human.stdout == (
+                "success: true\ntasks:\n  title\n  Search\ntotal: 1\nboardId: 15\nnextCursor: 32507\n"
+            ), projected_human.stdout)
 
             missing = run(binary, token, api_url, home, "tasks", "get", "HTPR-404")
             expect(missing.returncode == 4, f"not-found exit was {missing.returncode}")
