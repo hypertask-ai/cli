@@ -83,6 +83,7 @@ const error_info = [_]ErrorInfo{
     .{ .err = error.CapabilityExpired, .code = 4, .summary = "this token does not have the required access" },
     .{ .err = error.CapabilityTicketMismatch, .code = 4, .summary = "this token does not have the required access" },
     .{ .err = error.CommandFailed, .code = 4, .summary = "the server could not complete the command" },
+    .{ .err = error.FeaturesUnavailable, .code = 4, .summary = "live features are unavailable on this server (GET /api/mcp/features returned 404); update the server" },
     .{ .err = error.FeedbackNotEnabled, .code = 4, .summary = "Feedback is not enabled for this account" },
     .{ .err = error.FeedbackRateLimited, .code = 4, .summary = "Feedback rate limit reached, try again later" },
     .{ .err = error.FieldNotFound, .code = 4, .summary = "the requested item was not found" },
@@ -127,6 +128,7 @@ pub fn printFailure(err: anyerror) void {
     } else {
         std.debug.print("hypertask: command failed ({s})\n", .{@errorName(err)});
     }
+    if (err == error.FeaturesUnavailable) return;
     std.debug.print("Next: {s}\n", .{nextStep(err)});
 }
 
