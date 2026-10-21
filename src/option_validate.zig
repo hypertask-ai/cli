@@ -246,3 +246,56 @@ test "unknown option is rejected even with only globals present" {
     defer parsed.deinit();
     try std.testing.expectError(error.UnknownOption, rejectUnknownOptions(std.testing.allocator, &parsed));
 }
+
+test "comment list accepts include-activity without consuming the next option or ticket" {
+    for ([_][]const []const u8{
+        &.{ "--json", "comment", "list", "HTPR-7546", "--include-activity", "--limit", "5" },
+        &.{ "comments", "list", "--include-activity", "HTPR-7546", "--limit", "5" },
+    }) |argv| {
+        var parsed = try args_mod.parse(std.testing.allocator, argv);
+        defer parsed.deinit();
+        try rejectUnknownOptions(std.testing.allocator, &parsed);
+        try parsed.requireValues();
+        try std.testing.expect(parsed.hasFlag("include-activity"));
+        try std.testing.expectEqualStrings("HTPR-7546", parsed.positionalAt(2).?);
+        try std.testing.expectEqualStrings("5", parsed.get("limit").?);
+    }
+}
+
+test "comment list unknown options remain input errors with exit code two" {
+    for ([_][]const []const u8{
+        &.{ "comment", "list", "HTPR-7546", "--include-activity", "--unknown-option" },
+        &.{ "comment", "list", "HTPR-7546", "--unknown-option", "value" },
+        &.{ "comment", "add", "HTPR-7546", "--include-activity" },
+    }) |argv| {
+        var parsed = try args_mod.parse(std.testing.allocator, argv);
+        defer parsed.deinit();
+        if (rejectUnknownOptions(std.testing.allocator, &parsed)) |_| {
+            return error.TestUnexpectedResult;
+        } else |err| {
+            try std.testing.expect(err == error.UnknownOption);
+            try std.testing.expectEqual(@as(u8, 2), @import("output.zig").exitCode(err));
+        }
+    }
+}
+
+test "catalog accepts options already read by command handlers" {
+    for ([_][]const []const u8{
+        &.{ "task", "search", "query", "--query", "text", "--filter", "status=Normal", "--sort", "id:asc", "--fields", "title", "--cursor", "next" },
+        &.{ "project", "labels", "15", "--query", "text", "--filter", "name=CLI", "--sort", "name:asc", "--fields", "name", "--limit", "5", "--cursor", "next" },
+        &.{ "admin", "agents", "list", "--limit", "5" },
+        &.{ "agent", "say", "HTPR-7546", "--text", "<p>Text</p>", "--agent-id", "agent-1" },
+        &.{ "agent", "say", "HTPR-7546", "--body", "<p>Text</p>" },
+        &.{ "agent", "move", "HTPR-7546", "--section", "In Progress" },
+        &.{ "agent", "move", "HTPR-7546", "--to", "In Progress" },
+        &.{ "agent", "new-tickets", "--agent-id", "agent-1" },
+        &.{ "fields", "get", "7546", "--project", "15" },
+        &.{ "pages", "append", "265", "--content", "Text", "--title", "Report", "--if-version", "1", "--note", "Appended" },
+        &.{ "skills", "create", "--name", "Skill", "--enabled" },
+    }) |argv| {
+        var parsed = try args_mod.parse(std.testing.allocator, argv);
+        defer parsed.deinit();
+        try rejectUnknownOptions(std.testing.allocator, &parsed);
+        try parsed.requireValues();
+    }
+}

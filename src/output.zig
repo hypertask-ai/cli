@@ -341,6 +341,7 @@ test "success false is a failure even with a successful HTTP status" {
 
 test "exit codes document command input and server failures" {
     try std.testing.expectEqual(@as(u8, 1), exitCode(error.UnknownCommand));
+    try std.testing.expectEqual(@as(u8, 2), exitCode(error.UnknownOption));
     try std.testing.expectEqual(@as(u8, 2), exitCode(error.MissingOptionValue));
     try std.testing.expectEqual(@as(u8, 2), exitCode(error.MissingTask));
     try std.testing.expectEqual(@as(u8, 2), exitCode(error.NoToken));

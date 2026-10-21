@@ -29,6 +29,21 @@ Exit codes are stable:
 
 Scripts may use the exit code category, while people and agents should follow the `Next:` line.
 
+## Release notes: native 0.2.24 / npm 2.0.11
+
+- `comment list --include-activity` is now declared in the command catalog, so validation no longer rejects the existing activity reader.
+- Restore implemented options missing from search, project labels, admin agent lists, agent helpers, custom-field reads, page appends, and skill creation.
+- Unknown options exit `2`; successful commands still exit `0`. Regression coverage now validates the catalog before successful command request fixtures are dispatched.
+- npm `@hypertask/hypertask_cli@2.0.11` installs native `0.2.24`. Release the `v0.2.24` binaries before the separate owner-approved npm publish. GitHub release notes are generated from commits; this repository has no separate changelog.
+
+## Reading comments and activity
+
+```bash
+hypertask --json comment list HTPR-7546 --include-activity --limit 5
+```
+
+Activity is opt-in; omit `--include-activity` to read comments only. Unrecognized options are rejected before authentication or HTTP requests.
+
 ## Authentication
 
 ```bash

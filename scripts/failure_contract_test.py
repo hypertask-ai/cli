@@ -11,6 +11,7 @@ import tempfile
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 
 CLI = Path(sys.argv[1]).resolve()
@@ -79,7 +80,11 @@ class StubHandler(BaseHTTPRequestHandler):
         elif self.path.startswith("/mcp/custom-fields"):
             self.respond(200, {"success": False, "error": "custom field lookup did not run"})
         elif self.path.startswith("/mcp/comments"):
-            self.respond(200, {"success": False, "error": "comment read did not run"})
+            query = parse_qs(urlsplit(self.path).query)
+            if query == {"ticket_number": ["HTPR-7546"], "include_activity": ["true"], "limit": ["5"]}:
+                self.respond(200, {"success": True, "comments": [{"id": 7546}], "total": 1, "offset": 0})
+            else:
+                self.respond(200, {"success": False, "error": "comment read did not run"})
         elif self.path.startswith("/mcp/tasks"):
             self.respond(200, {"success": False, "error": "task read did not run"})
         else:
@@ -217,6 +222,14 @@ def main() -> None:
         "accepted flags:",
     )
 
+    for option in (("--unknown-option",), ("--unknown-option", "value")):
+        assert_failure(
+            run("--json", "comment", "list", "HTPR-7546", "--include-activity", *option, api_url="http://127.0.0.1:1"),
+            2,
+            "unknown option: --unknown-option",
+            "--include-activity",
+        )
+
     for args in (
         ("time", "log", "RINT-86", "30", "--bogus"),
         ("time", "log", "RINT-86", "30", "--bogus", "x"),
@@ -243,6 +256,10 @@ def main() -> None:
             process = run(*args, api_url=api_url)
             assert process.returncode == 0, (process.returncode, process.stdout, process.stderr)
             assert json.loads(process.stdout)["request"] == expected, process.stdout
+
+        comments = run("--json", "comment", "list", "HTPR-7546", "--include-activity", "--limit", "5", api_url=api_url)
+        assert comments.returncode == 0, (comments.returncode, comments.stderr)
+        assert json.loads(comments.stdout)["comments"] == [{"id": 7546}], comments.stdout
 
         success_false = run("task", "get", "HTPR-1", api_url=api_url)
         assert_failure(success_false, 4, "task read did not run")

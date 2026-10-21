@@ -35,6 +35,7 @@ fn expectRequestCountWithResponses(argv: []const []const u8, responses: []const 
         .request_recorder = &recorder,
     };
 
+    try @import("option_validate.zig").rejectUnknownOptions(allocator, &parsed);
     try router.dispatch(&context);
     if (expected_count) |count| try std.testing.expectEqual(count, recorder.responses_index);
     try std.testing.expectEqual(method, recorder.method.?);
@@ -1279,4 +1280,56 @@ test "top level and comment add help name the Decisions inbox" {
         try std.testing.expect(std.mem.indexOf(u8, captured[0..printed], "A Question: comment that @mentions a person using a real mention shows up in their Inbox, split Decisions when enabled: https://app.hypertask.ai/inbox?split=Decisions.") != null);
         if (path.len == 0) try std.testing.expect(std.mem.indexOf(u8, captured[0..printed], "hypertask help features") != null);
     }
+}
+
+test "comment list forwards include-activity with JSON and a limit" {
+    try expectRequestCountWithResponses(
+        &.{ "--json", "comment", "list", "HTPR-7546", "--include-activity", "--limit", "5" },
+        &.{"{\"success\":true,\"comments\":[],\"total\":0,\"offset\":0}"},
+        1,
+        .GET,
+        "/mcp/comments?ticket_number=HTPR-7546&limit=5&include_activity=true",
+        null,
+    );
+}
+
+test "restored catalog options reach existing request builders" {
+    try expectRequest(
+        &.{ "project", "labels", "15", "--fields", "name", "--limit", "5" },
+        .GET,
+        "/mcp/projects/15/labels?fields=name&limit=5",
+        null,
+    );
+    try expectRequest(
+        &.{ "admin", "agents", "list", "--limit", "5" },
+        .GET,
+        "/mcp/admin/agents?limit=5",
+        null,
+    );
+    try expectRequestCountWithResponses(
+        &.{ "task", "search", "query", "--fields", "title", "--cursor", "next" },
+        &.{"{\"success\":true,\"tasks\":[{\"title\":\"Search\"}],\"total\":1}"},
+        1,
+        .GET,
+        "/mcp/tasks/search?q=query&limit=10&fields=title&cursor=next",
+        null,
+    );
+    try expectRequest(
+        &.{ "fields", "get", "7546", "--project", "15" },
+        .GET,
+        "/mcp/tasks?unique_index=7546&project_id=15",
+        null,
+    );
+    try expectRequest(
+        &.{ "pages", "append", "265", "--content", "Text", "--title", "Report", "--if-version", "1", "--note", "Appended" },
+        .POST,
+        "/mcp/pages/update",
+        "{\"id\":265,\"title\":\"Report\",\"content\":\"Text\",\"mode\":\"append\",\"if_version\":1,\"note\":\"Appended\"}",
+    );
+    try expectRequest(
+        &.{ "skills", "create", "--name", "Skill", "--enabled" },
+        .POST,
+        "/mcp/skills",
+        "{\"name\":\"Skill\",\"enabled\":true}",
+    );
 }
