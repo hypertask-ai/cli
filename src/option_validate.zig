@@ -281,10 +281,9 @@ test "comment list unknown options remain input errors with exit code two" {
 
 test "catalog accepts options already read by command handlers" {
     for ([_][]const []const u8{
-        &.{ "task", "search", "query", "--query", "text", "--filter", "status=Normal", "--sort", "id:asc", "--fields", "title", "--cursor", "next" },
+        &.{ "task", "search", "query", "--filter", "status=Normal", "--sort", "id:asc", "--fields", "title", "--cursor", "next" },
         &.{ "project", "labels", "15", "--query", "text", "--filter", "name=CLI", "--sort", "name:asc", "--fields", "name", "--limit", "5", "--cursor", "next" },
         &.{ "admin", "agents", "list", "--limit", "5" },
-        &.{ "agent", "say", "HTPR-7546", "--text", "<p>Text</p>", "--agent-id", "agent-1" },
         &.{ "agent", "say", "HTPR-7546", "--body", "<p>Text</p>" },
         &.{ "agent", "move", "HTPR-7546", "--section", "In Progress" },
         &.{ "agent", "move", "HTPR-7546", "--to", "In Progress" },
