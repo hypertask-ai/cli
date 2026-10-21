@@ -9,20 +9,76 @@ const saved_login = "{\"success\":true,\"saved\":true,\"configPath\":\"~/.hypert
 
 pub fn login(context: *const Context) !void {
     const login_token = context.args.get("token") orelse return output.invalidOptions("Create or open an agent at https://app.hypertask.ai/agents, copy its token, then run: hypertask login --token <token>");
-    const api_url = context.args.get("api-url") orelse context.cfg.api_url;
-    try config.saveToken(context.cfg, login_token, api_url);
-    var response = http.requestWithToken(context.client, context.allocator, api_url, login_token, .GET, "/mcp/hello", null) catch return context.print(saved_login);
-    defer response.deinit();
-    if (!response.isSuccess()) return context.print(saved_login);
-    const guide = buildLoginGuide(context.allocator, response.body, context.json) catch return context.print(saved_login);
-    defer context.allocator.free(guide);
+    try config.saveToken(context.cfg, login_token, context.cfg.api_url);
+    var timer = std.time.Timer.start() catch return context.print(saved_login);
+    const deadline_ns = 1500 * std.time.ns_per_ms;
+    const job = LoginGuideJob.init(context, login_token) catch return context.print(saved_login);
+    const elapsed = timer.read();
+    if (elapsed >= deadline_ns) {
+        job.deinit();
+        return context.print(saved_login);
+    }
+    const worker = std.Thread.spawn(.{}, LoginGuideJob.run, .{job}) catch {
+        job.deinit();
+        return context.print(saved_login);
+    };
+    job.done.timedWait(deadline_ns - elapsed) catch {
+        // A stalled worker owns its client and all memory until process exit.
+        // Never join it or free its state on this best-effort timeout path.
+        worker.detach();
+        return context.print(saved_login);
+    };
+    worker.join();
+    defer job.deinit();
+    const guide = job.guide orelse return context.print(saved_login);
     // Human guidance is already formatted, not a JSON response to render.
     try output.print(guide);
 }
 
+const LoginGuideJob = struct {
+    arena: std.heap.ArenaAllocator,
+    api_url: []const u8,
+    token: []const u8,
+    json_mode: bool,
+    guide: ?[]const u8 = null,
+    done: std.Thread.Semaphore = .{},
+
+    fn init(context: *const Context, login_token: []const u8) !*LoginGuideJob {
+        const job = try std.heap.page_allocator.create(LoginGuideJob);
+        job.* = .{
+            .arena = std.heap.ArenaAllocator.init(std.heap.page_allocator),
+            .api_url = undefined,
+            .token = undefined,
+            .json_mode = context.json,
+        };
+        errdefer job.deinit();
+        const owned = job.arena.allocator();
+        job.api_url = try owned.dupe(u8, context.cfg.api_url);
+        job.token = try owned.dupe(u8, login_token);
+        return job;
+    }
+
+    fn run(self: *LoginGuideJob) void {
+        defer self.done.post();
+        var client = std.http.Client{ .allocator = std.heap.page_allocator };
+        defer client.deinit();
+        const allocator = self.arena.allocator();
+        var response = http.requestWithToken(&client, allocator, self.api_url, self.token, .GET, "/mcp/hello", null) catch return;
+        defer response.deinit();
+        if (!response.isSuccess()) return;
+        self.guide = buildLoginGuide(allocator, response.body, self.json_mode) catch null;
+    }
+
+    fn deinit(self: *LoginGuideJob) void {
+        self.arena.deinit();
+        std.heap.page_allocator.destroy(self);
+    }
+};
+
 const LoginHello = struct {
     const User = struct { displayName: ?[]const u8 = null, email: ?[]const u8 = null };
     const Board = struct { id: i64, title: []const u8, boardUrl: []const u8 };
+    const Step = struct { step: []const u8, command: []const u8 };
 
     success: bool = true,
     user: User,
@@ -30,6 +86,7 @@ const LoginHello = struct {
     boards: []const Board,
     boardsTotal: ?i64 = null,
     startBoard: ?Board = null,
+    nextSteps: ?[]const Step = null,
 };
 
 fn buildLoginGuide(allocator: std.mem.Allocator, body: []const u8, json_mode: bool) ![]u8 {
@@ -41,16 +98,20 @@ fn buildLoginGuide(allocator: std.mem.Allocator, body: []const u8, json_mode: bo
     const name = if (hello.agent) |agent| agent.displayName orelse user_name else user_name;
     const board = hello.startBoard orelse if (hello.boards.len != 0) hello.boards[0] else null;
     const total = hello.boardsTotal orelse @as(i64, @intCast(hello.boards.len));
-    const steps = [_][]const u8{ "See the board", "Create a first task", "Read the board rules" };
-    var commands: [3][]const u8 = .{ "", "", "" };
-    defer for (commands) |command| {
-        if (command.len != 0) allocator.free(command);
+    var fallback = [_]LoginHello.Step{
+        .{ .step = "See the board", .command = "" },
+        .{ .step = "Create a first task", .command = "" },
+        .{ .step = "Read the board rules", .command = "" },
     };
-    if (board) |value| {
-        commands[0] = try std.fmt.allocPrint(allocator, "hypertask task list --project {d}", .{value.id});
-        commands[1] = try std.fmt.allocPrint(allocator, "hypertask task create --project {d} --title \"My first task\"", .{value.id});
-        commands[2] = try std.fmt.allocPrint(allocator, "hypertask project playbook {d}", .{value.id});
-    }
+    defer for (fallback) |step| {
+        if (step.command.len != 0) allocator.free(step.command);
+    };
+    if (hello.nextSteps == null) if (board) |value| {
+        fallback[0].command = try std.fmt.allocPrint(allocator, "hypertask task list --project {d}", .{value.id});
+        fallback[1].command = try std.fmt.allocPrint(allocator, "hypertask task create --project {d} --title \"My first task\"", .{value.id});
+        fallback[2].command = try std.fmt.allocPrint(allocator, "hypertask project playbook {d}", .{value.id});
+    };
+    const steps = hello.nextSteps orelse if (board != null) &fallback else &.{};
 
     if (!json_mode) {
         var text: std.Io.Writer.Allocating = .init(allocator);
@@ -62,15 +123,16 @@ fn buildLoginGuide(allocator: std.mem.Allocator, body: []const u8, json_mode: bo
         if (board) |value| {
             try writer.print("Board: {s}\n{s}\n", .{ value.title, value.boardUrl });
             if (total > 1) try writer.print("You have {d} boards: hypertask project list\n", .{total});
-            try writer.print(
-                "\nNext steps your agent can run now:\n" ++
-                    "  1. See the board:          {s}\n" ++
-                    "  2. Create a first task:    {s}\n" ++
-                    "  3. Read the board rules:   {s}\n",
-                .{ commands[0], commands[1], commands[2] },
-            );
         } else {
-            try writer.writeAll("No board yet. Create one at https://app.hypertask.ai\n");
+            try writer.writeAll("No board yet. Create one in your Hypertask web app.\n");
+        }
+        if (steps.len != 0) {
+            try writer.writeAll("\nNext steps your agent can run now:\n");
+            for (steps, 0..) |step, index| {
+                try writer.print("  {d}. {s}:", .{ index + 1, step.step });
+                try writer.splatByteAll(' ', @max(1, 23 -| step.step.len));
+                try writer.print("{s}\n", .{step.command});
+            }
         }
         try writer.writeAll("\nOr just ask your agent: \"What's on my Hypertask board?\"\n");
         return text.toOwnedSlice();
@@ -97,14 +159,14 @@ fn buildLoginGuide(allocator: std.mem.Allocator, body: []const u8, json_mode: bo
     var next_steps: std.Io.Writer.Allocating = .init(allocator);
     defer next_steps.deinit();
     try next_steps.writer.writeByte('[');
-    if (board != null) for (steps, commands, 0..) |step, command, index| {
+    for (steps, 0..) |step, index| {
         if (index != 0) try next_steps.writer.writeByte(',');
         var next = try json.Object.init(allocator);
         defer next.deinit();
-        try next.string("step", step);
-        try next.string("command", command);
+        try next.string("step", step.step);
+        try next.string("command", step.command);
         try next_steps.writer.writeAll(try next.finish());
-    };
+    }
     try next_steps.writer.writeByte(']');
     try object.raw("nextSteps", next_steps.written());
     if (total > 1) {
@@ -263,6 +325,61 @@ const agent_guide =
     \\
 ;
 
+test "login worker copies normalized API URL and login token instead of raw arguments" {
+    const allocator = std.testing.allocator;
+    const args = @import("../args.zig");
+    var parsed = try args.parse(allocator, &.{ "login", "--token", "new-token", "--api-url", "http://host/api/" });
+    defer parsed.deinit();
+    var cfg = try config.loadAllowingEmptyToken(allocator, parsed.get("token"), parsed.get("api-url"), null);
+    defer cfg.deinit();
+    var client = std.http.Client{ .allocator = allocator };
+    defer client.deinit();
+    const context = Context{ .client = &client, .allocator = allocator, .args = &parsed, .cfg = &cfg, .json = true };
+    const job = try LoginGuideJob.init(&context, parsed.get("token").?);
+    defer job.deinit();
+    try std.testing.expectEqualStrings("http://host/api/", parsed.get("api-url").?);
+    try std.testing.expectEqualStrings("http://host/api", job.api_url);
+    try std.testing.expectEqualStrings("new-token", job.token);
+    try std.testing.expect(job.api_url.ptr != cfg.api_url.ptr);
+    try std.testing.expect(job.token.ptr != parsed.get("token").?.ptr);
+}
+
+test "login guide honors two server steps for read-only agents" {
+    const allocator = std.testing.allocator;
+    const body =
+        \\{"user":{"email":"m@example.com"},"boards":[{"id":7,"title":"Only Board","boardUrl":"https://example.test/board/7"}],"nextSteps":[{"step":"Browse tasks","command":"hypertask task list --project 7","tool":"renamed_list_tool","arguments":{"project_id":7}},{"step":"Check rules","command":"hypertask project playbook 7","tool":"renamed_rules_tool"}]}
+    ;
+    const result = try buildLoginGuide(allocator, body, true);
+    defer allocator.free(result);
+    try std.testing.expect(std.mem.startsWith(u8, result, saved_login[0 .. saved_login.len - 1]));
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, result, .{});
+    defer parsed.deinit();
+    const steps = parsed.value.object.get("nextSteps").?.array.items;
+    try std.testing.expectEqual(@as(usize, 2), steps.len);
+    try std.testing.expectEqualStrings("Browse tasks", json.stringField(steps[0], "step").?);
+    try std.testing.expectEqualStrings("hypertask task list --project 7", json.stringField(steps[0], "command").?);
+    try std.testing.expectEqualStrings("Check rules", json.stringField(steps[1], "step").?);
+    try std.testing.expectEqualStrings("hypertask project playbook 7", json.stringField(steps[1], "command").?);
+    const human = try buildLoginGuide(allocator, body, false);
+    defer allocator.free(human);
+    try std.testing.expect(std.mem.indexOf(u8, human, "1. Browse tasks:") != null);
+    try std.testing.expect(std.mem.indexOf(u8, human, "2. Check rules:") != null);
+    try std.testing.expect(std.mem.indexOf(u8, human, "create") == null);
+}
+
+test "login guide does not invent commands for explicitly empty server steps" {
+    const allocator = std.testing.allocator;
+    const body =
+        \\{"user":{"email":"m@example.com"},"boards":[{"id":7,"title":"Only Board","boardUrl":"https://example.test/board/7"}],"nextSteps":[]}
+    ;
+    const result = try buildLoginGuide(allocator, body, true);
+    defer allocator.free(result);
+    try std.testing.expect(std.mem.endsWith(u8, result, "\"nextSteps\":[]}"));
+    const human = try buildLoginGuide(allocator, body, false);
+    defer allocator.free(human);
+    try std.testing.expect(std.mem.indexOf(u8, human, "Next steps") == null);
+}
+
 test "login guide shows agent owner and exact next steps" {
     const allocator = std.testing.allocator;
     const human = try buildLoginGuide(allocator, agent_hello, false);
@@ -324,7 +441,7 @@ test "login guide handles no boards and missing agent display name" {
     , result);
     const human = try buildLoginGuide(allocator, body, false);
     defer allocator.free(human);
-    try std.testing.expectEqualStrings("Signed in as m@example.com (agent of m@example.com)\nNo board yet. Create one at https://app.hypertask.ai\n\nOr just ask your agent: \"What's on my Hypertask board?\"\n", human);
+    try std.testing.expectEqualStrings("Signed in as m@example.com (agent of m@example.com)\nNo board yet. Create one in your Hypertask web app.\n\nOr just ask your agent: \"What's on my Hypertask board?\"\n", human);
 }
 
 test "login guide escapes server strings and rejects invalid hello" {
