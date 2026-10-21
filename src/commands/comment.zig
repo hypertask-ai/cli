@@ -51,6 +51,7 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
         if (context.args.has("markdown")) try body.string("content_type", "markdown");
         const attach_inputs = try common.optionList(context, "attach");
         try attachments.validateInputs(context, attach_inputs);
+        if (attach_inputs.len != 0) try body.boolean("has_attachments", true);
         var response = try context.fetch(.POST, "/mcp/comments", try body.finish());
         defer response.deinit();
         if (!response.isSuccess()) return context.finish(&response);
