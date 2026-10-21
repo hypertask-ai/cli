@@ -39,6 +39,8 @@ hypertask logout
 
 Browser login is not available in the native CLI. Obtain a JWT through the Hypertask web app, then pass it to `login --token`. Saved user tokens refresh automatically during their final seven days, including legacy tokens issued before refresh support.
 
+After saving the token, login shows your identity, starting board, and three commands to try next. Use `hypertask login --token '<jwt>' --human` for a readable guide (JSON is the default). If the server is unavailable, the token is still saved and login succeeds.
+
 Token lookup supports `--token`, `HT_TOKEN`, `HYPERTASKS_JWT_TOKEN`, and `~/.hypertask/config.json`. API URL lookup supports `--api-url`, `HYPERTASKS_API_URL`, and the saved config.
 
 Do not give users or agents the JWT signing secret. An operator-issued emergency token must have a unique `jti`, a bounded `exp`, the configured issuer in `iss`, and the `mcp-api` audience in `aud`.

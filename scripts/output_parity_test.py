@@ -63,6 +63,15 @@ def run(
 class Handler(BaseHTTPRequestHandler):
     requests: list[dict] = []
     lock = threading.Lock()
+    login_status = 200
+    login_body = json.dumps({
+        "success": True,
+        "user": {"displayName": "Maria Lopez", "email": "m@example.com"},
+        "agent": {"id": "agent-1", "displayName": "Claude Code"},
+        "boards": [{"id": 9142, "title": "Product Launch", "boardUrl": "https://app.hypertask.ai/project?id=9142"}],
+        "boardsTotal": 1,
+    })
+    login_authorization = None
 
     def do_GET(self) -> None:
         self.handle_request()
@@ -85,6 +94,10 @@ class Handler(BaseHTTPRequestHandler):
             self.requests.append(request)
 
         route = (self.command, target.path)
+        if route == ("GET", "/mcp/hello"):
+            Handler.login_authorization = self.headers.get("Authorization")
+            self.respond(Handler.login_status, Handler.login_body)
+            return
         if route == ("GET", "/mcp/inbox/list"):
             self.respond(200, json.dumps({
                 "success": True,
@@ -310,6 +323,50 @@ def main() -> None:
                 binary, token, api_url, home,
                 ("status",), "status.json", 0, None,
             )
+
+            expect_command(
+                binary, token, api_url, home,
+                ("login",), "login-guidance.json", 0,
+                {"method": "GET", "path": "/mcp/hello", "query": {}, "body": None},
+            )
+            expect(Handler.login_authorization == f"Bearer {token}", "login hello used wrong token")
+            saved = json.loads((Path(home) / ".hypertask" / "config.json").read_text())
+            expect(saved["token"] == token and saved["apiUrl"] == api_url, saved)
+            human_login = run(binary, token, api_url, home, "login", "--human")
+            expect(human_login.returncode == 0 and human_login.stderr == "", human_login)
+            expect(human_login.stdout == (
+                "Signed in as Claude Code (agent of Maria Lopez)\n"
+                "Board: Product Launch\nhttps://app.hypertask.ai/project?id=9142\n\n"
+                "Next steps your agent can run now:\n"
+                "  1. See the board:          hypertask task list --project 9142\n"
+                '  2. Create a first task:    hypertask task create --project 9142 --title "My first task"\n'
+                "  3. Read the board rules:   hypertask project playbook 9142\n\n"
+                'Or just ask your agent: "What\'s on my Hypertask board?"\n'
+            ), human_login.stdout)
+            for status, body in ((500, '{}'), (200, 'not JSON'), (200, 'null'), (200, '{"success":false,"user":{"email":"m@example.com"},"boards":[]}')):
+                Handler.login_status, Handler.login_body = status, body
+                for mode in ((), ("--human",)):
+                    fallback = run(binary, token, api_url, home, "login", *mode)
+                    expect(fallback.returncode == 0 and fallback.stderr == "", fallback)
+                    expected = (
+                        "success: true\nsaved: true\nconfigPath: ~/.hypertask/config.json\n" if mode else
+                        '{"success":true,"saved":true,"configPath":"~/.hypertask/config.json"}\n'
+                    )
+                    expect(fallback.stdout == expected, fallback.stdout)
+                    expect(json.loads((Path(home) / ".hypertask" / "config.json").read_text())["token"] == token, "login token not saved")
+
+            # A refused connection must not undo a successful local token save.
+            offline = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+            offline_url = f"http://127.0.0.1:{offline.server_port}"
+            offline.server_close()
+            for mode in ((), ("--human",)):
+                fallback = run(binary, token, offline_url, home, "login", *mode)
+                expect(fallback.returncode == 0 and fallback.stderr == "", fallback)
+                expect(fallback.stdout == (
+                    "success: true\nsaved: true\nconfigPath: ~/.hypertask/config.json\n" if mode else
+                    '{"success":true,"saved":true,"configPath":"~/.hypertask/config.json"}\n'
+                ), fallback.stdout)
+                expect(json.loads((Path(home) / ".hypertask" / "config.json").read_text())["token"] == token, "offline login token not saved")
 
             expect_command(
                 binary, token, api_url, home,
