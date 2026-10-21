@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Loopback-only command/output and capabilities checks for comment routing."""
+import base64
 import json
 import os
 from pathlib import Path
@@ -28,7 +29,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         self.requests.append((self.path, body))
-        raw = json.dumps(self.response).encode()
+        response = self.response
+        if self.path == "/mcp/tasks/attachments":
+            response = {"success": True, "attachments": [{"id": 8, "fileName": body["files"][0]["filename"]}]}
+        raw = json.dumps(response).encode()
         self.send_response(201)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(raw)))
@@ -78,6 +82,35 @@ def main():
             assert not Handler.requests
             passed += 1
 
+            home = Path(directory)
+            text_file = home / "comment.html"
+            text_file.write_text("<p>Test</p>")
+            png, csv = home / "shot.png", home / "report.csv"
+            png.write_bytes(b"\x89PNG\r\n\x1a\nfixture")
+            csv.write_text("name,result\nattachment,ok\n")
+            for source in (("--text", "<p>Test</p>"), ("--file", str(text_file))):
+                for files in ((), (png,), (csv,), (png, csv)):
+                    Handler.response = {**COMMENT, "routedTo": "comments"}
+                    Handler.requests = []
+                    flags = [flag for file in files for flag in ("--attach", str(file))]
+                    result = run("comment", "add", "HTPR-7341", *source, *flags, "--json")
+                    assert result.returncode == 0, result.stderr
+                    expected = {"ticket_number": "HTPR-7341", "text": "<p>Test</p>"}
+                    if files:
+                        expected["has_attachments"] = True
+                    assert Handler.requests[0] == ("/mcp/comments", expected), Handler.requests
+                    assert len(Handler.requests) == 1 + len(files), Handler.requests
+                    response = json.loads(result.stdout)
+                    assert response["comment"]["id"] == 7, response
+                    if files:
+                        assert response["attachments_uploaded"]["success"] is True, response
+                    for (path, body), file in zip(Handler.requests[1:], files):
+                        assert path == "/mcp/tasks/attachments" and body["comment_id"] == 7, (path, body)
+                        assert body["files"][0]["filename"] == file.name, body
+                        assert body["files"][0]["content_type"] == ("image/png" if file == png else "text/csv"), body
+                        assert base64.b64decode(body["files"][0]["data"]) == file.read_bytes(), body
+                    passed += 1
+
             Handler.response = LOG
             for flags, expected in (((), NOTICE), (("--human",), NOTICE),
                                     (("--json",), json.dumps(LOG) + "\n"),
@@ -94,7 +127,9 @@ def main():
                 assert result.returncode == 0, result.stderr
                 assert result.stdout == (json.dumps(LOG) + "\n" if flags else NOTICE), result
                 assert "Attachments were not uploaded" in result.stderr
-                assert len(Handler.requests) == 1, Handler.requests
+                assert Handler.requests == [("/mcp/comments", {
+                    "ticket_number": "HTPR-7341", "text": "<p>Test</p>", "has_attachments": True,
+                })], Handler.requests
                 passed += 1
 
             for response in (COMMENT, {**COMMENT, "routedTo": "comments"}):

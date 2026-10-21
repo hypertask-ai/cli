@@ -154,7 +154,7 @@ hypertask projects delete <project-id> --yes
 hypertask search "query" --project 15
 ```
 
-`comment add --kind question|qa|done` posts a question, QA result, or completion comment for people. Without `--kind`, no kind is sent; the server may save agent chatter to the agent log without notifying anyone. The CLI explains log routing, or returns the unchanged response with `--json`. If routed to the log, requested attachments are not uploaded; use `--kind` to attach them to a comment.
+`comment add --kind question|qa|done` posts a question, QA result, or completion comment for people. Without `--kind`, no kind is sent; the server may save agent chatter to the agent log without notifying anyone. The CLI explains log routing, or returns the unchanged response with `--json`. `--attach` marks the create request with `has_attachments: true` so supporting servers keep it as a comment. If an older server still routes it to the log, requested attachments are not uploaded; use `--kind` to attach them to a comment.
 
 `projects update` renames a board you can edit. `projects archive` is reversible with `--restore`. `projects delete` permanently deletes the board, its tasks, notifications, and memberships, so it refuses to run without `--yes`.
 
