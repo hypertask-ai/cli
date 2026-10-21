@@ -75,7 +75,7 @@ class ReadCase:
         return " ".join(self.args)
 
 READ_CASES = (
-    ReadCase(("context",)),
+    ReadCase(("context",), DERIVED_NODE_FIELDS | {"urlFormats"}),
     ReadCase(("teams", "list")),
     ReadCase(("project", "list", "--limit", "2")),
     ReadCase(("project", "show", PROJECT)),
