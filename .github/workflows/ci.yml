@@ -40,6 +40,11 @@ jobs:
       - name: Test error-path output contract
         run: python3 scripts/output_parity_test.py zig-out/bin/hypertask
 
+      - name: Test URL formats in discovery
+        run: |
+          python3 scripts/htpr_7323_url_formats_test.py zig-out/bin/hypertask
+          python3 scripts/no_login_discovery_test.py zig-out/bin/hypertask
+
       - name: Test customer installers
         run: |
           ./scripts/install_test.sh

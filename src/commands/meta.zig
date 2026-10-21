@@ -10,6 +10,7 @@ const Capability = struct {
     name: []const u8,
     description: []const u8 = "",
     commands: []const Self = &.{},
+    urlFormats: std.json.ArrayHashMap([]const u8) = .{},
 };
 
 pub fn capabilities(context_value: *const Context) !void {
@@ -30,6 +31,17 @@ fn capabilitiesMarkdown(allocator: std.mem.Allocator, source: []const u8) ![]u8 
     var path: std.ArrayListUnmanaged(u8) = .{};
     defer path.deinit(allocator);
     try appendCommands(&result, &path, allocator, parsed.value.commands);
+    if (parsed.value.urlFormats.map.count() != 0) {
+        try writer.writeAll("\n## URL formats\n\n");
+        var formats = parsed.value.urlFormats.map.iterator();
+        while (formats.next()) |format| {
+            if (std.mem.eql(u8, format.key_ptr.*, "rules")) {
+                try writer.print("\n{s}\n", .{format.value_ptr.*});
+            } else {
+                try writer.print("- `{s}`: `{s}`\n", .{ format.key_ptr.*, format.value_ptr.* });
+            }
+        }
+    }
     try result.appendSlice(allocator, "\nRun `hypertask capabilities --json` for arguments, options, and aliases.\n");
     return result.toOwnedSlice(allocator);
 }
@@ -85,7 +97,11 @@ pub fn context(context_value: *const Context) !void {
     defer project_document.deinit();
     const project_rows = project_document.value.object.get("projects") orelse return error.InvalidResponse;
     const project_json = try std.json.Stringify.valueAlloc(context_value.allocator, project_rows, .{});
-    try context_value.print(try json.mergeRawField(context_value.allocator, user_context.body, "projects", project_json));
+    const with_projects = try json.mergeRawField(context_value.allocator, user_context.body, "projects", project_json);
+    const catalog = try std.json.parseFromSlice(Capability, context_value.allocator, @embedFile("../capabilities.json"), .{ .ignore_unknown_fields = true });
+    defer catalog.deinit();
+    const formats_json = try std.json.Stringify.valueAlloc(context_value.allocator, catalog.value.urlFormats, .{});
+    try context_value.print(try json.mergeRawField(context_value.allocator, with_projects, "urlFormats", formats_json));
 }
 
 pub fn teams(context_value: *const Context) !void {
