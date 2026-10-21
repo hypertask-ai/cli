@@ -106,6 +106,10 @@ pub fn dispatch(context: *const Context) !void {
     if (std.mem.eql(u8, root, "raw")) return meta.raw(context);
 
     const subcommand = context.args.positionalAt(1) orelse return error.MissingSubcommand;
+    if (std.mem.eql(u8, root, "help")) {
+        if (!std.mem.eql(u8, subcommand, "features")) return error.UnknownCommand;
+        return meta.features(context);
+    }
     if (std.mem.eql(u8, root, "token")) return auth.token(context, subcommand);
     if (std.mem.eql(u8, root, "teams") or std.mem.eql(u8, root, "team")) {
         if (!std.mem.eql(u8, subcommand, "list")) return error.UnknownCommand;
@@ -160,6 +164,8 @@ fn renderHelp(allocator: std.mem.Allocator, path: []const []const u8) ![]u8 {
         \\Usage: hypertask [--json] [--token <jwt>] [--api-url <url>] <command> ...
         \\
         \\Run `hypertask capabilities --json` for the complete command and option catalog.
+        \\Run `hypertask help features` for live product features and their destinations.
+        \\A Question: comment that @mentions a person using a real mention shows up in their Inbox, split Decisions when enabled: https://app.hypertask.ai/inbox?split=Decisions.
         \\
         \\AI agents: run `hypertask feedback --category call_failed` on your own when a hypertask command fails unexpectedly. Free text (note and error) is not stored; agents should pick a category. Never include task, board or comment content.
         \\Unexpected failures send command name and error type only, no task content; disable with HYPERTASK_NO_ERROR_REPORTS=1 or error_reports=false in ~/.hypertask/config.json.

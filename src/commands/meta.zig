@@ -83,6 +83,37 @@ test "capabilities markdown lists leaf command paths" {
     , rendered);
 }
 
+pub fn features(context_value: *const Context) !void {
+    var response = try context_value.fetchRaw(.GET, "/mcp/features", null);
+    defer response.deinit();
+    if (response.status == .not_found) return error.FeaturesUnavailable;
+    if (!response.isSuccess() or output.responseReportsFailure(context_value.allocator, response.body)) return output.finish(&response);
+    if (context_value.args.has("json")) return output.print(response.body);
+
+    const Feature = struct {
+        key: []const u8,
+        name: ?[]const u8 = null,
+        url: ?[]const u8 = null,
+        description: []const u8,
+    };
+    const Catalog = struct { features: []const Feature };
+    const parsed = std.json.parseFromSlice(Catalog, context_value.allocator, response.body, .{ .ignore_unknown_fields = true }) catch return error.InvalidResponse;
+    defer parsed.deinit();
+
+    var result: std.ArrayListUnmanaged(u8) = .{};
+    defer result.deinit(context_value.allocator);
+    const writer = result.writer(context_value.allocator);
+    for ([_]bool{ true, false }) |core| {
+        for (parsed.value.features) |feature| {
+            if (std.mem.startsWith(u8, feature.key, "core-") != core) continue;
+            try writer.print("{s}: {s}", .{ feature.name orelse feature.key, feature.description });
+            if (feature.url) |url| try writer.print(" ({s})", .{url});
+            try writer.writeByte('\n');
+        }
+    }
+    try output.print(result.items);
+}
+
 pub fn update(context_value: *const Context) !void {
     try context_value.print("{\"current\":\"0.2.0-zig\",\"latest\":null,\"available\":false,\"message\":\"Automatic npm updates are not available for hypertask\"}");
 }

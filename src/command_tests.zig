@@ -1152,3 +1152,131 @@ test "search still enriches unprojected empty descriptions" {
         );
     }
 }
+
+const features_response =
+    \\{"success":true,"scope":"Features available to this login","features":[{"key":"feature-without-name","description":"No destination yet.","shippedOn":"2026-01-01","available":true},{"key":"named-feature","name":"Views","url":"https://app.hypertask.ai/my-tasks","description":"Organize your work.","available":true},{"key":"core-inbox","name":"Inbox","url":"https://app.hypertask.ai/inbox","description":"Read your notifications.","available":true},{"key":"core-decisions","name":"Decisions","url":"https://app.hypertask.ai/inbox?split=Decisions","description":"Answer Question: mentions.","available":true},{"key":"nullable-feature","name":null,"url":null,"description":"Nullable metadata.","available":true}]}
+;
+
+fn expectFeaturesOutput(argv: []const []const u8, response: []const u8, status: std.http.Status, fetch_error: ?anyerror, expected_error: ?anyerror, expected_output: []const u8) !void {
+    const posix = std.posix;
+    const output = @import("output.zig");
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    var parsed = try args.parse(allocator, argv);
+    defer parsed.deinit();
+    try @import("option_validate.zig").rejectUnknownOptions(allocator, &parsed);
+    try parsed.requireValues();
+    try router.validateCommandPath(allocator, parsed.positional, true);
+    var cfg = config.Config{ .allocator = allocator, .token = "test-token" };
+    defer cfg.deinit();
+    var recorder = command_context.RequestRecorder.init(allocator);
+    defer recorder.deinit();
+    recorder.responses = &.{response};
+    recorder.response_status = status;
+    recorder.fetch_error = fetch_error;
+    var client = std.http.Client{ .allocator = allocator };
+    defer client.deinit();
+    const context = command_context.Context{
+        .client = &client,
+        .allocator = allocator,
+        .args = &parsed,
+        .cfg = &cfg,
+        .json = true,
+        .request_recorder = &recorder,
+    };
+
+    const pipe = try posix.pipe();
+    defer posix.close(pipe[0]);
+    {
+        defer posix.close(pipe[1]);
+        const saved_stdout = try posix.dup(1);
+        defer posix.close(saved_stdout);
+        try posix.dup2(pipe[1], 1);
+        defer posix.dup2(saved_stdout, 1) catch {};
+        const saved_stderr = try posix.dup(2);
+        defer posix.close(saved_stderr);
+        try posix.dup2(pipe[1], 2);
+        defer posix.dup2(saved_stderr, 2) catch {};
+        const result = router.dispatch(&context);
+        result catch |err| output.printFailure(err);
+        if (expected_error) |err| {
+            try std.testing.expectError(err, result);
+            try std.testing.expect(output.exitCode(err) != 0);
+        } else {
+            try result;
+        }
+    }
+    var captured: [4096]u8 = undefined;
+    const printed = try posix.read(pipe[0], &captured);
+    try std.testing.expectEqualStrings(expected_output, captured[0..printed]);
+    if (fetch_error == null) {
+        try std.testing.expectEqual(@as(usize, 1), recorder.responses_index);
+        try std.testing.expectEqual(std.http.Method.GET, recorder.method.?);
+        try std.testing.expectEqualStrings("/mcp/features", recorder.path.?);
+        try std.testing.expect(recorder.body == null);
+    }
+}
+
+test "help features routes to live catalog and prints core destinations first" {
+    try expectFeaturesOutput(&.{ "help", "features" }, features_response, .ok, null, null,
+        \\Inbox: Read your notifications. (https://app.hypertask.ai/inbox)
+        \\Decisions: Answer Question: mentions. (https://app.hypertask.ai/inbox?split=Decisions)
+        \\feature-without-name: No destination yet.
+        \\Views: Organize your work. (https://app.hypertask.ai/my-tasks)
+        \\nullable-feature: Nullable metadata.
+        \\
+    );
+}
+
+test "help features json preserves the complete server response" {
+    for ([_][]const []const u8{ &.{ "help", "features", "--json" }, &.{ "--json", "help", "features" } }) |argv| {
+        try expectFeaturesOutput(argv, features_response, .ok, null, null, features_response ++ "\n");
+    }
+}
+
+test "help features on an older server prints one clear line and fails" {
+    for ([_][]const []const u8{ &.{ "help", "features" }, &.{ "help", "features", "--json" } }) |argv| {
+        try expectFeaturesOutput(argv, "{\"success\":false,\"error\":\"Not found\"}", .not_found, null, error.FeaturesUnavailable,
+            "hypertask: live features are unavailable on this server (GET /api/mcp/features returned 404); update the server\n");
+    }
+}
+
+test "help features propagates transport failure instead of claiming an old server" {
+    try expectFeaturesOutput(&.{ "help", "features" }, "", .ok, error.ConnectionRefused, error.ConnectionRefused,
+        "hypertask: command failed (ConnectionRefused)\nNext: retry the same command once.\n");
+}
+
+test "help features retains the existing authentication failure path" {
+    for ([_]std.http.Status{ .unauthorized, .forbidden }) |status| {
+        try expectFeaturesOutput(&.{ "help", "features" }, "{\"success\":false,\"error\":\"Access denied\"}", status, null, error.ApiAuthentication,
+            "{\"success\":false,\"error\":\"Access denied\"}\nhypertask: this token does not have the required access\nNext: ask the project owner to add this token.\n");
+    }
+}
+
+test "help features rejects missing or unknown subcommands and extra arguments" {
+    try std.testing.expectError(error.MissingSubcommand, router.validateCommandPath(std.testing.allocator, &.{"help"}, true));
+    try std.testing.expectError(error.UnknownCommand, router.validateCommandPath(std.testing.allocator, &.{ "help", "unknown" }, true));
+    try std.testing.expectError(error.InvalidOptions, router.validateCommandPath(std.testing.allocator, &.{ "help", "features", "extra" }, true));
+    try expectDispatchError(error.UnknownCommand, &.{ "help", "unknown" });
+}
+
+test "top level and comment add help name the Decisions inbox" {
+    const posix = std.posix;
+    for ([_][]const []const u8{ &.{}, &.{ "comment", "add" }, &.{ "comments", "add" } }) |path| {
+        const pipe = try posix.pipe();
+        defer posix.close(pipe[0]);
+        {
+            defer posix.close(pipe[1]);
+            const saved_stdout = try posix.dup(1);
+            defer posix.close(saved_stdout);
+            try posix.dup2(pipe[1], 1);
+            defer posix.dup2(saved_stdout, 1) catch {};
+            try router.printHelp(std.testing.allocator, path);
+        }
+        var captured: [8192]u8 = undefined;
+        const printed = try posix.read(pipe[0], &captured);
+        try std.testing.expect(std.mem.indexOf(u8, captured[0..printed], "A Question: comment that @mentions a person using a real mention shows up in their Inbox, split Decisions when enabled: https://app.hypertask.ai/inbox?split=Decisions.") != null);
+        if (path.len == 0) try std.testing.expect(std.mem.indexOf(u8, captured[0..printed], "hypertask help features") != null);
+    }
+}
