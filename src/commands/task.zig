@@ -314,8 +314,12 @@ fn update(context: *const Context) !void {
     const label_inputs = try common.optionList(context, "labels");
     const add_label_inputs = try collectLabelOptions(context, &.{ "add-labels", "add-label" });
     const remove_label_inputs = try collectLabelOptions(context, &.{ "remove-labels", "remove-label" });
-    if (label_inputs.len != 0 and (add_label_inputs.len != 0 or remove_label_inputs.len != 0)) return error.InvalidOptions;
-    if (label_inputs.len != 0 or add_label_inputs.len != 0 or remove_label_inputs.len != 0) {
+    const clear_labels = context.args.has("clear-labels") or (context.args.has("labels") and label_inputs.len == 0);
+    if (clear_labels and label_inputs.len != 0) return error.InvalidOptions;
+    if ((context.args.has("labels") or clear_labels) and (context.args.has("add-labels") or context.args.has("add-label") or context.args.has("remove-labels") or context.args.has("remove-label"))) return error.InvalidOptions;
+    if (clear_labels) {
+        try body.identifiers("labels", &.{});
+    } else if (label_inputs.len != 0 or add_label_inputs.len != 0 or remove_label_inputs.len != 0) {
         if (resolved_task == null) resolved_task = try resolve.task(context, ticket);
         const task_row = resolved_task.?;
         if (label_inputs.len != 0) {
@@ -912,7 +916,7 @@ fn collectLabelOptions(context: *const Context, names: []const []const u8) ![]co
 
 fn hasFieldUpdateOptions(context: *const Context) bool {
     const names = [_][]const u8{
-        "title", "description", "description-file", "pull-request", "priority", "estimate", "due", "clear-due", "status", "section", "labels", "add-labels", "add-label", "remove-labels", "remove-label", "parent-task", "clear-parent",
+        "title", "description", "description-file", "pull-request", "priority", "estimate", "due", "clear-due", "status", "section", "labels", "clear-labels", "add-labels", "add-label", "remove-labels", "remove-label", "parent-task", "clear-parent",
     };
     for (names) |name| if (context.args.has(name)) return true;
     return false;

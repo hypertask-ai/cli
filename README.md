@@ -200,7 +200,12 @@ the ticket. Use `--add-label` / `--remove-label` (or `--add-labels` /
 hypertask tasks update HTPR-5726 --labels CLI,BUG
 hypertask tasks update HTPR-5726 --add-label QA
 hypertask tasks update HTPR-5726 --remove-label BUG
+hypertask tasks update HTPR-5726 --labels ""
+hypertask tasks update HTPR-5726 --clear-labels
 ```
+
+`--labels ""` and `--clear-labels` remove every label. Do not combine clearing
+with nonempty `--labels`, `--add-label(s)`, or `--remove-label(s)`.
 
 That snapshots Normal, Archive, and Deleted tasks assigned to that person, then
 unassigns each one. The command exits nonzero if any task fails.
