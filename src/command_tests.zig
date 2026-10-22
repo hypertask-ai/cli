@@ -273,6 +273,49 @@ test "tasks list --label alias also filters" {
     );
 }
 
+test "task agent-log reads tickets and task ids with optional filters" {
+    try expectRequestCountWithResponses(
+        &.{ "tasks", "agent-log", "HTPR-7620", "--limit", "5", "--agent", "11111111-1111-4111-8111-111111111111" },
+        &.{"{\"success\":true,\"activities\":[]}"},
+        1,
+        .GET,
+        "/mcp/tasks/HTPR-7620/agent-activity?limit=5&agent_id=11111111-1111-4111-8111-111111111111",
+        null,
+    );
+    try expectRequest(
+        &.{ "task", "agent-log", "35007" },
+        .GET,
+        "/mcp/tasks/35007/agent-activity?limit=20",
+        null,
+    );
+    try expectRequest(
+        &.{ "tasks", "agent-log", "HTPR-7620", "--limit", "100", "--human" },
+        .GET,
+        "/mcp/tasks/HTPR-7620/agent-activity?limit=100",
+        null,
+    );
+    try expectRequest(
+        &.{ "task", "agent-log", "HTPR-7620/?#", "--limit", "1", "--agent", "agent/one +&" },
+        .GET,
+        "/mcp/tasks/HTPR-7620%2F%3F%23/agent-activity?limit=1&agent_id=agent%2Fone%20%2B%26",
+        null,
+    );
+}
+
+test "task agent-log refuses invalid limits" {
+    for ([_][]const u8{ "0", "", "999999999999999999999999999999" }) |value| {
+        try expectDispatchError(error.InvalidInteger, &.{ "tasks", "agent-log", "HTPR-7620", "--limit", value });
+    }
+    for ([_][]const u8{ "abc", "101", "-1", "1.5", "+1", "1_0" }) |value| {
+        try expectDispatchError(error.InvalidOptions, &.{ "tasks", "agent-log", "HTPR-7620", "--limit", value });
+    }
+}
+
+test "task agent-log requires a ticket or task id" {
+    try expectDispatchError(error.MissingArgument, &.{ "tasks", "agent-log" });
+    try expectDispatchError(error.MissingArgument, &.{ "task", "agent-log", "--limit", "5" });
+}
+
 test "task get distinguishes internal ids from project ticket indexes" {
     try expectRequestWithResponses(
         &.{ "tasks", "get", "5661", "--project", "15" },

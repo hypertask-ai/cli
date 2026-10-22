@@ -14,6 +14,7 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
     if (std.mem.eql(u8, subcommand, "list")) return list(context);
     if (std.mem.eql(u8, subcommand, "next")) return next(context);
     if (std.mem.eql(u8, subcommand, "get") or std.mem.eql(u8, subcommand, "show")) return get(context);
+    if (std.mem.eql(u8, subcommand, "agent-log")) return agentLog(context);
     if (std.mem.eql(u8, subcommand, "description-history")) return descriptionHistory(context);
     if (std.mem.eql(u8, subcommand, "description-restore")) return descriptionRestore(context);
     if (std.mem.eql(u8, subcommand, "context")) return taskContext(context);
@@ -184,6 +185,24 @@ fn get(context: *const Context) !void {
     var path = try query.Builder.init(context.allocator, "/mcp/tasks");
     defer path.deinit();
     try addIdentifierQuery(&path, context, identifier);
+    try context.call(.GET, path.path(), null);
+}
+
+fn agentLog(context: *const Context) !void {
+    const identifier = try context.args.requirePositional(2, "ticket-or-task-id");
+    const limit_text = context.args.get("limit") orelse "20";
+    for (limit_text) |byte| if (!std.ascii.isDigit(byte)) {
+        return output.invalidOptions("--limit must be an integer between 1 and 100");
+    };
+    const limit = try common.positiveInt(limit_text, "limit");
+    if (limit > 100) return output.invalidOptions("--limit must be an integer between 1 and 100");
+
+    var path = try query.Builder.init(context.allocator, "/mcp/tasks/");
+    defer path.deinit();
+    try query.encode(&path.buffer, context.allocator, identifier);
+    try path.buffer.appendSlice(context.allocator, "/agent-activity");
+    try path.addInt("limit", limit);
+    if (context.args.get("agent")) |value| try path.add("agent_id", value);
     try context.call(.GET, path.path(), null);
 }
 

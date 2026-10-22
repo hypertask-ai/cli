@@ -35,7 +35,7 @@ pub const Builder = struct {
     }
 };
 
-fn encode(buffer: *std.ArrayListUnmanaged(u8), allocator: std.mem.Allocator, value: []const u8) !void {
+pub fn encode(buffer: *std.ArrayListUnmanaged(u8), allocator: std.mem.Allocator, value: []const u8) !void {
     const hex = "0123456789ABCDEF";
     for (value) |byte| {
         if (std.ascii.isAlphanumeric(byte) or byte == '-' or byte == '_' or byte == '.' or byte == '~') {
