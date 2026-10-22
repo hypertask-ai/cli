@@ -10,19 +10,46 @@ on:
 
 permissions:
   contents: read
-  actions: read
+
+defaults:
+  run:
+    shell: bash
 
 concurrency:
   group: install-fleet-cli
   cancel-in-progress: false
 
 jobs:
+  check:
+    if: github.repository == 'hypertask-ai/cli' && github.ref == 'refs/heads/main'
+    runs-on:
+      - self-hosted
+      - hypertask-cli-fleet
+    timeout-minutes: 2
+    outputs:
+      needed: ${{ steps.state.outputs.needed }}
+    steps:
+      - name: Check installed commit
+        id: state
+        run: |
+          needed=true
+          commit_marker="$HOME/.local/state/hypertask-cli/installed-commit"
+          if [ "$GITHUB_EVENT_NAME" = schedule ] && [ -f "$commit_marker" ]; then
+            installed_commit=$(cat "$commit_marker")
+            if [ "$installed_commit" = "$GITHUB_SHA" ]; then
+              needed=false
+            fi
+          fi
+          echo "needed=$needed" >> "$GITHUB_OUTPUT"
+
   build:
-    if: github.repository == 'hypertask-ai/cli'
+    needs: check
+    if: github.repository == 'hypertask-ai/cli' && github.ref == 'refs/heads/main' && needs.check.outputs.needed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     outputs:
       sha256: ${{ steps.artifact.outputs.sha256 }}
+      checksums_sha256: ${{ steps.artifact.outputs.checksums_sha256 }}
       version: ${{ steps.artifact.outputs.version }}
     steps:
       - name: Check out merged commit
@@ -48,10 +75,14 @@ jobs:
           artifact_dir="$RUNNER_TEMP/fleet-cli"
           mkdir -p "$artifact_dir"
           cp zig-out/bin/hypertask scripts/install-fleet.sh "$artifact_dir/"
-          sha256=$(sha256sum "$artifact_dir/hypertask" | awk '{print $1}')
+          cd "$artifact_dir"
+          sha256sum hypertask install-fleet.sh > SHA256SUMS
+          checksums_sha256=$(sha256sum SHA256SUMS | awk '{print $1}')
+          sha256=$(sha256sum hypertask | awk '{print $1}')
           version=$("$artifact_dir/hypertask" --version)
           test -n "$version"
           echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
+          echo "checksums_sha256=$checksums_sha256" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Upload fleet artifact
@@ -64,6 +95,7 @@ jobs:
 
   install:
     needs: build
+    if: github.repository == 'hypertask-ai/cli' && github.ref == 'refs/heads/main'
     runs-on:
       - self-hosted
       - hypertask-cli-fleet
@@ -75,13 +107,14 @@ jobs:
           name: fleet-cli
           path: ${{ runner.temp }}/fleet-cli/
 
-      - name: Verify artifact checksum
+      - name: Verify artifact checksums
         env:
-          EXPECTED_SHA256: ${{ needs.build.outputs.sha256 }}
+          EXPECTED_CHECKSUMS_SHA256: ${{ needs.build.outputs.checksums_sha256 }}
         run: |
           cd "$RUNNER_TEMP/fleet-cli"
-          [[ "$EXPECTED_SHA256" =~ ^[0-9a-f]{64}$ ]]
-          printf '%s  hypertask\n' "$EXPECTED_SHA256" | sha256sum --check --strict
+          [[ "$EXPECTED_CHECKSUMS_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          printf '%s  SHA256SUMS\n' "$EXPECTED_CHECKSUMS_SHA256" | sha256sum --check --strict
+          sha256sum --check --strict SHA256SUMS
           chmod 755 hypertask
 
       - name: Check installation state
