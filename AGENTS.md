@@ -21,11 +21,13 @@ Branch off `main`, push, open a PR with base `main`, and enable auto-merge (`gh 
 
 The fleet destination is `~/.local/bin/hypertask`. Install also replaces whichever `hypertask` wins `PATH` when that is a different file, and it replaces `~/.npm-global/bin/hypertask` when that file exists even if this job's PATH is empty. Agent wrappers run `hypertask` from a login PATH, and npm-global often sits first. Destination symlinks are kept; the target is replaced. GATES G5 is `cmp` against the destination, `command -v hypertask` when it exists, and the npm-global wrapper when it exists.
 
-For a manual recovery install:
+The `Install fleet CLI` workflow runs ReleaseFast tests, installer tests, and the build on GitHub-hosted `ubuntu-latest`. The self-hosted fleet runner only downloads the binary and existing installer from that run's artifact, verifies the binary's SHA-256 against the build job output, installs atomically, and checks the installed version against the build job output. It never runs Zig, builds, or tests.
+
+For a manual recovery install, download the `fleet-cli` artifact from a successful hosted build and verify its binary against that build job's SHA-256 output before running:
 
 ```bash
-zig build -Doptimize=ReleaseFast
-./scripts/install-fleet.sh zig-out/bin/hypertask
+chmod 755 /path/to/fleet-cli/hypertask
+bash /path/to/fleet-cli/install-fleet.sh /path/to/fleet-cli/hypertask
 ```
 
 ## Both implementations are live: fix behaviour in both

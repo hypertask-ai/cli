@@ -150,7 +150,9 @@ zig build -Doptimize=ReleaseFast
 ./scripts/install-fleet.sh zig-out/bin/hypertask
 ```
 
-Merges to `main` install the same ReleaseFast binary automatically on the trusted fleet runner. Tags matching `v*` test all installers, cross-compile five customer binaries, and publish a GitHub release with SHA-256 checksums.
+Merges to `main`, the five-minute schedule, and manual dispatch run `Install fleet CLI`. GitHub-hosted `ubuntu-latest` runs ReleaseFast tests, fleet installer tests, and the build, then uploads the binary and existing installer as the `fleet-cli` artifact. The trusted self-hosted fleet runner only downloads that artifact, verifies the binary's SHA-256 against the build job output, installs atomically, and checks that the installed version equals the built version. No Zig, builds, or tests run on the fleet runner.
+
+Tags matching `v*` test all installers, cross-compile five customer binaries, and publish a GitHub release with SHA-256 checksums.
 
 ## Agent usage
 
