@@ -44,6 +44,16 @@ hypertask --json comment list HTPR-7546 --include-activity --limit 5
 
 Activity is opt-in; omit `--include-activity` to read comments only. Unrecognized options are rejected before authentication or HTTP requests.
 
+## Reading a ticket's agent log
+
+```bash
+hypertask tasks agent-log HTPR-7620
+hypertask task agent-log 35007 --limit 100 --agent 11111111-1111-4111-8111-111111111111
+hypertask tasks agent-log HTPR-7620 --human
+```
+
+Reads `GET /api/mcp/tasks/{ticket-or-task-id}/agent-activity` without changing the ticket. Numeric identifiers are task IDs, not board indexes. Returns `activities` newest first, including `agentName`, `type`, `text`, and `createdAt`. JSON is the default; `--human` uses the standard readable format. `--limit` defaults to 20 and must be an integer from 1 to 100; `--agent` filters by agent UUID (`agent_id`).
+
 ## Authentication
 
 ```bash

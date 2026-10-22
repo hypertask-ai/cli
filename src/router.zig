@@ -324,6 +324,21 @@ test "project update help shows the title option" {
     try std.testing.expect(std.mem.indexOf(u8, update_help, "--title <title> (required)") != null);
 }
 
+test "task agent-log help includes filters for both aliases" {
+    for ([_][]const u8{ "task", "tasks" }) |root| {
+        try validateCommandPath(std.testing.allocator, &.{ root, "agent-log", "HTPR-7620" }, true);
+        const help = try renderHelp(std.testing.allocator, &.{ root, "agent-log" });
+        defer std.testing.allocator.free(help);
+        try std.testing.expect(std.mem.indexOf(u8, help, "Usage: hypertask task agent-log <ticket-or-task-id> [options]") != null);
+        try std.testing.expect(std.mem.indexOf(u8, help, "--limit <n>") != null);
+        try std.testing.expect(std.mem.indexOf(u8, help, "1-100, default 20") != null);
+        try std.testing.expect(std.mem.indexOf(u8, help, "--agent <uuid>") != null);
+        const task_help = try renderHelp(std.testing.allocator, &.{root});
+        defer std.testing.allocator.free(task_help);
+        try std.testing.expect(std.mem.indexOf(u8, task_help, "agent-log") != null);
+    }
+}
+
 test "subcommand help renders command-specific options" {
     try validateCommandPath(std.testing.allocator, &.{"tasks"}, false);
     const task_help = try renderHelp(std.testing.allocator, &.{"tasks"});
