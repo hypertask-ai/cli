@@ -581,6 +581,36 @@ test "comment reactions require an emoji" {
     try expectDispatchError(error.MissingOption, &.{ "comment", "unreact", "216402" });
 }
 
+test "task update clears labels with an empty value or --clear-labels" {
+    for ([_][]const []const u8{
+        &.{ "tasks", "update", "HTPR-7621", "--labels", "" },
+        &.{ "tasks", "update", "HTPR-7621", "--clear-labels" },
+        &.{ "tasks", "update", "HTPR-7621", "--clear-labels", "--labels", "" },
+    }) |argv| {
+        try expectRequest(
+            argv,
+            .POST,
+            "/mcp/tasks/update",
+            "{\"ticket_number\":\"HTPR-7621\",\"labels\":[]}",
+        );
+    }
+    try expectRequestWithResponses(
+        &.{ "tasks", "update", "HTPR-7621", "--labels", "A" },
+        &.{ "{\"tasks\":[{\"id\":35007,\"projectId\":15}]}", "{\"labels\":[{\"id\":\"a-label-id\",\"name\":\"A\"}]}" },
+        .POST,
+        "/mcp/tasks/update",
+        "{\"ticket_number\":\"HTPR-7621\",\"labels\":[\"a-label-id\"]}",
+    );
+}
+
+test "task update refuses conflicting label clear and edit options" {
+    try expectDispatchError(error.InvalidOptions, &.{ "tasks", "update", "HTPR-7621", "--clear-labels", "--labels", "A" });
+    for ([_][]const u8{ "--add-labels", "--add-label", "--remove-labels", "--remove-label" }) |option| {
+        try expectDispatchError(error.InvalidOptions, &.{ "tasks", "update", "HTPR-7621", "--clear-labels", option, "X" });
+        try expectDispatchError(error.InvalidOptions, &.{ "tasks", "update", "HTPR-7621", "--labels", "", option, "X" });
+    }
+}
+
 test "task update empty assignee or --clear-assignees unassigns through the assign route" {
     // Empty --assignee used to POST /mcp/tasks/update with no fields and get
     // missing_field. Assignee rows that agents created also survive assignee:[].
