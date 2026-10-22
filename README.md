@@ -29,12 +29,11 @@ Exit codes are stable:
 
 Scripts may use the exit code category, while people and agents should follow the `Next:` line.
 
-## Release notes: native 0.2.24 / npm 2.0.11
+## Release notes: native 0.2.25 / npm 2.0.12
 
-- `comment list --include-activity` is now declared in the command catalog, so validation no longer rejects the existing activity reader.
-- Restore implemented options missing from search, project labels, admin agent lists, agent helpers, custom-field reads, page appends, and skill creation.
-- Unknown options exit `2`; successful commands still exit `0`. Regression coverage now validates the catalog before successful command request fixtures are dispatched.
-- npm `@hypertask/hypertask_cli@2.0.11` installs native `0.2.24`. Release the `v0.2.24` binaries before the separate owner-approved npm publish. GitHub release notes are generated from commits; this repository has no separate changelog.
+- `tasks update --labels ""` and the new `--clear-labels` remove every label from a ticket (HTPR-7621).
+- New read-only `tasks agent-log <ticket-or-task-id>` reads a ticket's agent log, with `--limit` and `--agent` (HTPR-7620).
+- npm `@hypertask/hypertask_cli@2.0.12` installs native `0.2.25`. Release the `v0.2.25` binaries before the separate owner-approved npm publish. GitHub release notes are generated from commits; this repository has no separate changelog.
 
 ## Reading comments and activity
 
