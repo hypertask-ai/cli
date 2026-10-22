@@ -1,6 +1,6 @@
 {
   "name": "@hypertask/hypertask_cli",
-  "version": "2.0.11",
+  "version": "2.0.12",
   "description": "Native Hypertask CLI installer",
   "license": "MIT",
   "repository": {
