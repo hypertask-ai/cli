@@ -71,4 +71,24 @@ PATH="/usr/bin:/bin" HOME="$stripped_home" HYPERTASK_INSTALL_PATH="$regular" \
 cmp "$artifact" "$regular"
 cmp "$artifact" "$stripped_home/.npm-global/bin/hypertask"
 
+# A build that cannot run here (Illegal instruction, or no version) must not
+# replace any installed copy.
+for broken_body in 'kill -ILL $$' 'exit 0'; do
+  broken="$tmp/hypertask-broken"
+  printf '#!/usr/bin/env bash\n%s\n' "$broken_body" >"$broken"
+  chmod 755 "$broken"
+  kept_home="$tmp/home-kept"
+  rm -rf "$kept_home"
+  mkdir -p "$kept_home/.npm-global/bin"
+  printf 'working npm\n' >"$kept_home/.npm-global/bin/hypertask"
+  printf 'working local\n' >"$regular"
+  if PATH="/usr/bin:/bin" HOME="$kept_home" HYPERTASK_INSTALL_PATH="$regular" \
+    "$repo_root/scripts/install-fleet.sh" "$broken" 2>/dev/null; then
+    printf 'installer accepted a build that does not run: %s\n' "$broken_body" >&2
+    exit 1
+  fi
+  [[ $(cat "$regular") == 'working local' ]]
+  [[ $(cat "$kept_home/.npm-global/bin/hypertask") == 'working npm' ]]
+done
+
 printf 'fleet install tests passed\n'

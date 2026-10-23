@@ -9,6 +9,11 @@ if [[ ! -x "$artifact" ]]; then
   exit 1
 fi
 
+if ! artifact_version=$(timeout 10 "$artifact" --version 2>/dev/null) || [[ -z "$artifact_version" ]]; then
+  printf 'new build does not run on this machine, keeping the installed hypertask: %s\n' "$artifact" >&2
+  exit 1
+fi
+
 install_one() {
   local dest=$1
   mkdir -p "$(dirname "$dest")"
