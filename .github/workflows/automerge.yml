@@ -251,15 +251,6 @@ jobs:
             echo "MERGING #$PR @ ${head_oid:0:9}"
             if gh pr merge "$PR" --repo "$REPO" --squash --match-head-commit "$head_oid"; then
               echo "MERGED #$PR"
-              # GITHUB_TOKEN merge events do not start push workflows. Dispatch
-              # installation explicitly so every automated merge reaches the fleet.
-              dispatch_install() { gh workflow run install-fleet.yml --repo "$REPO" --ref main; }
-              if retry dispatch_install; then
-                echo "Dispatched fleet installation."
-              else
-                echo "::error::Merged PR #$PR but could not dispatch fleet installation."
-                infra_failures=$((infra_failures+1))
-              fi
             else
               echo "::error::Merge failed for PR #$PR; it will retry on the next trigger."
               merge_failures=$((merge_failures+1))
