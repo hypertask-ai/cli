@@ -116,7 +116,7 @@ exit 2
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("MERGED #42", result.stdout)
         self.assertIn("--match-head-commit 0000000000000000000000000000000000000000", merges)
-        self.assertIn("dispatch workflow run install-fleet.yml", merges)
+        self.assertNotIn("workflow run", merges)
 
     def test_non_green_required_check_blocks_merge(self) -> None:
         for state in ("FAILURE", "PENDING", "MISSING"):
@@ -150,17 +150,10 @@ exit 2
         self.assertIn("reports 301 changed files", result.stdout)
         self.assertEqual(merges, "")
 
-    def test_install_workflow_reconciles_undispatched_main_commits(self) -> None:
-        workflow = (ROOT / ".github" / "workflows" / "install-fleet.yml").read_text(
-            encoding="utf-8"
-        )
-
-        self.assertIn('cron: "*/5 * * * *"', workflow)
-        self.assertIn("installed-commit", workflow)
-        self.assertIn("installed-sha256", workflow)
-        self.assertIn("grep -Fxq \"$GITHUB_SHA\"", workflow)
-        self.assertIn("sha256sum \"$binary\"", workflow)
-        self.assertIn("Record installed commit", workflow)
+    def test_no_workflow_runs_on_a_self_hosted_runner(self) -> None:
+        for workflow in sorted((ROOT / ".github" / "workflows").glob("*.y*ml")):
+            with self.subTest(workflow=workflow.name):
+                self.assertNotIn("self-hosted", workflow.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
