@@ -35,7 +35,21 @@ jobs:
         run: zig build test -Doptimize=ReleaseFast
 
       - name: Build ReleaseFast CLI
-        run: zig build -Doptimize=ReleaseFast
+        run: zig build -Doptimize=ReleaseFast -Dcpu=baseline
+
+      - name: Check binary runs on baseline x86_64
+        run: |
+          objdump -d zig-out/bin/hypertask > "$RUNNER_TEMP/hypertask.disassembly"
+          if grep -q '%zmm' "$RUNNER_TEMP/hypertask.disassembly"; then
+            echo "::error::fleet binary uses AVX-512 registers; baseline x86_64 is required"
+            exit 1
+          fi
+
+      - name: Test fleet installers and release pull
+        run: |
+          ./scripts/install_fleet_test.sh
+          ./scripts/fleet_pull_test.sh
+          shellcheck scripts/fleet-pull.sh scripts/fleet-pull-install.sh scripts/fleet_pull_test.sh
 
       - name: Test error-path output contract
         run: python3 scripts/output_parity_test.py zig-out/bin/hypertask

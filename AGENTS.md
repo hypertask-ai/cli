@@ -21,15 +21,13 @@ Branch off `main`, push, open a PR with base `main`, and enable auto-merge (`gh 
 
 The fleet destination is `~/.local/bin/hypertask`. Install also replaces whichever `hypertask` wins `PATH` when that is a different file, and it replaces `~/.npm-global/bin/hypertask` when that file exists even if this job's PATH is empty. Agent wrappers run `hypertask` from a login PATH, and npm-global often sits first. Destination symlinks are kept; the target is replaced. GATES G5 is `cmp` against the destination, `command -v hypertask` when it exists, and the npm-global wrapper when it exists.
 
-The `Install fleet CLI` workflow runs ReleaseFast tests, installer tests, and the build on GitHub-hosted `ubuntu-latest`. The self-hosted fleet runner only downloads the binary and existing installer from that run's artifact, authenticates `SHA256SUMS` against the build job output and verifies both files with `sha256sum --check --strict`, installs atomically, and checks the installed version against the build job output. It never runs Zig, builds, or tests.
+To move fleet install to a pull timer, the VPS user runs `bash scripts/fleet-pull-install.sh` (or previews with `--dry-run`). The user timer checks the latest published GitHub release every 15 minutes, verifies its checksum and version, and installs through a local copy of `install-fleet.sh`. State is kept in `~/.local/state/hypertask-cli/installed-tag` and `installed-sha256`. Fleet updates follow release tags, not merges to `main`. CI builds and tests on GitHub-hosted `ubuntu-latest`, including baseline x86_64 and isolated fleet shell tests.
 
-Only the canonical repository's `main` ref can run fleet jobs. The five-minute schedule first reads the recorded installed commit on the fleet runner without checkout or repository code; unchanged commits skip the hosted build and installation. Pushes and manual dispatch on `main` always build.
-
-For a manual recovery install, download the `fleet-cli` artifact from a successful hosted build on `main`, verify `SHA256SUMS` against that build job's `checksums_sha256` output, then run `sha256sum --check --strict SHA256SUMS` from the artifact directory. Both files must pass before running:
+For a manual recovery install, download `hypertask-linux-x86_64` and `checksums.txt` from the same GitHub release, verify the binary with `sha256sum --check --strict`, then run:
 
 ```bash
-chmod 755 /path/to/fleet-cli/hypertask
-bash /path/to/fleet-cli/install-fleet.sh /path/to/fleet-cli/hypertask
+chmod 755 /path/to/hypertask-linux-x86_64
+bash scripts/install-fleet.sh /path/to/hypertask-linux-x86_64
 ```
 
 ## Both implementations are live: fix behaviour in both
