@@ -159,7 +159,9 @@ zig build -Doptimize=ReleaseFast
 ./scripts/install-fleet.sh zig-out/bin/hypertask
 ```
 
-Merges to `main`, the five-minute schedule, and manual dispatch on `main` run `Install fleet CLI` in the canonical repository. A small fleet state check reads the recorded installed commit without checkout or repository code; unchanged scheduled runs skip the build and installation, while pushes and manual dispatch always build. GitHub-hosted `ubuntu-latest` runs ReleaseFast tests, fleet installer tests, and the build, then uploads the binary and existing installer as the `fleet-cli` artifact. The trusted self-hosted fleet runner only downloads that artifact, authenticates the `SHA256SUMS` manifest against the build job output and verifies both the binary and installer with `sha256sum --check --strict`, installs atomically, and checks that the installed version equals the built version. No Zig, builds, or tests run on the fleet runner.
+To move fleet install to a pull timer, run `bash scripts/fleet-pull-install.sh` as the VPS user (preview with `--dry-run`). It installs local copies of the pull script and existing installer, then enables `hypertask-fleet-pull.timer`: first check two minutes after boot, then every 15 minutes. The timer pulls the latest published release, checks its SHA-256 checksum and exact version, and records `installed-tag` and `installed-sha256` in `~/.local/state/hypertask-cli/`. Matching state and binary skip asset downloads. Failed updates preserve the installed copies. Updates follow releases, not merges to `main`.
+
+The timer needs Bash, curl, jq, GNU coreutils, flock, and a running systemd user manager. Inspect it with `systemctl --user status hypertask-fleet-pull.timer` and `journalctl --user -u hypertask-fleet-pull.service`. The checksum is supplied by the same GitHub release as the binary. GitHub-hosted CI retains the ReleaseFast baseline x86_64 build check and runs the isolated fleet installer and pull tests.
 
 Tags matching `v*` test all installers, cross-compile five customer binaries, and publish a GitHub release with SHA-256 checksums.
 
