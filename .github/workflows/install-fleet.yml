@@ -67,7 +67,14 @@ jobs:
         run: ./scripts/install_fleet_test.sh
 
       - name: Build ReleaseFast binary
-        run: zig build -Doptimize=ReleaseFast
+        run: zig build -Doptimize=ReleaseFast -Dcpu=baseline
+
+      - name: Check binary runs on baseline x86_64
+        run: |
+          if objdump -d zig-out/bin/hypertask | grep -q '%zmm'; then
+            echo "::error::fleet binary uses AVX-512 registers; the fleet VPS has no AVX-512"
+            exit 1
+          fi
 
       - name: Prepare fleet artifact
         id: artifact
