@@ -29,11 +29,10 @@ Exit codes are stable:
 
 Scripts may use the exit code category, while people and agents should follow the `Next:` line.
 
-## Release notes: native 0.2.25 / npm 2.0.12
+## Release notes: native 0.2.26 / npm 2.0.13
 
-- `tasks update --labels ""` and the new `--clear-labels` remove every label from a ticket (HTPR-7621).
-- New read-only `tasks agent-log <ticket-or-task-id>` reads a ticket's agent log, with `--limit` and `--agent` (HTPR-7620).
-- npm `@hypertask/hypertask_cli@2.0.12` installs native `0.2.25`. Release the `v0.2.25` binaries before the separate owner-approved npm publish. GitHub release notes are generated from commits; this repository has no separate changelog.
+- New `task waiting-on <ticket> --user <id|me|none>` sets or clears who a ticket is blocked by, with the same checks as the app's Blocked by person (HTPR-7723).
+- npm `@hypertask/hypertask_cli@2.0.13` installs native `0.2.26`. Release the `v0.2.26` binaries before the separate owner-approved npm publish. GitHub release notes are generated from commits; this repository has no separate changelog.
 
 ## Reading comments and activity
 
