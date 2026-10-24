@@ -173,6 +173,7 @@ Use `hypertask` for board operations:
 hypertask tasks get HTPR-5726
 hypertask tasks get 5726 --project 15
 hypertask tasks move HTPR-5726 --section "In Progress"
+hypertask task waiting-on HTPR-7723 --user me
 hypertask comment add HTPR-5726 --text "<p>...</p>"
 hypertask agents update --id <agent-id> --name "Ops Script"
 hypertask agents update --id <agent-id> --add-project 339
@@ -183,6 +184,8 @@ hypertask projects archive <project-id>
 hypertask projects delete <project-id> --yes
 hypertask search "query" --project 15
 ```
+
+`task waiting-on <ticket> --user <id|me|none>` sets the person a ticket is blocked by. `me` uses the current user (not the agent); `none` clears the blocker. `tasks` is also accepted. Use `--project <id>` with a bare ticket number, or a numeric internal task ID without `--project`. `--json` and `--human` use the standard write-command output.
 
 `comment add --kind question|qa|done` posts a question, QA result, or completion comment for people. Without `--kind`, no kind is sent; the server may save agent chatter to the agent log without notifying anyone. The CLI explains log routing, or returns the unchanged response with `--json`. `--attach` marks the create request with `has_attachments: true` so supporting servers keep it as a comment. If an older server still routes it to the log, requested attachments are not uploaded; use `--kind` to attach them to a comment.
 

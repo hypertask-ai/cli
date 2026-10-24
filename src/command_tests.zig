@@ -695,6 +695,83 @@ test "the local agent dev loop refuses to guess an agent or a handler URL" {
     try expectDispatchError(error.InvalidOptions, &.{ "agent", "replay", "run_1", "--url", "file:///etc/passwd" });
 }
 
+test "task waiting-on requires a ticket and a valid user before HTTP" {
+    try expectDispatchError(error.MissingArgument, &.{ "task", "waiting-on", "--user", "6" });
+    try expectDispatchError(error.MissingOption, &.{ "task", "waiting-on", "HTPR-7723" });
+    try expectDispatchError(error.MissingOption, &.{ "tasks", "waiting-on", "HTPR-7723", "--user" });
+    for ([_][]const u8{ "", "invalid", "-1", "1.5", "+6", "agent-1" }) |value| {
+        try expectDispatchError(error.InvalidOptions, &.{ "task", "waiting-on", "HTPR-7723", "--user", value });
+    }
+    for ([_][]const u8{ "0", "9223372036854775808" }) |value| {
+        try expectDispatchError(error.InvalidInteger, &.{ "task", "waiting-on", "HTPR-7723", "--user", value });
+    }
+}
+
+test "task waiting-on posts resolved numeric task and user ids or explicit null" {
+    for ([_][]const u8{ "task", "tasks" }) |root| {
+        try expectRequestCountWithResponses(
+            &.{ root, "waiting-on", "htpr-7723", "--user", "6", "--json" },
+            &.{"{\"tasks\":[{\"id\":49511,\"projectId\":15}]}"},
+            2,
+            .POST,
+            "/mcp/tasks/waiting-on",
+            "{\"taskId\":49511,\"userId\":6}",
+        );
+        try expectRequestCountWithResponses(
+            &.{ root, "waiting-on", "49511", "--user", "none" },
+            &.{"{\"tasks\":[{\"id\":49511,\"projectId\":15}]}"},
+            2,
+            .POST,
+            "/mcp/tasks/waiting-on",
+            "{\"taskId\":49511,\"userId\":null}",
+        );
+    }
+    try expectRequestCountWithResponses(
+        &.{ "task", "waiting-on", "7723", "--project", "15", "--user", "6" },
+        &.{ "{\"tasks\":[{\"id\":49511,\"projectId\":15}]}", "{\"tasks\":[]}" },
+        3,
+        .POST,
+        "/mcp/tasks/waiting-on",
+        "{\"taskId\":49511,\"userId\":6}",
+    );
+    try expectDispatchErrorWithResponses(
+        &.{ "task", "waiting-on", "7723", "--project", "15", "--user", "6" },
+        &.{ "{\"tasks\":[{\"id\":49511,\"projectId\":15}]}", "{\"tasks\":[{\"id\":7723,\"projectId\":15}]}" },
+        error.AmbiguousTaskIdentifier,
+    );
+    try expectRequestCountWithResponses(
+        &.{ "task", "waiting-on", "id:49511", "--project", "15", "--user", "6" },
+        &.{"{\"tasks\":[{\"id\":49511,\"projectId\":15}]}"},
+        2,
+        .POST,
+        "/mcp/tasks/waiting-on",
+        "{\"taskId\":49511,\"userId\":6}",
+    );
+}
+
+test "task waiting-on me uses the authenticated user and refuses unreadable identity" {
+    try expectRequestCountWithResponses(
+        &.{ "tasks", "waiting-on", "HTPR-7723", "--user", "me" },
+        &.{ "{\"user\":{\"id\":6},\"agent\":{\"id\":\"agent-1\"}}", "{\"tasks\":[{\"id\":49511,\"projectId\":15}]}" },
+        3,
+        .POST,
+        "/mcp/tasks/waiting-on",
+        "{\"taskId\":49511,\"userId\":6}",
+    );
+    for ([_][]const u8{ "{}", "null", "{\"user\":null}", "{\"user\":{\"id\":0}}", "{\"user\":{\"id\":\"agent-1\"}}" }) |response| {
+        try expectDispatchErrorWithResponses(
+            &.{ "task", "waiting-on", "HTPR-7723", "--user", "me" },
+            &.{response},
+            error.InvalidResponse,
+        );
+    }
+    try expectDispatchErrorWithResponses(
+        &.{ "task", "waiting-on", "HTPR-7723", "--user", "me" },
+        &.{"{\"success\":false,\"error\":\"Unauthorized\"}"},
+        error.CommandFailed,
+    );
+}
+
 test "task assign --self sends assign_self without requiring --assignee" {
     try expectRequest(
         &.{ "task", "assign", "HTPR-6136", "--self" },
