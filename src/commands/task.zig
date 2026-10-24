@@ -27,6 +27,7 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
     if (std.mem.eql(u8, subcommand, "update")) return update(context);
     if (std.mem.eql(u8, subcommand, "assign")) return assign(context, "assign");
     if (std.mem.eql(u8, subcommand, "unassign")) return assign(context, "unassign");
+    if (std.mem.eql(u8, subcommand, "waiting-on")) return waitingOn(context);
     if (std.mem.eql(u8, subcommand, "move-to-inbox")) return moveToInbox(context);
     if (std.mem.eql(u8, subcommand, "move")) return move(context);
     if (std.mem.eql(u8, subcommand, "move-board") or std.mem.eql(u8, subcommand, "move-project")) return moveBoard(context);
@@ -638,6 +639,34 @@ fn stuckAssigneeAgent(agent_id: []const u8) error{AssigneeNotRemoved} {
 fn stuckAssigneeUser(user_id: i64) error{AssigneeNotRemoved} {
     std.debug.print("Error: user {d} is still in the task assignees after unassign\n", .{user_id});
     return error.AssigneeNotRemoved;
+}
+
+fn waitingOn(context: *const Context) !void {
+    const identifier = try context.args.requirePositional(2, "ticket");
+    const user = try context.args.require("user");
+    const user_id: ?i64 = if (std.mem.eql(u8, user, "none")) null else if (std.mem.eql(u8, user, "me")) blk: {
+        var hello_response = try context.fetch(.GET, "/mcp/hello", null);
+        defer hello_response.deinit();
+        try requireSuccess(context, &hello_response);
+        const document = try std.json.parseFromSlice(std.json.Value, context.allocator, hello_response.body, .{});
+        defer document.deinit();
+        if (document.value != .object) return error.InvalidResponse;
+        const current_user = document.value.object.get("user") orelse return error.InvalidResponse;
+        const id = json.integerField(current_user, "id", true) orelse return error.InvalidResponse;
+        if (id <= 0) return error.InvalidResponse;
+        break :blk id;
+    } else blk: {
+        if (!resolve.isNumeric(user)) return output.invalidOptions("--user must be a positive user ID, me, or none");
+        break :blk try common.positiveInt(user, "user");
+    };
+    const found = try resolve.task(context, identifier);
+    var body = try json.Object.init(context.allocator);
+    defer body.deinit();
+    try body.integer("taskId", found.id);
+    if (user_id) |id| try body.integer("userId", id) else try body.nullValue("userId");
+    var response = try context.fetch(.POST, "/mcp/tasks/waiting-on", try body.finish());
+    defer response.deinit();
+    try context.print(try taskMutationBody(context, &response));
 }
 
 fn moveToInbox(context: *const Context) !void {

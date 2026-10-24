@@ -135,6 +135,9 @@ class Handler(BaseHTTPRequestHandler):
         if route == ("POST", "/mcp/tasks/move"):
             self.respond(200, '{"success":true,"task":{"id":49511,"projectId":339}}')
             return
+        if route == ("POST", "/mcp/tasks/waiting-on"):
+            self.respond(200, '{"success":true}')
+            return
         if route == ("POST", "/mcp/assignees/assign"):
             self.respond(200, fixture("task-assign-self.json"))
             return
@@ -483,6 +486,50 @@ def main() -> None:
             expect([(r["method"], r["path"], r["body"]) for r in requests] == [
                 ("POST", "/mcp/tasks/move", {"task_id": 49511, "target_project_id": 339, "target_section_id": 1176}),
             ], f"cross-board move requests were {requests}")
+
+            # HTPR-7723: resolve to numeric ids, never confuse a user with an agent,
+            # and send explicit null when clearing the blocked-by person.
+            saved_hello = Handler.login_status, Handler.login_body
+            Handler.login_status = 200
+            Handler.login_body = '{"user":{"id":6},"agent":{"id":"agent-test"}}'
+            try:
+                for root, user, expected_user in (("task", "6", 6), ("tasks", "me", 6), ("tasks", "none", None)):
+                    for mode in ((), ("--human",)):
+                        with Handler.lock:
+                            before = len(Handler.requests)
+                        waiting = run(
+                            binary, token, api_url, home,
+                            root, "waiting-on", "HTPR-5787", "--user", user, *mode,
+                        )
+                        expect(waiting.returncode == 0 and waiting.stderr == "", waiting)
+                        expect(waiting.stdout == (
+                            "success: true\n" if mode else '{"success":true}\n'
+                        ), waiting.stdout)
+                        with Handler.lock:
+                            requests = Handler.requests[before:]
+                        expected_reads = [
+                            ("GET", "/mcp/hello", {}, None),
+                        ] if user == "me" else []
+                        expect([(r["method"], r["path"], r["query"], r["body"]) for r in requests] == [
+                            *expected_reads,
+                            ("GET", "/mcp/tasks", {"ticket_number": ["HTPR-5787"]}, None),
+                            ("POST", "/mcp/tasks/waiting-on", {}, {"taskId": 35007, "userId": expected_user}),
+                        ], f"waiting-on requests were {requests}")
+            finally:
+                Handler.login_status, Handler.login_body = saved_hello
+
+            with Handler.lock:
+                before = len(Handler.requests)
+            for options in ((), ("--user", "invalid"), ("--user", "0")):
+                invalid_waiting = run(
+                    binary, token, api_url, home,
+                    "task", "waiting-on", "HTPR-5787", *options,
+                )
+                expect(invalid_waiting.returncode == 2, invalid_waiting)
+                expect(invalid_waiting.stdout == "", invalid_waiting.stdout)
+                expect("Next:" in invalid_waiting.stderr, invalid_waiting.stderr)
+            with Handler.lock:
+                expect(len(Handler.requests) == before, "invalid waiting-on made network requests")
 
             # HTPR-6313: an agent command run without any agent identity must
             # fail loudly, non-zero exit, error on stderr, nothing on stdout,
