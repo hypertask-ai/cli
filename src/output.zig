@@ -46,6 +46,14 @@ const ErrorInfo = struct {
 };
 
 const error_info = [_]ErrorInfo{
+    .{ .err = error.InvalidInterval, .code = 2, .summary = "--interval must be a whole number of seconds from 1 to 60" },
+    .{ .err = error.InvalidChatText, .code = 2, .summary = "--text must contain 1 to 8000 characters" },
+    .{ .err = error.InvalidChatId, .code = 2, .summary = "chat-id must identify a chat session" },
+    .{ .err = error.NoChatMessageToReplyTo, .code = 2, .summary = "this chat has no human message to reply to" },
+    .{ .err = error.ChatAgentTokenRequired, .code = 4, .summary = "Agent Chat requires an authorized agent token" },
+    .{ .err = error.ChatEndpointUnavailable, .code = 4, .summary = "chat endpoint or session not found; the app must support POST /api/mcp/chat/heartbeat and GET /api/mcp/chat/pending" },
+    .{ .err = error.ChatRequestRejected, .code = 4, .summary = "the server rejected the chat request" },
+    .{ .err = error.ChatPollFailed, .code = 4, .summary = "the chat request failed; retry after the server recovers" },
     .{ .err = error.BrokenPipe, .code = 141 },
     .{ .err = error.AmbiguousTaskIdentifier, .code = 2, .summary = "command input is invalid" },
     .{ .err = error.ApiInvalidInput, .code = 2, .summary = "the server rejected the command input" },
@@ -395,4 +403,13 @@ test "human output preserves non-JSON responses" {
     const formatted = try formatHuman(std.testing.allocator, "plain text");
     defer std.testing.allocator.free(formatted);
     try std.testing.expectEqualStrings("plain text", formatted);
+}
+
+test "chat errors distinguish input from API failures" {
+    for ([_]anyerror{ error.InvalidInterval, error.InvalidChatText, error.InvalidChatId, error.NoChatMessageToReplyTo }) |err| {
+        try std.testing.expectEqual(@as(u8, 2), exitCode(err));
+    }
+    for ([_]anyerror{ error.ChatAgentTokenRequired, error.ChatEndpointUnavailable, error.ChatRequestRejected, error.ChatPollFailed }) |err| {
+        try std.testing.expectEqual(@as(u8, 4), exitCode(err));
+    }
 }

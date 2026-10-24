@@ -7,6 +7,7 @@ const agent = @import("commands/agent.zig");
 const agents = @import("commands/agents.zig");
 const ai = @import("commands/ai.zig");
 const auth = @import("commands/auth.zig");
+const chat = @import("commands/chat.zig");
 const comment = @import("commands/comment.zig");
 const decision = @import("commands/decision.zig");
 const draft = @import("commands/draft.zig");
@@ -128,6 +129,7 @@ pub fn dispatch(context: *const Context) !void {
         }
         return agents.run(context, subcommand);
     }
+    if (std.mem.eql(u8, root, "chat")) return chat.run(context, subcommand);
     if (std.mem.eql(u8, root, "messages")) return messages.run(context, subcommand);
     if (std.mem.eql(u8, root, "webhook") or std.mem.eql(u8, root, "webhooks")) return webhook.run(context, subcommand);
     if (std.mem.eql(u8, root, "admin")) {
@@ -164,6 +166,7 @@ fn renderHelp(allocator: std.mem.Allocator, path: []const []const u8) ![]u8 {
         \\Usage: hypertask [--json] [--token <jwt>] [--api-url <url>] <command> ...
         \\
         \\Run `hypertask capabilities --json` for the complete command and option catalog.
+        \\Agent sessions: run `hypertask chat listen` in the background; answer with `hypertask chat reply <chat-id> --text <text>`.
         \\Run `hypertask help features` for live product features and their destinations.
         \\A Question: comment that @mentions a person using a real mention shows up in their Inbox, split Decisions when enabled: https://app.hypertask.ai/inbox?split=Decisions.
         \\
@@ -420,4 +423,24 @@ test "feedback help explains autonomous reporting and content privacy" {
     try std.testing.expect(std.mem.indexOf(u8, help, "--category <value>") != null);
     try std.testing.expect(std.mem.indexOf(u8, help, "--surface <cli|agent>") != null);
     try std.testing.expect(std.mem.indexOf(u8, help, "--json") != null);
+}
+
+test "chat routing help and options teach agent attachment" {
+    const args_mod = @import("args.zig");
+    var parsed = try args_mod.parse(std.testing.allocator, &.{ "chat", "listen", "--once", "--interval", "3" });
+    defer parsed.deinit();
+    try parsed.requireValues();
+    try @import("option_validate.zig").rejectUnknownOptions(std.testing.allocator, &parsed);
+    try validateCommandPath(std.testing.allocator, parsed.positional, true);
+    try validateCommandPath(std.testing.allocator, &.{ "chat", "reply", "chat-1" }, true);
+    for ([_][]const []const u8{ &.{}, &.{"chat"}, &.{ "chat", "listen" } }) |path| {
+        const help = try renderHelp(std.testing.allocator, path);
+        defer std.testing.allocator.free(help);
+        try std.testing.expect(std.mem.indexOf(u8, help, "chat listen") != null);
+        try std.testing.expect(std.mem.indexOf(u8, help, "background") != null);
+        try std.testing.expect(std.mem.indexOf(u8, help, "chat reply <chat-id> --text <text>") != null);
+    }
+    const help = try renderHelp(std.testing.allocator, &.{ "chat", "reply" });
+    defer std.testing.allocator.free(help);
+    try std.testing.expect(std.mem.indexOf(u8, help, "--text <text> (required)") != null);
 }

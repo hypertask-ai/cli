@@ -13,6 +13,7 @@ pub const RequestRecorder = struct {
     responses: []const []const u8 = &.{},
     responses_index: usize = 0,
     response_status: std.http.Status = .ok,
+    response_statuses: []const std.http.Status = &.{},
     fetch_error: ?anyerror = null,
 
     pub fn init(allocator: std.mem.Allocator) RequestRecorder {
@@ -25,13 +26,14 @@ pub const RequestRecorder = struct {
         self.* = undefined;
     }
 
-    fn fetch(self: *RequestRecorder, method: std.http.Method, path: []const u8, body: ?[]const u8) !http.Response {
+    pub fn fetch(self: *RequestRecorder, method: std.http.Method, path: []const u8, body: ?[]const u8) !http.Response {
         if (self.fetch_error) |err| return err;
         const next_path = try self.allocator.dupe(u8, path);
         errdefer self.allocator.free(next_path);
         const next_body = if (body) |value| try self.allocator.dupe(u8, value) else null;
         errdefer if (next_body) |value| self.allocator.free(value);
         const scripted = if (self.responses_index < self.responses.len) self.responses[self.responses_index] else "{}";
+        const status = if (self.responses_index < self.response_statuses.len) self.response_statuses[self.responses_index] else self.response_status;
         self.responses_index += 1;
         const response_body = try self.allocator.dupe(u8, scripted);
         errdefer self.allocator.free(response_body);
@@ -42,7 +44,7 @@ pub const RequestRecorder = struct {
         self.path = next_path;
         self.body = next_body;
         return .{
-            .status = self.response_status,
+            .status = status,
             .body = response_body,
             .allocator = self.allocator,
         };
@@ -149,4 +151,19 @@ pub fn managementToken(context: *const Context) []const u8 {
 
 pub fn requireDeleteConfirmation(confirmed: bool) !void {
     if (!confirmed) return error.ConfirmationRequired;
+}
+
+test "scripted HTTP statuses pair with their response bodies" {
+    var recorder = RequestRecorder.init(std.testing.allocator);
+    defer recorder.deinit();
+    recorder.responses = &.{ "heartbeat", "unavailable" };
+    recorder.response_statuses = &.{ .ok, .service_unavailable };
+    var first = try recorder.fetch(.POST, "/mcp/chat/heartbeat", "{}");
+    defer first.deinit();
+    var second = try recorder.fetch(.GET, "/mcp/chat/pending", null);
+    defer second.deinit();
+    try std.testing.expectEqual(std.http.Status.ok, first.status);
+    try std.testing.expectEqualStrings("heartbeat", first.body);
+    try std.testing.expectEqual(std.http.Status.service_unavailable, second.status);
+    try std.testing.expectEqualStrings("unavailable", second.body);
 }
