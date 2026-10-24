@@ -1,0 +1,18 @@
+# Gates: HTPR-7322 native CLI
+
+Scope: Add live help features and Decisions guidance to the native CLI, add unexecuted regression coverage, and commit and push only the requested branch. Verification is source inspection only; no tests, builds, application execution, board writes, PRs, merges, credential reads, version bumps, code comments, or stashing.
+
+- [x] G1: help features routes through normal authenticated transport, renders text and JSON, prioritizes core destinations, and handles older servers and failures
+  EVIDENCE: Manual source inspection: src/router.zig:109-111 dispatches the catalog entry in src/capabilities.json:1; src/commands/meta.zig:86-114 uses Context.fetchRaw, checks 404 before decoding, delegates other failures to output.finish, preserves raw JSON, and stably partitions core-* ahead of other features. src/command_context.zig:93-96 requires auth and calls http.request; src/output.zig:86,131 gives FeaturesUnavailable exit 4 and one diagnostic line. No runtime verification.
+
+- [x] G2: top-level and comment create help explain Question mentions and link to the Decisions Inbox
+  EVIDENCE: Manual comparison with the server featureCatalog.ts DECISIONS_GUIDANCE and core destination keys: src/router.zig:167-168 advertises live features and real Question: mentions; src/capabilities.json:1 adds the identical guidance line to comment add (the existing creation command, including comments alias help). Decisions URL matches the server and availability caveat is retained.
+
+- [x] G3: command tests cover routing, stub text and JSON, 404, and transport failure without execution
+  EVIDENCE: Manual source inspection: src/command_tests.zig:1160-1219 validates options/path and captures dispatch output from the existing recorder, now supporting status/error injection at src/command_context.zig:15-16,29,45. Tests at :1221-1282 cover stable core-first text, optional and nullable metadata, raw JSON before/after command, 404 in both modes with one-line failure and nonzero exit, transport propagation, 401/403 existing auth handling, routing rejection, and top-level/comment help. Reviewed pipe cleanup and expected strings against output.zig; tests intentionally unexecuted.
+
+- [x] G4: scope and safety constraints hold, including unchanged version, no added code comments, and no committed gate artifacts
+  EVIDENCE: Reviewed complete six-file source diff and git status: only src/capabilities.json, src/command_context.zig, src/command_tests.zig, src/commands/meta.zig, src/output.zig, and src/router.zig changed; main.zig and version files unchanged; no added code comments. Session commands performed only source/metadata reads, file edits, worktree creation, and ledger format inspection; no prohibited execution, credential reads, board writes, stash, PR, or merge. GATES.md is untracked and will not be staged. Native-only scope follows the explicit CLI task; Node implementation untouched. CI is pull_request-only (.github/workflows/ci.yml:3-5), so push does not promise a test run.
+
+- [x] G5: requested commit with both trailers is pushed to htpr-7322-help-features with no PR or merge
+  EVIDENCE: git log -1 --format=full confirms commit 2cc1d9da3b8bed94f8dc12229e4d5d3b0f238dcc has the exact requested title and both exact trailers. Successful normal git commit/push retained hooks. git ls-remote --heads origin refs/heads/htpr-7322-help-features equals local HEAD at that SHA. git show --format= --name-only HEAD lists exactly the six intended source files; git status --short shows only untracked GATES.md, with no .unlazy committed. No PR, merge, or board write command was issued.
