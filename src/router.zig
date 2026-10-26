@@ -342,15 +342,17 @@ test "task agent-log help includes filters for both aliases" {
     }
 }
 
-test "task waiting-on help includes required user and project for both aliases" {
+test "task waiting-on help includes optional person and blocker comment for both aliases" {
     for ([_][]const u8{ "task", "tasks" }) |root| {
         try validateCommandPath(std.testing.allocator, &.{ root, "waiting-on", "HTPR-7723" }, true);
         const help = try renderHelp(std.testing.allocator, &.{ root, "waiting-on" });
         defer std.testing.allocator.free(help);
         try std.testing.expect(std.mem.indexOf(u8, help, "Usage: hypertask task waiting-on <ticket> [options]") != null);
-        try std.testing.expect(std.mem.indexOf(u8, help, "--user <id|me|none> (required)") != null);
+        try std.testing.expect(std.mem.indexOf(u8, help, "--user <id|me|none>") != null);
+        try std.testing.expect(std.mem.indexOf(u8, help, "--blocker-comment <id|none>") != null);
+        try std.testing.expect(std.mem.indexOf(u8, help, "provide --user and/or --blocker-comment") != null);
+        try std.testing.expect(std.mem.indexOf(u8, help, "(required)") == null);
         try std.testing.expect(std.mem.indexOf(u8, help, "--project <id>") != null);
-        try std.testing.expect(std.mem.indexOf(u8, help, "Example:\n  hypertask task waiting-on <ticket> --user <id|me|none>") != null);
         const task_help = try renderHelp(std.testing.allocator, &.{root});
         defer std.testing.allocator.free(task_help);
         try std.testing.expect(std.mem.indexOf(u8, task_help, "waiting-on") != null);

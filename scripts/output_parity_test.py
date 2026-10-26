@@ -518,9 +518,34 @@ def main() -> None:
             finally:
                 Handler.login_status, Handler.login_body = saved_hello
 
+            for options, fields in (
+                (("--blocker-comment", "317146"), {"blockerCommentId": 317146}),
+                (("--blocker-comment", "none"), {"blockerCommentId": None}),
+                (("--user", "6", "--blocker-comment", "317146"), {"userId": 6, "blockerCommentId": 317146}),
+                (("--user", "none", "--blocker-comment", "none"), {"userId": None, "blockerCommentId": None}),
+            ):
+                for root in ("task", "tasks"):
+                    for mode in (("--json",), ("--human",)):
+                        with Handler.lock:
+                            before = len(Handler.requests)
+                        waiting = run(binary, token, api_url, home, root, "waiting-on", "HTPR-5787", *options, *mode)
+                        expect(waiting.returncode == 0 and waiting.stderr == "", waiting)
+                        expect(waiting.stdout == ("success: true\n" if mode == ("--human",) else '{"success":true}\n'), waiting.stdout)
+                        with Handler.lock:
+                            requests = Handler.requests[before:]
+                        expect([(r["method"], r["path"], r["query"], r["body"]) for r in requests] == [
+                            ("GET", "/mcp/tasks", {"ticket_number": ["HTPR-5787"]}, None),
+                            ("POST", "/mcp/tasks/waiting-on", {}, {"taskId": 35007, **fields}),
+                        ], f"blocker-comment requests were {requests}")
+
             with Handler.lock:
                 before = len(Handler.requests)
-            for options in ((), ("--user", "invalid"), ("--user", "0")):
+            for options in (
+                (), ("--user", "invalid"), ("--user", "0"),
+                ("--blocker-comment",), ("--blocker-comment", "invalid"),
+                ("--blocker-comment", "0"), ("--blocker-comment", "2147483648"),
+                ("--user", "me", "--blocker-comment", "-1"),
+            ):
                 invalid_waiting = run(
                     binary, token, api_url, home,
                     "task", "waiting-on", "HTPR-5787", *options,
