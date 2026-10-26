@@ -749,6 +749,53 @@ test "task waiting-on posts resolved numeric task and user ids or explicit null"
     );
 }
 
+test "task waiting-on marks a comment independently or with the blocked-by person" {
+    for ([_][]const u8{ "task", "tasks" }) |root| {
+        try expectRequestCountWithResponses(
+            &.{ root, "waiting-on", "HTPR-7724", "--blocker-comment", "317146" },
+            &.{"{\"tasks\":[{\"id\":75195,\"projectId\":15}]}"},
+            2,
+            .POST,
+            "/mcp/tasks/waiting-on",
+            "{\"taskId\":75195,\"blockerCommentId\":317146}",
+        );
+        try expectRequestCountWithResponses(
+            &.{ root, "waiting-on", "HTPR-7724", "--user", "6", "--blocker-comment", "317146", "--human" },
+            &.{"{\"tasks\":[{\"id\":75195,\"projectId\":15}]}"},
+            2,
+            .POST,
+            "/mcp/tasks/waiting-on",
+            "{\"taskId\":75195,\"userId\":6,\"blockerCommentId\":317146}",
+        );
+        try expectRequestCountWithResponses(
+            &.{ root, "waiting-on", "HTPR-7724", "--blocker-comment", "none" },
+            &.{"{\"tasks\":[{\"id\":75195,\"projectId\":15}]}"},
+            2,
+            .POST,
+            "/mcp/tasks/waiting-on",
+            "{\"taskId\":75195,\"blockerCommentId\":null}",
+        );
+        try expectRequestCountWithResponses(
+            &.{ root, "waiting-on", "HTPR-7724", "--user", "none", "--blocker-comment", "none", "--json" },
+            &.{"{\"tasks\":[{\"id\":75195,\"projectId\":15}]}"},
+            2,
+            .POST,
+            "/mcp/tasks/waiting-on",
+            "{\"taskId\":75195,\"userId\":null,\"blockerCommentId\":null}",
+        );
+    }
+}
+
+test "task waiting-on rejects invalid blocker comments before any HTTP including me lookup" {
+    try expectDispatchError(error.MissingOption, &.{ "task", "waiting-on", "HTPR-7724", "--blocker-comment" });
+    for ([_][]const u8{ "", "invalid", "-1", "1.5", "+6", "me" }) |value| {
+        try expectDispatchError(error.InvalidOptions, &.{ "task", "waiting-on", "HTPR-7724", "--user", "me", "--blocker-comment", value });
+    }
+    for ([_][]const u8{ "0", "2147483648", "9223372036854775808" }) |value| {
+        try expectDispatchError(error.InvalidInteger, &.{ "task", "waiting-on", "HTPR-7724", "--blocker-comment", value });
+    }
+}
+
 test "task waiting-on me uses the authenticated user and refuses unreadable identity" {
     try expectRequestCountWithResponses(
         &.{ "tasks", "waiting-on", "HTPR-7723", "--user", "me" },
