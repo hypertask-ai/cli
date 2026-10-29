@@ -28,6 +28,7 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
     if (std.mem.eql(u8, subcommand, "assign")) return assign(context, "assign");
     if (std.mem.eql(u8, subcommand, "unassign")) return assign(context, "unassign");
     if (std.mem.eql(u8, subcommand, "waiting-on")) return waitingOn(context);
+    if (std.mem.eql(u8, subcommand, "blocker-comment")) return blockerComment(context);
     if (std.mem.eql(u8, subcommand, "move-to-inbox")) return moveToInbox(context);
     if (std.mem.eql(u8, subcommand, "move")) return move(context);
     if (std.mem.eql(u8, subcommand, "move-board") or std.mem.eql(u8, subcommand, "move-project")) return moveBoard(context);
@@ -663,7 +664,29 @@ fn waitingOn(context: *const Context) !void {
     var body = try json.Object.init(context.allocator);
     defer body.deinit();
     try body.integer("taskId", found.id);
-    if (user_id) |id| try body.integer("userId", id) else try body.nullValue("userId");
+    if (user_id) |id| {
+        try body.integer("userId", id);
+    } else {
+        try body.nullValue("userId");
+        try body.nullValue("blockerCommentId");
+    }
+    var response = try context.fetch(.POST, "/mcp/tasks/waiting-on", try body.finish());
+    defer response.deinit();
+    try context.print(try taskMutationBody(context, &response));
+}
+
+fn blockerComment(context: *const Context) !void {
+    const identifier = try context.args.requirePositional(2, "ticket");
+    const comment = try context.args.require("comment-id");
+    const comment_id: ?i64 = if (std.mem.eql(u8, comment, "none")) null else blk: {
+        if (!resolve.isNumeric(comment)) return output.invalidOptions("--comment-id must be a positive comment ID or none");
+        break :blk try common.positiveInt(comment, "comment-id");
+    };
+    const found = try resolve.task(context, identifier);
+    var body = try json.Object.init(context.allocator);
+    defer body.deinit();
+    try body.integer("taskId", found.id);
+    if (comment_id) |id| try body.integer("blockerCommentId", id) else try body.nullValue("blockerCommentId");
     var response = try context.fetch(.POST, "/mcp/tasks/waiting-on", try body.finish());
     defer response.deinit();
     try context.print(try taskMutationBody(context, &response));

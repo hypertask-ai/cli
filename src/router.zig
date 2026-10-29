@@ -357,6 +357,17 @@ test "task waiting-on help includes required user and project for both aliases" 
     }
 }
 
+test "task blocker-comment help exposes marker-only operations for both aliases" {
+    for ([_][]const u8{ "task", "tasks" }) |root| {
+        try validateCommandPath(std.testing.allocator, &.{ root, "blocker-comment", "HTPR-7724" }, true);
+        const help = try renderHelp(std.testing.allocator, &.{ root, "blocker-comment" });
+        defer std.testing.allocator.free(help);
+        try std.testing.expect(std.mem.indexOf(u8, help, "--comment-id <id|none> (required)") != null);
+        try std.testing.expect(std.mem.indexOf(u8, help, "--project <id>") != null);
+        try std.testing.expect(std.mem.indexOf(u8, help, "without changing the waiting person") != null);
+    }
+}
+
 test "subcommand help renders command-specific options" {
     try validateCommandPath(std.testing.allocator, &.{"tasks"}, false);
     const task_help = try renderHelp(std.testing.allocator, &.{"tasks"});
