@@ -46,6 +46,11 @@ const ErrorInfo = struct {
 };
 
 const error_info = [_]ErrorInfo{
+    .{ .err = error.DeviceLoginSavedNotConnected, .code = 4, .summary = "credential saved; run hypertask status to finish connecting" },
+    .{ .err = error.DeviceLoginExpired, .code = 4, .summary = "sign-in code expired; start again in your browser" },
+    .{ .err = error.DeviceLoginDenied, .code = 4, .summary = "agent sign-in was declined or is unavailable" },
+    .{ .err = error.DeviceLoginRejected, .code = 4, .summary = "agent sign-in was rejected; start again" },
+    .{ .err = error.DeviceLoginUnavailable, .code = 4, .summary = "agent sign-in is unavailable; try again later" },
     .{ .err = error.InvalidInterval, .code = 2, .summary = "--interval must be a whole number of seconds from 1 to 60" },
     .{ .err = error.InvalidChatText, .code = 2, .summary = "--text must contain 1 to 8000 characters" },
     .{ .err = error.InvalidChatId, .code = 2, .summary = "chat-id must identify a chat session" },

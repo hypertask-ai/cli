@@ -57,7 +57,9 @@ pub fn isRead(method: std.http.Method, path: []const u8) bool {
     // Refresh rotates credentials, not board state.
     return std.mem.eql(u8, path, "/mcp/ai/improve") or
         std.mem.eql(u8, path, "/mcp/ai/task-writer") or
-        std.mem.eql(u8, path, "/mcp/token/refresh");
+        std.mem.eql(u8, path, "/mcp/token/refresh") or
+        std.mem.eql(u8, path, "/cli/device/claim") or
+        std.mem.eql(u8, path, "/cli/device/token");
 }
 
 pub fn checkUrl(allocator: std.mem.Allocator, method: std.http.Method, url: []const u8) !void {
@@ -139,5 +141,17 @@ test "helper read exceptions are exact POST paths and never mutation methods" {
     }
     for ([_][]const u8{ "/mcp/tasks/update", "/mcp/comments", "/mcp/token/refresh/extra", "/mcp/token/refresh?x=1", "/mcp/ai/improve/../tasks/update" }) |path| {
         try std.testing.expect(!isRead(.POST, path));
+    }
+}
+
+test "device login helper exceptions never grant browser approval or board writes" {
+    testing.helper = true;
+    defer testing.helper = null;
+    for ([_][]const u8{ "/cli/device/claim", "/cli/device/token" }) |path| {
+        try check(std.testing.allocator, .POST, path);
+        try std.testing.expectError(error.HelperWriteForbidden, check(std.testing.allocator, .PATCH, path));
+    }
+    for ([_][]const u8{ "/cli/device/start", "/cli/device/approve", "/cli/device/deny", "/cli/device/token/extra", "/cli/device/token?x=1", "/cli/device/claim/../approve", "/mcp/tasks/update" }) |path| {
+        try std.testing.expectError(error.HelperWriteForbidden, check(std.testing.allocator, .POST, path));
     }
 }

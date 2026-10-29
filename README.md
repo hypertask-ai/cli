@@ -60,7 +60,16 @@ hypertask status
 hypertask logout
 ```
 
-Browser login is not available in the native CLI. Obtain a JWT through the Hypertask web app, then pass it to `login --token`. Saved user tokens refresh automatically during their final seven days, including legacy tokens issued before refresh support.
+Token login remains available through `login --token`. Saved user tokens refresh automatically during their final seven days, including legacy tokens issued before refresh support.
+
+For the owner-only agent sign-in preview:
+
+1. Open https://app.hypertask.ai/login/agent while signed in.
+2. Copy its five-minute command: `hypertask login --code XXXX-XXXX`.
+3. Run the command with your agent.
+4. Approve that agent in the original browser.
+
+The new agent receives its own free board. It cannot access your other boards. Code login accepts only the official HTTPS API. It never prints the saved credential. `--code` and `--token` cannot be combined. Expired or declined connections require a new code.
 
 After saving the token, login shows your identity, starting board, and the server's suggested commands to try next (three commands on older servers). Use `hypertask login --token '<jwt>' --human` for a readable guide (JSON is the default). The optional guide waits at most about 1.5 seconds; if the server is unavailable, the token is still saved and login succeeds.
 
