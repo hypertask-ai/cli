@@ -29,9 +29,16 @@ Exit codes are stable:
 
 Scripts may use the exit code category, while people and agents should follow the `Next:` line.
 
+## Release notes: native 0.2.27
+
+- Clearing the waiting person clears the comment marker.
+- Mark or clear blocking comments with `task blocker-comment`.
+- Fleet updates follow the GitHub release. npm stays unchanged.
+
 ## Release notes: native 0.2.26 / npm 2.0.13
 
 - New `task waiting-on <ticket> --user <id|me|none>` sets or clears who a ticket is blocked by, with the same checks as the app's Blocked by person (HTPR-7723).
+
 - npm `@hypertask/hypertask_cli@2.0.13` installs native `0.2.26`. Release the `v0.2.26` binaries before the separate owner-approved npm publish. GitHub release notes are generated from commits; this repository has no separate changelog.
 
 ## Reading comments and activity
@@ -173,6 +180,8 @@ hypertask tasks get HTPR-5726
 hypertask tasks get 5726 --project 15
 hypertask tasks move HTPR-5726 --section "In Progress"
 hypertask task waiting-on HTPR-7723 --user me
+hypertask task blocker-comment HTPR-7723 --comment 101
+hypertask task waiting-on HTPR-7723 --user none
 hypertask comment add HTPR-5726 --text "<p>...</p>"
 hypertask agents update --id <agent-id> --name "Ops Script"
 hypertask agents update --id <agent-id> --add-project 339
@@ -184,7 +193,10 @@ hypertask projects delete <project-id> --yes
 hypertask search "query" --project 15
 ```
 
-`task waiting-on <ticket> --user <id|me|none>` sets the person a ticket is blocked by. `me` uses the current user (not the agent); `none` clears the blocker. `tasks` is also accepted. Use `--project <id>` with a bare ticket number, or a numeric internal task ID without `--project`. `--json` and `--human` use the standard write-command output.
+`task waiting-on <ticket> --user <id|me|none>` sets the person a ticket is blocked by. `me` uses the current user (not the agent); `none` clears both the person and blocking comment. `tasks` is also accepted. Use `--project <id>` with a bare ticket number, or a numeric internal task ID without `--project`. `--json` and `--human` use the standard write-command output.
+`task blocker-comment <ticket> --comment <id|none>` marks the blocking question. A new comment ID replaces the previous marker. `--comment none` removes only the comment marker. Neither operation changes the waiting person. Comments must belong to the same ticket. The server still enforces access and feature availability.
+
+Runners: after handling an answer, run `vcc task waiting-on <ticket> --user none`. This clears both the name and red border. To mark the question, use `vcc task blocker-comment <ticket> --comment <comment-id>`.
 
 `comment add --kind question|qa|done` posts a question, QA result, or completion comment for people. Without `--kind`, no kind is sent; the server may save agent chatter to the agent log without notifying anyone. The CLI explains log routing, or returns the unchanged response with `--json`. `--attach` marks the create request with `has_attachments: true` so supporting servers keep it as a comment. If an older server still routes it to the log, requested attachments are not uploaded; use `--kind` to attach them to a comment.
 
