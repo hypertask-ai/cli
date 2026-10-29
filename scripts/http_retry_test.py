@@ -4,6 +4,7 @@
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
+import shutil
 from pathlib import Path
 import socket
 import struct
@@ -19,15 +20,32 @@ CLI = Path(sys.argv[1]).resolve()
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     requests = []
+    bodies = []
+    task_reset = False
 
     def log_message(self, *_):
         pass
 
     def handle_request(self):
-        self.rfile.read(int(self.headers.get("Content-Length", "0")))
+        body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+        self.bodies.append(body)
         self.requests.append((self.command, self.path, self.client_address))
         mode = self.path.strip("/")
         attempt = sum(path == self.path for _, path, _ in self.requests)
+        if mode == "mcp/tasks/update" and self.task_reset:
+            self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+            self.connection.close()
+            self.close_connection = True
+            return
+        if mode in ("connect-success", "mcp/tasks/update"):
+            self.send_response(200)
+            body = b'{"ok":true}'
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.wfile.write(body)
+            self.close_connection = True
+            return
         if mode == "continue":
             self.wfile.write(b"HTTP/1.1 100 Continue\r\n\r\n")
             self.wfile.flush()
@@ -172,11 +190,99 @@ def main():
                         assert "could not complete the command" not in result.stderr, result.stderr
                 except AssertionError as error:
                     failures.append(f"{method} {mode}: {error}")
+            if sys.platform.startswith("linux"):
+                strace = shutil.which("strace")
+                if not strace:
+                    failures.append("Linux connection injection requires strace")
+                else:
+                    for method in ("GET", "POST", "PUT", "PATCH", "DELETE", "TASK"):
+                        for scenario in ("once", "always", "refused"):
+                            Handler.requests = []
+                            Handler.bodies = []
+                            Handler.task_reset = False
+                            trace = Path(home) / "connect.trace"
+                            injected = "ECONNREFUSED" if scenario == "refused" else "ETIMEDOUT"
+                            when = "1+" if scenario == "always" else "1"
+                            command = [str(CLI), "--token", "offline-fixture", "--api-url", base, "--json"]
+                            if method == "TASK":
+                                command += ["tasks", "update", "id:123", "--title", "retry fixture"]
+                            else:
+                                command += ["raw", method, "/connect-success"]
+                                if method in ("POST", "PUT", "PATCH"):
+                                    command.append('{"fixture":true}')
+                            result = subprocess.run(
+                                [strace, "-e", "trace=connect", "-e", f"inject=connect:error={injected}:when={when}",
+                                 "-o", str(trace), *command], env=env, capture_output=True, text=True, timeout=6,
+                            )
+                            cases += 1
+                            try:
+                                connects = [line for line in trace.read_text().splitlines() if line.startswith("connect(")]
+                                assert len(connects) == (2 if scenario != "refused" else 1), connects
+                                assert sum("(INJECTED)" in line for line in connects) == (2 if scenario == "always" else 1), connects
+                                if scenario == "once":
+                                    assert result.returncode == 0, result.stderr
+                                    assert json.loads(result.stdout) == {"ok": True}, result.stdout
+                                    assert len(Handler.requests) == 1, Handler.requests
+                                    received_method, path, _ = Handler.requests[0]
+                                    assert received_method == ("POST" if method == "TASK" else method), Handler.requests
+                                    assert path == ("/mcp/tasks/update" if method == "TASK" else "/connect-success"), Handler.requests
+                                    if method == "TASK":
+                                        assert json.loads(Handler.bodies[0]) == {"task_id": 123, "title": "retry fixture"}, Handler.bodies
+                                    elif method in ("POST", "PUT", "PATCH"):
+                                        assert json.loads(Handler.bodies[0]) == {"fixture": True}, Handler.bodies
+                                    else:
+                                        assert Handler.bodies == [b""], Handler.bodies
+                                else:
+                                    assert result.returncode != 0, result.stdout
+                                    assert ("ConnectionTimedOut" if scenario == "always" else "ConnectionRefused") in result.stderr, result.stderr
+                                    assert not Handler.requests, Handler.requests
+                            except AssertionError as error:
+                                failures.append(f"{method} connect-{scenario}: {error}; stderr={result.stderr.strip()}")
+
+                    Handler.requests = []
+                    Handler.bodies = []
+                    trace = Path(home) / "connect-read-retry.trace"
+                    result = subprocess.run(
+                        [strace, "-e", "trace=connect", "-e", "inject=connect:error=ETIMEDOUT:when=1",
+                         "-o", str(trace), str(CLI), "--token", "offline-fixture", "--api-url", base,
+                         "--json", "raw", "GET", "/reset-once"],
+                        env=env, capture_output=True, text=True, timeout=6,
+                    )
+                    cases += 1
+                    try:
+                        connects = [line for line in trace.read_text().splitlines() if line.startswith("connect(")]
+                        assert len(connects) == 3 and "(INJECTED)" in connects[0], connects
+                        assert result.returncode == 0 and json.loads(result.stdout) == {"ok": True}, result.stderr
+                        assert len(Handler.requests) == 2 and all(row[:2] == ("GET", "/reset-once") for row in Handler.requests), Handler.requests
+                        assert Handler.bodies == [b"", b""], Handler.bodies
+                    except AssertionError as error:
+                        failures.append(f"GET connect-once then read retry: {error}; stderr={result.stderr.strip()}")
+
+                    Handler.requests = []
+                    Handler.bodies = []
+                    Handler.task_reset = True
+                    trace = Path(home) / "connect-reset.trace"
+                    result = subprocess.run(
+                        [strace, "-e", "trace=connect", "-e", "inject=connect:error=ETIMEDOUT:when=1",
+                         "-o", str(trace), str(CLI), "--token", "offline-fixture", "--api-url", base,
+                         "--json", "tasks", "update", "id:123", "--title", "retry fixture"],
+                        env=env, capture_output=True, text=True, timeout=6,
+                    )
+                    cases += 1
+                    Handler.task_reset = False
+                    try:
+                        connects = [line for line in trace.read_text().splitlines() if line.startswith("connect(")]
+                        assert len(connects) == 2 and "(INJECTED)" in connects[0], connects
+                        assert result.returncode != 0 and "ConnectionResetByPeer" in result.stderr, result.stderr
+                        assert len(Handler.requests) == 1 and Handler.requests[0][:2] == ("POST", "/mcp/tasks/update"), Handler.requests
+                        assert json.loads(Handler.bodies[0]) == {"task_id": 123, "title": "retry fixture"}, Handler.bodies
+                    except AssertionError as error:
+                        failures.append(f"TASK connect-once then reset: {error}; stderr={result.stderr.strip()}")
     finally:
         server.shutdown()
         server.server_close()
         thread.join()
-    assert not failures, "\n".join(failures)
+    assert not failures, f"{len(failures)} of {cases} cases failed:\n" + "\n".join(failures)
     print(f"HTTP retry integration passed ({cases} cases)")
 
 

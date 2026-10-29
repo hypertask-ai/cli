@@ -29,6 +29,10 @@ Exit codes are stable:
 
 Scripts may use the exit code category, while people and agents should follow the `Next:` line.
 
+## Release notes: native 0.2.27
+
+- Connection timeouts retry once before sending a request. Mutations are not replayed after sending.
+
 ## Release notes: native 0.2.26 / npm 2.0.13
 
 - New `task waiting-on <ticket> --user <id|me|none>` sets or clears who a ticket is blocked by, with the same checks as the app's Blocked by person (HTPR-7723).

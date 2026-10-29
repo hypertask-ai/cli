@@ -172,6 +172,7 @@ pub fn send(
     var redirects_remaining: u16 = 3;
     const idempotent = (method == .GET or method == .HEAD) and payload == null;
     var retry_available = idempotent;
+    var connect_retry_available = true;
     var rate_limit_waits_remaining: u8 = if (idempotent) max_rate_limit_waits else 0;
 
     while (true) {
@@ -187,11 +188,17 @@ pub fn send(
         // close before Content-Length is satisfied as success, silently
         // returning a truncated body.
         const next_url: ?[]u8 = request: {
-            var req = try client.request(method, uri, .{
+            var req = client.request(method, uri, .{
                 .redirect_behavior = .unhandled,
                 .headers = requestHeaders(),
                 .extra_headers = request_extra_headers,
-            });
+            }) catch |err| {
+                if (err == error.ConnectionTimedOut and connect_retry_available) {
+                    connect_retry_available = false;
+                    continue;
+                }
+                return err;
+            };
             defer req.deinit();
             var response = sendRequestHead(&req, payload) catch |err| {
                 const connection = req.connection.?;

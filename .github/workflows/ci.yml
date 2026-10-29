@@ -31,6 +31,9 @@ jobs:
       - name: Test auto-merge gate
         run: python3 scripts/automerge_workflow_test.py
 
+      - name: Ensure transport fault-injection dependency
+        run: command -v strace || { sudo apt-get update && sudo apt-get install -y strace; }
+
       - name: Run ReleaseFast tests
         run: zig build test -Doptimize=ReleaseFast
 
