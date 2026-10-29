@@ -69,7 +69,7 @@ For the owner-only agent sign-in preview:
 3. Run the command with your agent.
 4. Approve that agent in the original browser.
 
-The new agent receives its own free board. It cannot access your other boards. Code login accepts only the official HTTPS API. It never prints the saved credential. `--code` and `--token` cannot be combined. Expired or declined connections require a new code.
+The new agent receives its own free board. It cannot access your other boards. Code login accepts only the official HTTPS API. It never prints the saved credential. `--code` and `--token` cannot be combined. Expired or declined connections require a new code. If confirmation fails after saving, run `hypertask project list` to finish connecting.
 
 After saving the token, login shows your identity, starting board, and the server's suggested commands to try next (three commands on older servers). Use `hypertask login --token '<jwt>' --human` for a readable guide (JSON is the default). The optional guide waits at most about 1.5 seconds; if the server is unavailable, the token is still saved and login succeeds.
 

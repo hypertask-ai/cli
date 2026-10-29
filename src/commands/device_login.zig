@@ -146,15 +146,12 @@ pub fn acknowledge(context: *const Context, token: []const u8) !void {
                 continue;
             };
             defer parsed.deinit();
-            const agent = json.objectField(parsed.value, "agent") orelse {
-                wait(context, 1);
-                continue;
-            };
-            const agent_id = json.stringField(agent, "id") orelse {
-                wait(context, 1);
-                continue;
-            };
-            if (agent_id.len > 0) return;
+            const success = if (parsed.value == .object) parsed.value.object.get("success") else null;
+            const user = json.objectField(parsed.value, "user");
+            if (success != null and success.? == .bool and success.?.bool and user != null) {
+                const user_id = json.integerField(user.?, "id", false) orelse 0;
+                if (user_id > 0) return;
+            }
         }
         wait(context, 1);
     }

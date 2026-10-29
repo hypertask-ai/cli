@@ -46,7 +46,7 @@ const ErrorInfo = struct {
 };
 
 const error_info = [_]ErrorInfo{
-    .{ .err = error.DeviceLoginSavedNotConnected, .code = 4, .summary = "credential saved; run hypertask status to finish connecting" },
+    .{ .err = error.DeviceLoginSavedNotConnected, .code = 4, .summary = "credential saved; run hypertask project list to finish connecting" },
     .{ .err = error.DeviceLoginExpired, .code = 4, .summary = "sign-in code expired; start again in your browser" },
     .{ .err = error.DeviceLoginDenied, .code = 4, .summary = "agent sign-in was declined or is unavailable" },
     .{ .err = error.DeviceLoginRejected, .code = 4, .summary = "agent sign-in was rejected; start again" },
