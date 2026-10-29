@@ -750,21 +750,21 @@ test "task waiting-on posts resolved numeric task and user ids or explicit null"
 }
 
 test "task blocker-comment validates inputs before HTTP" {
-    try expectDispatchError(error.MissingArgument, &.{ "task", "blocker-comment", "--comment", "101" });
+    try expectDispatchError(error.MissingArgument, &.{ "task", "blocker-comment", "--comment-id", "101" });
     try expectDispatchError(error.MissingOption, &.{ "task", "blocker-comment", "HTPR-7724" });
-    try expectDispatchError(error.MissingOption, &.{ "tasks", "blocker-comment", "HTPR-7724", "--comment" });
+    try expectDispatchError(error.MissingOption, &.{ "tasks", "blocker-comment", "HTPR-7724", "--comment-id" });
     for ([_][]const u8{ "", "invalid", "-1", "1.5", "+101", "me" }) |value| {
-        try expectDispatchError(error.InvalidOptions, &.{ "task", "blocker-comment", "HTPR-7724", "--comment", value });
+        try expectDispatchError(error.InvalidOptions, &.{ "task", "blocker-comment", "HTPR-7724", "--comment-id", value });
     }
     for ([_][]const u8{ "0", "9223372036854775808" }) |value| {
-        try expectDispatchError(error.InvalidInteger, &.{ "task", "blocker-comment", "HTPR-7724", "--comment", value });
+        try expectDispatchError(error.InvalidInteger, &.{ "task", "blocker-comment", "HTPR-7724", "--comment-id", value });
     }
 }
 
 test "task blocker-comment marks or clears only the comment through both aliases" {
     for ([_][]const u8{ "task", "tasks" }) |root| {
         try expectRequestCountWithResponses(
-            &.{ root, "blocker-comment", "htpr-7724", "--comment", "101", "--json" },
+            &.{ root, "blocker-comment", "htpr-7724", "--comment-id", "101", "--json" },
             &.{"{\"tasks\":[{\"id\":49511,\"projectId\":15}]}"},
             2,
             .POST,
@@ -772,7 +772,7 @@ test "task blocker-comment marks or clears only the comment through both aliases
             "{\"taskId\":49511,\"blockerCommentId\":101}",
         );
         try expectRequestCountWithResponses(
-            &.{ root, "blocker-comment", "id:49511", "--comment", "none" },
+            &.{ root, "blocker-comment", "id:49511", "--comment-id", "none" },
             &.{"{\"tasks\":[{\"id\":49511,\"projectId\":15}]}"},
             2,
             .POST,
@@ -784,7 +784,7 @@ test "task blocker-comment marks or clears only the comment through both aliases
 
 test "task blocker-comment resolves board numbers and refuses ambiguity" {
     try expectRequestCountWithResponses(
-        &.{ "task", "blocker-comment", "7724", "--project", "15", "--comment", "102" },
+        &.{ "task", "blocker-comment", "7724", "--project", "15", "--comment-id", "102" },
         &.{ "{\"tasks\":[{\"id\":49511,\"projectId\":15}]}", "{\"tasks\":[]}" },
         3,
         .POST,
@@ -792,7 +792,7 @@ test "task blocker-comment resolves board numbers and refuses ambiguity" {
         "{\"taskId\":49511,\"blockerCommentId\":102}",
     );
     try expectDispatchErrorWithResponses(
-        &.{ "task", "blocker-comment", "7724", "--project", "15", "--comment", "102" },
+        &.{ "task", "blocker-comment", "7724", "--project", "15", "--comment-id", "102" },
         &.{ "{\"tasks\":[{\"id\":49511,\"projectId\":15}]}", "{\"tasks\":[{\"id\":7724,\"projectId\":15}]}" },
         error.AmbiguousTaskIdentifier,
     );

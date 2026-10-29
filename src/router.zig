@@ -362,7 +362,7 @@ test "task blocker-comment help exposes marker-only operations for both aliases"
         try validateCommandPath(std.testing.allocator, &.{ root, "blocker-comment", "HTPR-7724" }, true);
         const help = try renderHelp(std.testing.allocator, &.{ root, "blocker-comment" });
         defer std.testing.allocator.free(help);
-        try std.testing.expect(std.mem.indexOf(u8, help, "--comment <id|none> (required)") != null);
+        try std.testing.expect(std.mem.indexOf(u8, help, "--comment-id <id|none> (required)") != null);
         try std.testing.expect(std.mem.indexOf(u8, help, "--project <id>") != null);
         try std.testing.expect(std.mem.indexOf(u8, help, "without changing the waiting person") != null);
     }

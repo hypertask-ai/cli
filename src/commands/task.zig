@@ -677,10 +677,10 @@ fn waitingOn(context: *const Context) !void {
 
 fn blockerComment(context: *const Context) !void {
     const identifier = try context.args.requirePositional(2, "ticket");
-    const comment = try context.args.require("comment");
+    const comment = try context.args.require("comment-id");
     const comment_id: ?i64 = if (std.mem.eql(u8, comment, "none")) null else blk: {
-        if (!resolve.isNumeric(comment)) return output.invalidOptions("--comment must be a positive comment ID or none");
-        break :blk try common.positiveInt(comment, "comment");
+        if (!resolve.isNumeric(comment)) return output.invalidOptions("--comment-id must be a positive comment ID or none");
+        break :blk try common.positiveInt(comment, "comment-id");
     };
     const found = try resolve.task(context, identifier);
     var body = try json.Object.init(context.allocator);
