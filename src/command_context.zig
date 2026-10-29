@@ -15,6 +15,7 @@ pub const RequestRecorder = struct {
     response_status: std.http.Status = .ok,
     response_statuses: []const std.http.Status = &.{},
     fetch_error: ?anyerror = null,
+    response_errors: []const ?anyerror = &.{},
 
     pub fn init(allocator: std.mem.Allocator) RequestRecorder {
         return .{ .allocator = allocator };
@@ -28,6 +29,12 @@ pub const RequestRecorder = struct {
 
     pub fn fetch(self: *RequestRecorder, method: std.http.Method, path: []const u8, body: ?[]const u8) !http.Response {
         if (self.fetch_error) |err| return err;
+        if (self.responses_index < self.response_errors.len) {
+            if (self.response_errors[self.responses_index]) |err| {
+                self.responses_index += 1;
+                return err;
+            }
+        }
         const next_path = try self.allocator.dupe(u8, path);
         errdefer self.allocator.free(next_path);
         const next_body = if (body) |value| try self.allocator.dupe(u8, value) else null;
