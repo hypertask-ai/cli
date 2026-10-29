@@ -370,8 +370,8 @@ test "device login recovers uncertain delivery after slowdown and requires authe
         "lost delivery",
         "{\"token\":\"header.eyJhZ2VudElkIjoiYWdlbnQtMSJ9.signature\"}",
         "<html>login</html>",
-        "{\"agent\":null}",
-        "{\"agent\":{\"id\":\"agent-1\"}}",
+        "{\"success\":false,\"user\":{\"id\":42}}",
+        "{\"success\":true,\"user\":{\"id\":42},\"boards\":[]}",
     };
     recorder.response_statuses = &.{ .ok, .too_many_requests, .too_many_requests, .too_many_requests, .too_many_requests, .too_many_requests, .ok, .ok, .ok, .ok, .ok };
     recorder.response_errors = &.{ null, null, null, null, null, null, error.ConnectionResetByPeer };
