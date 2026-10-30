@@ -772,6 +772,26 @@ test "task waiting-on me uses the authenticated user and refuses unreadable iden
     );
 }
 
+test "task clear-blocker requires a ticket and a reason before HTTP" {
+    try expectDispatchError(error.MissingArgument, &.{ "task", "clear-blocker", "--reason", "Answered" });
+    try expectDispatchError(error.MissingOption, &.{ "task", "clear-blocker", "HTPR-8205" });
+    try expectDispatchError(error.MissingOption, &.{ "tasks", "clear-blocker", "HTPR-8205", "--reason" });
+    try expectDispatchError(error.InvalidOptions, &.{ "task", "clear-blocker", "HTPR-8205", "--reason", "   " });
+}
+
+test "task clear-blocker posts a null blocker comment with the reason" {
+    for ([_][]const u8{ "task", "tasks" }) |root| {
+        try expectRequestCountWithResponses(
+            &.{ root, "clear-blocker", "htpr-8205", "--reason", "Valentin answered", "--json" },
+            &.{"{\"tasks\":[{\"id\":49511,\"projectId\":15}]}"},
+            2,
+            .POST,
+            "/mcp/tasks/waiting-on",
+            "{\"taskId\":49511,\"blockerCommentId\":null,\"reason\":\"Valentin answered\"}",
+        );
+    }
+}
+
 test "task assign --self sends assign_self without requiring --assignee" {
     try expectRequest(
         &.{ "task", "assign", "HTPR-6136", "--self" },
