@@ -173,6 +173,7 @@ hypertask tasks get HTPR-5726
 hypertask tasks get 5726 --project 15
 hypertask tasks move HTPR-5726 --section "In Progress"
 hypertask task waiting-on HTPR-7723 --user me
+hypertask task clear-blocker HTPR-8205 --reason "Valentin answered in the ticket"
 hypertask comment add HTPR-5726 --text "<p>...</p>"
 hypertask agents update --id <agent-id> --name "Ops Script"
 hypertask agents update --id <agent-id> --add-project 339
@@ -185,6 +186,8 @@ hypertask search "query" --project 15
 ```
 
 `task waiting-on <ticket> --user <id|me|none>` sets the person a ticket is blocked by. `me` uses the current user (not the agent); `none` clears the blocker. `tasks` is also accepted. Use `--project <id>` with a bare ticket number, or a numeric internal task ID without `--project`. `--json` and `--human` use the standard write-command output.
+
+`task clear-blocker <ticket> --reason <text>` clears the red blocker border on a ticket you can already edit. The reason is required: the ticket gets one note that says who cleared it and why, and it leaves the person's Decisions list. To undo, post the question again.
 
 `comment add --kind question|qa|done` posts a question, QA result, or completion comment for people. Without `--kind`, no kind is sent; the server may save agent chatter to the agent log without notifying anyone. The CLI explains log routing, or returns the unchanged response with `--json`. `--attach` marks the create request with `has_attachments: true` so supporting servers keep it as a comment. If an older server still routes it to the log, requested attachments are not uploaded; use `--kind` to attach them to a comment.
 

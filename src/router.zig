@@ -342,6 +342,17 @@ test "task agent-log help includes filters for both aliases" {
     }
 }
 
+test "task clear-blocker help includes required reason and project for both aliases" {
+    for ([_][]const u8{ "task", "tasks" }) |root| {
+        try validateCommandPath(std.testing.allocator, &.{ root, "clear-blocker", "HTPR-8205" }, true);
+        const help = try renderHelp(std.testing.allocator, &.{ root, "clear-blocker" });
+        defer std.testing.allocator.free(help);
+        try std.testing.expect(std.mem.indexOf(u8, help, "Usage: hypertask task clear-blocker <ticket> [options]") != null);
+        try std.testing.expect(std.mem.indexOf(u8, help, "--reason <text> (required)") != null);
+        try std.testing.expect(std.mem.indexOf(u8, help, "--project <id>") != null);
+    }
+}
+
 test "task waiting-on help includes required user and project for both aliases" {
     for ([_][]const u8{ "task", "tasks" }) |root| {
         try validateCommandPath(std.testing.allocator, &.{ root, "waiting-on", "HTPR-7723" }, true);

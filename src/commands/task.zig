@@ -28,6 +28,7 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
     if (std.mem.eql(u8, subcommand, "assign")) return assign(context, "assign");
     if (std.mem.eql(u8, subcommand, "unassign")) return assign(context, "unassign");
     if (std.mem.eql(u8, subcommand, "waiting-on")) return waitingOn(context);
+    if (std.mem.eql(u8, subcommand, "clear-blocker")) return clearBlocker(context);
     if (std.mem.eql(u8, subcommand, "move-to-inbox")) return moveToInbox(context);
     if (std.mem.eql(u8, subcommand, "move")) return move(context);
     if (std.mem.eql(u8, subcommand, "move-board") or std.mem.eql(u8, subcommand, "move-project")) return moveBoard(context);
@@ -664,6 +665,21 @@ fn waitingOn(context: *const Context) !void {
     defer body.deinit();
     try body.integer("taskId", found.id);
     if (user_id) |id| try body.integer("userId", id) else try body.nullValue("userId");
+    var response = try context.fetch(.POST, "/mcp/tasks/waiting-on", try body.finish());
+    defer response.deinit();
+    try context.print(try taskMutationBody(context, &response));
+}
+
+fn clearBlocker(context: *const Context) !void {
+    const identifier = try context.args.requirePositional(2, "ticket");
+    const reason = try context.args.require("reason");
+    if (std.mem.trim(u8, reason, " \t\r\n").len == 0) return output.invalidOptions("--reason must say why the blocker is cleared");
+    const found = try resolve.task(context, identifier);
+    var body = try json.Object.init(context.allocator);
+    defer body.deinit();
+    try body.integer("taskId", found.id);
+    try body.nullValue("blockerCommentId");
+    try body.string("reason", reason);
     var response = try context.fetch(.POST, "/mcp/tasks/waiting-on", try body.finish());
     defer response.deinit();
     try context.print(try taskMutationBody(context, &response));
