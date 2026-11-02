@@ -513,7 +513,7 @@ def main() -> None:
                         expect([(r["method"], r["path"], r["query"], r["body"]) for r in requests] == [
                             *expected_reads,
                             ("GET", "/mcp/tasks", {"ticket_number": ["HTPR-5787"]}, None),
-                            ("POST", "/mcp/tasks/waiting-on", {}, {"taskId": 35007, "userId": expected_user}),
+                            ("POST", "/mcp/tasks/waiting-on", {}, {"taskId": 35007, "userId": expected_user, **({"blockerCommentId": None} if expected_user is None else {})}),
                         ], f"waiting-on requests were {requests}")
             finally:
                 Handler.login_status, Handler.login_body = saved_hello
@@ -530,6 +530,28 @@ def main() -> None:
                 expect("Next:" in invalid_waiting.stderr, invalid_waiting.stderr)
             with Handler.lock:
                 expect(len(Handler.requests) == before, "invalid waiting-on made network requests")
+
+            for root, comment, expected_comment in (("task", "101", 101), ("tasks", "none", None)):
+                for mode in ((), ("--human",)):
+                    with Handler.lock:
+                        before = len(Handler.requests)
+                    marked = run(binary, token, api_url, home, root, "blocker-comment", "HTPR-5787", "--comment-id", comment, *mode)
+                    expect(marked.returncode == 0 and marked.stderr == "", marked)
+                    expect(marked.stdout == ("success: true\n" if mode else '{"success":true}\n'), marked.stdout)
+                    with Handler.lock:
+                        requests = Handler.requests[before:]
+                    expect([(r["method"], r["path"], r["query"], r["body"]) for r in requests] == [
+                        ("GET", "/mcp/tasks", {"ticket_number": ["HTPR-5787"]}, None),
+                        ("POST", "/mcp/tasks/waiting-on", {}, {"taskId": 35007, "blockerCommentId": expected_comment}),
+                    ], f"blocker-comment requests were {requests}")
+
+            with Handler.lock:
+                before = len(Handler.requests)
+            for value in ("invalid", "0", "-1"):
+                refused = run(binary, token, api_url, home, "task", "blocker-comment", "HTPR-5787", "--comment-id", value)
+                expect(refused.returncode == 2 and refused.stdout == "", refused)
+            with Handler.lock:
+                expect(len(Handler.requests) == before, "invalid blocker-comment made network requests")
 
             # HTPR-6313: an agent command run without any agent identity must
             # fail loudly, non-zero exit, error on stderr, nothing on stdout,
