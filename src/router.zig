@@ -44,14 +44,14 @@ pub fn validateCommandPath(allocator: std.mem.Allocator, path: []const []const u
         const commands = try arrayFieldOrEmpty(command, "commands");
         if (commands.len == 0) return validateArguments(command, path[index..]);
         command = findCommand(command, path[index]) orelse {
-            printCommandChoices(commands);
+            printCommandChoices(commands, path[index]);
             return error.UnknownCommand;
         };
     }
 
     const commands = try arrayFieldOrEmpty(command, "commands");
     if (commands.len != 0 and require_leaf) {
-        printCommandChoices(commands);
+        printCommandChoices(commands, null);
         return error.MissingSubcommand;
     }
 }
@@ -68,13 +68,50 @@ fn validateArguments(command: std.json.Value, provided: []const []const u8) !voi
     return error.InvalidOptions;
 }
 
-fn printCommandChoices(commands: []const std.json.Value) void {
+fn printCommandChoices(commands: []const std.json.Value, unknown: ?[]const u8) void {
     std.debug.print("valid commands:", .{});
     for (commands) |command| {
         const name = stringField(command, "name") catch continue;
         std.debug.print(" {s}", .{name});
     }
     std.debug.print("\n", .{});
+    const name = unknown orelse return;
+    const noun = if (std.mem.lastIndexOfScalar(u8, name, '.')) |dot| name[dot + 1 ..] else name;
+    if (suggestCommand(commands, noun) orelse suggestCommand(commands, name)) |suggestion| {
+        std.debug.print("did you mean: {s}\n", .{suggestion});
+    }
+}
+
+fn suggestCommand(commands: []const std.json.Value, name: []const u8) ?[]const u8 {
+    var best: ?[]const u8 = null;
+    var best_distance: usize = 3;
+    for (commands) |command| {
+        const candidate = stringField(command, "name") catch continue;
+        if (std.mem.indexOf(u8, name, candidate) != null) return candidate;
+        if (std.mem.indexOf(u8, candidate, name) != null and name.len > 2) return candidate;
+        const distance = editDistance(candidate, name) orelse continue;
+        if (distance < best_distance) {
+            best_distance = distance;
+            best = candidate;
+        }
+    }
+    return best;
+}
+
+fn editDistance(a: []const u8, b: []const u8) ?usize {
+    var previous: [64]usize = undefined;
+    var current: [64]usize = undefined;
+    if (a.len >= previous.len or b.len >= previous.len) return null;
+    for (0..b.len + 1) |index| previous[index] = index;
+    for (a, 0..) |a_char, row| {
+        current[0] = row + 1;
+        for (b, 0..) |b_char, column| {
+            const substitution = previous[column] + @intFromBool(a_char != b_char);
+            current[column + 1] = @min(@min(previous[column + 1] + 1, current[column] + 1), substitution);
+        }
+        previous = current;
+    }
+    return previous[b.len];
 }
 
 pub fn reportCommandPath(allocator: std.mem.Allocator, path: []const []const u8) !?[]u8 {
