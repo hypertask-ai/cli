@@ -170,6 +170,15 @@ test "time mutations reject empty changes and metadata on negative corrections" 
     }
 }
 
+test "singular label root reaches the project labels route" {
+    try expectRequest(
+        &.{ "label", "list", "--project", "15" },
+        .GET,
+        "/mcp/projects/15/labels",
+        null,
+    );
+}
+
 test "router dispatches task and decision aliases" {
     try expectRequest(
         &.{ "task", "list", "--project", "15" },

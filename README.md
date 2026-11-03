@@ -16,6 +16,8 @@ JSON is the default output. Pass `--human` for the minimal human-readable mode.
 
 `hypertask create-board` is a shorthand for `hypertask project create-board` and accepts the same flags, manifest input, and help.
 
+`hypertask label` is the same command as `hypertask labels`, like every other root that accepts both forms, so `hypertask label list --project 15` prints JSON instead of an unknown-command list.
+
 `hypertask task view` is an alias for `hypertask task get`, next to `task show`. A wrong command is answered as a command: `hypertask task lst HTPR-1 --project 15` prints `unknown command: lst`, the commands that do exist, and `did you mean: list`, instead of blaming the flag that followed it.
 
 ## Failure contract
