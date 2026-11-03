@@ -216,6 +216,9 @@ Runners: after handling an answer, run `vcc task waiting-on <ticket> --user none
 
 `projects update` renames a board you can edit. `projects archive` is reversible with `--restore`. `projects delete` permanently deletes the board, its tasks, notifications, and memberships, so it refuses to run without `--yes`.
 
+Board reads take the board as `--project <id>`, the same as the task commands, or as the positional id: `project manifest`, `project members`, `project sections`, `project labels`, `project playbook`, and `project instructions` all accept both. Naming a different board twice is an error, and naming none is an error.
+
+
 Task identifiers come in three forms:
 
 - `HTPR-5726` is the full ticket number and works anywhere.

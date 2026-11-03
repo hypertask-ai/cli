@@ -16,7 +16,7 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
     if (std.mem.eql(u8, subcommand, "members")) return projectResource(context, "members", .GET, null);
     if (std.mem.eql(u8, subcommand, "sections")) return projectResource(context, "sections", .GET, null);
     if (std.mem.eql(u8, subcommand, "invite")) return invite(context);
-    if (std.mem.eql(u8, subcommand, "labels")) return labels(context, try context.args.requirePositional(2, "project-id"));
+    if (std.mem.eql(u8, subcommand, "labels")) return labels(context);
     if (std.mem.eql(u8, subcommand, "label")) {
         if (!std.mem.eql(u8, try context.args.requirePositional(2, "subcommand"), "create")) return error.UnknownCommand;
         return createLabel(context);
@@ -28,9 +28,20 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
 }
 
 pub fn labelsCommand(context: *const Context, subcommand: []const u8) !void {
-    if (std.mem.eql(u8, subcommand, "list")) return labels(context, try context.args.require("project"));
+    if (std.mem.eql(u8, subcommand, "list")) return labels(context);
     if (std.mem.eql(u8, subcommand, "create")) return createLabel(context);
     return error.UnknownCommand;
+}
+
+/// A board read takes the board as `--project <id>`, like the task commands,
+/// or as the positional id the board commands has always accepted.
+fn projectId(context: *const Context) !i64 {
+    const flag = context.args.get("project");
+    const positional = context.args.positionalAt(2);
+    if (flag != null and positional != null and !std.mem.eql(u8, flag.?, positional.?)) {
+        return output.invalidOptions("--project and the positional project id disagree");
+    }
+    return common.positiveInt(flag orelse positional orelse return error.MissingProject, "project");
 }
 
 fn list(context: *const Context) !void {
@@ -90,7 +101,7 @@ fn update(context: *const Context) !void {
 }
 
 fn playbook(context: *const Context) !void {
-    const id = try common.positiveInt(try context.args.requirePositional(2, "project-id"), "project-id");
+    const id = try projectId(context);
     const path = try std.fmt.allocPrint(context.allocator, "/mcp/projects/{d}/playbook", .{id});
     const writes = context.args.has("done") or context.args.has("working-rules") or context.args.has("notes") or context.args.has("clear");
     if (!writes) return context.call(.GET, path, null);
@@ -107,7 +118,7 @@ fn playbook(context: *const Context) !void {
 }
 
 fn instructions(context: *const Context) !void {
-    const id = try common.positiveInt(try context.args.requirePositional(2, "project-id"), "project-id");
+    const id = try projectId(context);
     const path = try std.fmt.allocPrint(context.allocator, "/mcp/projects/{d}/instructions", .{id});
     const text = context.args.get("text") orelse return context.call(.GET, path, null);
     var body = try json.Object.init(context.allocator);
@@ -118,7 +129,7 @@ fn instructions(context: *const Context) !void {
 }
 
 fn projectResource(context: *const Context, resource: []const u8, method: std.http.Method, body: ?[]const u8) !void {
-    const id = try common.positiveInt(try context.args.requirePositional(2, "project-id"), "project-id");
+    const id = try projectId(context);
     const path = try std.fmt.allocPrint(context.allocator, "/mcp/projects/{d}/{s}", .{ id, resource });
     try context.call(method, path, body);
 }
@@ -134,8 +145,8 @@ fn invite(context: *const Context) !void {
     try context.call(.POST, path, try body.finish());
 }
 
-fn labels(context: *const Context, project: []const u8) !void {
-    const prefix = try labelsPath(context.allocator, project);
+fn labels(context: *const Context) !void {
+    const prefix = try labelsPath(context.allocator, try projectId(context));
     defer context.allocator.free(prefix);
     var path = try query.Builder.init(context.allocator, prefix);
     defer path.deinit();
@@ -143,13 +154,12 @@ fn labels(context: *const Context, project: []const u8) !void {
     try context.call(.GET, path.path(), null);
 }
 
-fn labelsPath(allocator: std.mem.Allocator, project: []const u8) ![]const u8 {
-    const id = try common.positiveInt(project, "project");
-    return std.fmt.allocPrint(allocator, "/mcp/projects/{d}/labels", .{id});
+fn labelsPath(allocator: std.mem.Allocator, project_id: i64) ![]const u8 {
+    return std.fmt.allocPrint(allocator, "/mcp/projects/{d}/labels", .{project_id});
 }
 
 test "project labels use the project-specific labels route" {
-    const path = try labelsPath(std.testing.allocator, "15");
+    const path = try labelsPath(std.testing.allocator, 15);
     defer std.testing.allocator.free(path);
     try std.testing.expectEqualStrings("/mcp/projects/15/labels", path);
 }

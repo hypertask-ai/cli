@@ -36,6 +36,10 @@ While the Node implementation still exists, a change to how a command behaves be
 
 Say in your PR which implementation you covered. A fix in one implementation only is half a fix, and the gap stays invisible until someone hits it. Real example: https://app.hypertask.ai/detail/project-15/5661 was fixed in Node, and https://app.hypertask.ai/detail/project-15/5746 exists purely because the same bug is still live here.
 
+## Board reads take `--project`
+
+`project manifest`, `project members`, `project sections`, `project labels`, `project playbook`, and `project instructions` accept the board as `--project <id>` or as the positional id, matching the task commands. Two different boards named in one call is an error, and naming none is an error.
+
 ## Known gap
 
 The native CLI prints raw JSON for every command. The Node implementation prints readable tables. That is the one thing stopping a human from switching, and it is phase 2 of the retirement plan.
