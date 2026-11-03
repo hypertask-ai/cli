@@ -168,7 +168,8 @@ fn bareTaskIdNoteText(allocator: std.mem.Allocator, identifier: []const u8, task
 pub fn bareTaskIdNoteFromResponse(allocator: std.mem.Allocator, identifier: []const u8, body: []const u8) !?[]u8 {
     const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch return null;
     defer parsed.deinit();
-    const tasks = json.objectField(parsed.value, "tasks") orelse return null;
+    if (parsed.value != .object) return null;
+    const tasks = parsed.value.object.get("tasks") orelse return null;
     if (tasks != .array or tasks.array.items.len == 0) return null;
     const row = tasks.array.items[0];
     const task_id = json.integerField(row, "id", true) orelse return null;
@@ -326,6 +327,19 @@ test "a bare task id names the ticket and board it resolved to" {
         "908 is task id 908: sign-1 on HT Design. A bare number is an internal id on any board; pass the ticket number, or --project with the board, when the board matters",
         note,
     );
+}
+
+test "a task read names the ticket and board without a second request" {
+    const body = "{\"success\":true,\"tasks\":[{\"id\":908,\"ticketNumber\":\"sign-1\",\"boardTitle\":\"HT Design\"}]}";
+    const note = try bareTaskIdNoteFromResponse(std.testing.allocator, "908", body);
+    defer if (note) |value| std.testing.allocator.free(value);
+    try std.testing.expect(note != null);
+    try std.testing.expectEqualStrings(
+        "908 is task id 908: sign-1 on HT Design. A bare number is an internal id on any board; pass the ticket number, or --project with the board, when the board matters",
+        note.?,
+    );
+    try std.testing.expect((try bareTaskIdNoteFromResponse(std.testing.allocator, "908", "not json")) == null);
+    try std.testing.expect((try bareTaskIdNoteFromResponse(std.testing.allocator, "908", "{\"success\":false}")) == null);
 }
 
 test "a bare task id with no ticket or board still says where it landed" {
