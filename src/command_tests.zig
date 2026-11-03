@@ -270,6 +270,18 @@ test "every HTPR-6530 list command forwards --limit" {
         null,
     );
     try expectRequest(
+        &.{ "column", "list", "--project", "15", "--limit", "3" },
+        .GET,
+        "/mcp/projects/15/sections?limit=3",
+        null,
+    );
+    try expectRequest(
+        &.{ "columns", "list", "--project", "15", "--limit", "3" },
+        .GET,
+        "/mcp/projects/15/sections?limit=3",
+        null,
+    );
+    try expectRequest(
         &.{ "labels", "list", "--project", "15", "--limit", "3" },
         .GET,
         "/mcp/projects/15/labels?limit=3",
@@ -1733,6 +1745,27 @@ test "task comments names where a ticket's comments are read" {
     const printed = try posix.read(pipe[0], &captured);
     try std.testing.expect(std.mem.indexOf(u8, captured[0..printed], "hypertask comment list <ticket>") != null);
     try router.validateCommandPath(std.testing.allocator, &.{ "comment", "list" }, true);
+}
+
+test "a board read names the section command" {
+    const posix = std.posix;
+    for ([_][]const []const u8{ &.{ "board" }, &.{ "boards", "sections" } }) |path| {
+        const pipe = try posix.pipe();
+        defer posix.close(pipe[0]);
+        {
+            defer posix.close(pipe[1]);
+            const saved_stderr = try posix.dup(2);
+            defer posix.close(saved_stderr);
+            try posix.dup2(pipe[1], 2);
+            defer posix.dup2(saved_stderr, 2) catch {};
+            try std.testing.expectError(error.UnknownCommand, router.validateCommandPath(std.testing.allocator, path, false));
+        }
+        var captured: [2048]u8 = undefined;
+        const printed = try posix.read(pipe[0], &captured);
+        try std.testing.expect(std.mem.indexOf(u8, captured[0..printed], "unknown command:") != null);
+        try std.testing.expect(std.mem.indexOf(u8, captured[0..printed], "hypertask section list --project <id>") != null);
+    }
+    try router.validateCommandPath(std.testing.allocator, &.{ "columns", "list", "--project", "15" }, false);
 }
 
 test "top level and comment add help name the Decisions inbox" {
