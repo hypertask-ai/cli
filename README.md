@@ -39,6 +39,10 @@ Exit codes are stable:
 
 Scripts may use the exit code category, while people and agents should follow the `Next:` line.
 
+## Release notes: native 0.2.38
+
+- `hypertask --help features` reaches its topic instead of `unknown command: features`, and any other topic with no command path names `hypertask capabilities --json` (HTPR-8434).
+
 ## Release notes: native 0.2.37
 
 - `pages create` takes `--project <id>`, so an agent that types the flag from `task` and `pages list` gets the ticket on the board it named instead of `unknown option --project` (HTPR-8474).
