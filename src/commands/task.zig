@@ -669,6 +669,7 @@ fn waitingOn(context: *const Context) !void {
         if (!resolve.isNumeric(user)) return output.invalidOptions("--user must be a positive user ID, me, or none");
         break :blk try common.positiveInt(user, "user");
     };
+    const reason = try clearReason(context, std.mem.eql(u8, user, "none"));
     const found = try resolve.task(context, identifier);
     var body = try json.Object.init(context.allocator);
     defer body.deinit();
@@ -679,6 +680,7 @@ fn waitingOn(context: *const Context) !void {
         try body.nullValue("userId");
         try body.nullValue("blockerCommentId");
     }
+    if (reason.len != 0) try body.string("reason", reason);
     var response = try context.fetch(.POST, "/mcp/tasks/waiting-on", try body.finish());
     defer response.deinit();
     try context.print(try taskMutationBody(context, &response));
@@ -691,14 +693,27 @@ fn blockerComment(context: *const Context) !void {
         if (!resolve.isNumeric(comment)) return output.invalidOptions("--comment-id must be a positive comment ID or none");
         break :blk try common.positiveInt(comment, "comment-id");
     };
+    const reason = try clearReason(context, comment_id == null);
     const found = try resolve.task(context, identifier);
     var body = try json.Object.init(context.allocator);
     defer body.deinit();
     try body.integer("taskId", found.id);
     if (comment_id) |id| try body.integer("blockerCommentId", id) else try body.nullValue("blockerCommentId");
+    if (reason.len != 0) try body.string("reason", reason);
     var response = try context.fetch(.POST, "/mcp/tasks/waiting-on", try body.finish());
     defer response.deinit();
     try context.print(try taskMutationBody(context, &response));
+}
+
+/// The server wants an agent to say why it clears a blocker, so the reason only
+/// rides the paths that clear one.
+fn clearReason(context: *const Context, clearing: bool) ![]const u8 {
+    const given = context.args.get("reason") orelse return "";
+    const reason = std.mem.trim(u8, given, " \t\r\n");
+    if (!clearing) return output.invalidOptions("--reason only applies when clearing a blocker");
+    if (reason.len == 0) return output.invalidOptions("--reason must say why the blocker is cleared");
+    if (try std.unicode.utf8CountCodepoints(reason) > 500) return output.invalidOptions("--reason must be 500 characters or fewer");
+    return reason;
 }
 
 fn moveToInbox(context: *const Context) !void {

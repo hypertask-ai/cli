@@ -34,10 +34,12 @@ Scripts may use the exit code category, while people and agents should follow th
 ## Release notes: native 0.2.30
 
 - A wrong command is answered as a command: `task view-hint HTPR-1 --project 15` says `unknown command: view-hint` with the real commands and a suggestion, instead of blaming the flag that followed it. `task view` is an alias of `task get`, next to `task show` (HTPR-8379).
+- `task waiting-on <ticket> --user none` and `task blocker-comment <ticket> --comment-id none` take `--reason <text>` and send it, so an agent can clear a blocker the way the server asks: with a reason of 500 characters or fewer. The flag is refused on the paths that do not clear a blocker (HTPR-8424).
 
 ## Release notes: native 0.2.29
 
 - A bare number with no `--project` is still the internal task id, and the command now names the ticket and board it landed on, so a number read on another board is visible instead of silent (HTPR-8423).
+
 
 ## Release notes: native 0.2.28
 
@@ -198,7 +200,7 @@ hypertask tasks get 5726 --project 15
 hypertask tasks move HTPR-5726 --section "In Progress"
 hypertask task waiting-on HTPR-7723 --user me
 hypertask task blocker-comment HTPR-7723 --comment-id 101
-hypertask task waiting-on HTPR-7723 --user none
+hypertask task waiting-on HTPR-7723 --user none --reason "Answered on the ticket"
 hypertask comment add HTPR-5726 --text "<p>...</p>"
 hypertask agents update --id <agent-id> --name "Ops Script"
 hypertask agents update --id <agent-id> --add-project 339
@@ -212,9 +214,9 @@ hypertask search "query" --project 15
 
 `task waiting-on <ticket> --user <id|me|none>` sets the person a ticket is blocked by. `me` uses the current user (not the agent); `none` clears both the person and blocking comment. `tasks` is also accepted. Use `--project <id>` with a bare ticket number, or a numeric internal task ID without `--project`. `--json` and `--human` use the standard write-command output.
 
-`task blocker-comment <ticket> --comment-id <id|none>` marks the blocking question. A new comment ID replaces the previous marker. `--comment-id none` removes only the comment marker. Neither operation changes the waiting person. Comments must belong to the same ticket. The server still enforces access and feature availability.
+`task blocker-comment <ticket> --comment-id <id|none>` marks the blocking question. A new comment ID replaces the previous marker. `--comment-id none` removes only the comment marker, and `--reason <text>` says why. Neither operation changes the waiting person. Comments must belong to the same ticket. The server still enforces access and feature availability.
 
-Runners: after handling an answer, run `vcc task waiting-on <ticket> --user none`. This clears both the name and red border. To mark the question, use `vcc task blocker-comment <ticket> --comment-id <comment-id>`.
+Runners: after handling an answer, run `vcc task waiting-on <ticket> --user none --reason "<why>"`. This clears both the name and red border. An agent must give a reason the server accepts (500 characters or fewer); a person clearing from the app does not need one. To mark the question, use `vcc task blocker-comment <ticket> --comment-id <comment-id>`. Clearing only the red border is `vcc task blocker-comment <ticket> --comment-id none --reason "<why>"`.
 
 `comment add --kind question|qa|done` posts a question, QA result, or completion comment for people. Without `--kind`, no kind is sent; the server may save agent chatter to the agent log without notifying anyone. The CLI explains log routing, or returns the unchanged response with `--json`. `--attach` marks the create request with `has_attachments: true` so supporting servers keep it as a comment. If an older server still routes it to the log, requested attachments are not uploaded; use `--kind` to attach them to a comment.
 

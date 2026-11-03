@@ -881,6 +881,43 @@ test "task blocker-comment marks or clears only the comment through both aliases
     }
 }
 
+test "task blocker-comment sends the reason only when it clears the marker" {
+    try expectRequestCountWithResponses(
+        &.{ "task", "blocker-comment", "HTPR-7724", "--comment-id", "none", "--reason", "  Answered on the ticket  " },
+        &.{"{\"tasks\":[{\"id\":49511,\"projectId\":15}]}"},
+        2,
+        .POST,
+        "/mcp/tasks/waiting-on",
+        "{\"taskId\":49511,\"blockerCommentId\":null,\"reason\":\"Answered on the ticket\"}",
+    );
+    for ([_][]const u8{ "", "invalid" }) |value| {
+        try expectDispatchError(error.InvalidOptions, &.{ "task", "blocker-comment", "HTPR-7724", "--comment-id", "101", "--reason", value });
+    }
+    try expectDispatchError(error.InvalidOptions, &.{ "task", "blocker-comment", "HTPR-7724", "--comment-id", "none", "--reason", "   " });
+    const long_reason = "a" ** 501;
+    try expectDispatchError(error.InvalidOptions, &.{ "task", "blocker-comment", "HTPR-7724", "--comment-id", "none", "--reason", long_reason });
+    try expectRequestCountWithResponses(
+        &.{ "task", "blocker-comment", "HTPR-7724", "--comment-id", "none", "--reason", "a" ** 500 },
+        &.{"{\"tasks\":[{\"id\":49511,\"projectId\":15}]}"},
+        2,
+        .POST,
+        "/mcp/tasks/waiting-on",
+        "{\"taskId\":49511,\"blockerCommentId\":null,\"reason\":\"" ++ ("a" ** 500) ++ "\"}",
+    );
+}
+
+test "task waiting-on sends the reason when it clears the blocker" {
+    try expectRequestCountWithResponses(
+        &.{ "task", "waiting-on", "HTPR-7723", "--user", "none", "--reason", "Answered, no longer waiting" },
+        &.{"{\"tasks\":[{\"id\":49511,\"projectId\":15}]}"},
+        2,
+        .POST,
+        "/mcp/tasks/waiting-on",
+        "{\"taskId\":49511,\"userId\":null,\"blockerCommentId\":null,\"reason\":\"Answered, no longer waiting\"}",
+    );
+    try expectDispatchError(error.InvalidOptions, &.{ "task", "waiting-on", "HTPR-7723", "--user", "6", "--reason", "Answered" });
+}
+
 test "task blocker-comment resolves board numbers and refuses ambiguity" {
     try expectRequestCountWithResponses(
         &.{ "task", "blocker-comment", "7724", "--project", "15", "--comment-id", "102" },

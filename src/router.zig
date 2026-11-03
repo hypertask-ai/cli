@@ -387,6 +387,7 @@ test "task waiting-on help includes required user and project for both aliases" 
         defer std.testing.allocator.free(help);
         try std.testing.expect(std.mem.indexOf(u8, help, "Usage: hypertask task waiting-on <ticket> [options]") != null);
         try std.testing.expect(std.mem.indexOf(u8, help, "--user <id|me|none> (required)") != null);
+        try std.testing.expect(std.mem.indexOf(u8, help, "--reason <text>") != null);
         try std.testing.expect(std.mem.indexOf(u8, help, "--project <id>") != null);
         try std.testing.expect(std.mem.indexOf(u8, help, "Example:\n  hypertask task waiting-on <ticket> --user <id|me|none>") != null);
         const task_help = try renderHelp(std.testing.allocator, &.{root});
@@ -401,6 +402,7 @@ test "task blocker-comment help exposes marker-only operations for both aliases"
         const help = try renderHelp(std.testing.allocator, &.{ root, "blocker-comment" });
         defer std.testing.allocator.free(help);
         try std.testing.expect(std.mem.indexOf(u8, help, "--comment-id <id|none> (required)") != null);
+        try std.testing.expect(std.mem.indexOf(u8, help, "--reason <text>") != null);
         try std.testing.expect(std.mem.indexOf(u8, help, "--project <id>") != null);
         try std.testing.expect(std.mem.indexOf(u8, help, "without changing the waiting person") != null);
     }
