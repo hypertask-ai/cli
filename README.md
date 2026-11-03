@@ -29,6 +29,10 @@ Exit codes are stable:
 
 Scripts may use the exit code category, while people and agents should follow the `Next:` line.
 
+## Release notes: native 0.2.29
+
+- A bare number with no `--project` is still the internal task id, and the command now names the ticket and board it landed on, so a number read on another board is visible instead of silent (HTPR-8423).
+
 ## Release notes: native 0.2.28
 
 - `pages create`, `pages update` and `pages append` read page content from a file with `--content-file <path>` or `--html-file <path>`, so an HTML report bigger than one command-line string can be published. `--html-file` marks the page content type `html` (HTPR-8311).
