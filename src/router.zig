@@ -539,6 +539,7 @@ test "feedback help explains autonomous reporting and content privacy" {
     const help = try renderHelp(std.testing.allocator, &.{"feedback"});
     defer std.testing.allocator.free(help);
     try std.testing.expect(std.mem.indexOf(u8, help, "Usage: hypertask feedback [note] [options]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, help, "There is no list command") != null);
     try std.testing.expect(std.mem.indexOf(u8, help, "--category <value>") != null);
     try std.testing.expect(std.mem.indexOf(u8, help, "--surface <cli|agent>") != null);
     try std.testing.expect(std.mem.indexOf(u8, help, "--json") != null);
