@@ -743,6 +743,7 @@ fn moveToInbox(context: *const Context) !void {
 
 fn move(context: *const Context) !void {
     const identifier = try context.args.requirePositional(2, "ticket-or-task-id");
+    const positional_section = context.args.positionalAt(3);
     // --to <project id> is a cross-board move (HTPR-6813): it used to be read as a
     // section name on the current board, which the server rejects.
     if (context.args.get("to")) |target_project| {
@@ -751,14 +752,17 @@ fn move(context: *const Context) !void {
             try common.positiveInt(identifier, "task-id")
         else
             (try resolve.task(context, identifier)).id;
+        const target_project_id = try common.positiveInt(target_project, "to");
         var body = try json.Object.init(context.allocator);
         defer body.deinit();
         try body.integer("task_id", task_id);
-        try body.integer("target_project_id", try common.positiveInt(target_project, "to"));
-        if (context.args.get("to-section")) |value| try body.integer("target_section_id", try common.positiveInt(value, "to-section"));
+        try body.integer("target_project_id", target_project_id);
+        if (positional_section orelse context.args.get("to-section")) |value| {
+            try body.integer("target_section_id", try resolve.sectionId(context, target_project_id, value));
+        }
         return context.call(.POST, "/mcp/tasks/move", try body.finish());
     }
-    const section = context.args.get("section") orelse context.args.get("to-section") orelse return error.MissingOption;
+    const section = positional_section orelse context.args.get("section") orelse context.args.get("to-section") orelse return error.MissingOption;
     const found = try resolve.task(context, identifier);
     var body = try json.Object.init(context.allocator);
     defer body.deinit();

@@ -389,6 +389,22 @@ test "task move honors --project for a bare board number" {
     );
 }
 
+test "task move takes the destination section as the second argument" {
+    try expectRequestCountWithResponses(
+        &.{ "task", "move", "1529", "--project", "2060", "Doing" },
+        &.{
+            "{\"success\":true,\"tasks\":[{\"id\":667788,\"project_id\":2060}]}",
+            "{\"success\":true,\"tasks\":[{\"id\":42,\"projectId\":15}]}",
+            "{\"sections\":[{\"id\":11,\"section_title\":\"Doing\"}]}",
+            "{\"success\":true,\"tasks\":[{\"id\":667788}]}",
+        },
+        4,
+        .POST,
+        "/mcp/tasks/update",
+        "{\"task_id\":667788,\"sectionId\":11}",
+    );
+}
+
 test "task move --to keeps a bare number as a task id unless --project names its board" {
     try expectRequest(
         &.{ "task", "move", "667788", "--to", "15" },

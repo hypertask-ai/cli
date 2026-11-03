@@ -185,8 +185,8 @@ def run_json(
     return parse_json(process, label)
 
 
-def leaf_catalog(document: dict[str, Any]) -> dict[str, tuple[tuple[str, ...], tuple[str, ...]]]:
-    leaves: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {}
+def leaf_catalog(document: dict[str, Any]) -> dict[str, tuple[tuple[tuple[str, bool, bool], ...], tuple[str, ...]]]:
+    leaves: dict[str, tuple[tuple[tuple[str, bool, bool], ...], tuple[str, ...]]] = {}
 
     def visit(command: dict[str, Any], parents: tuple[str, ...]) -> None:
         path = parents + (command["name"],)
@@ -199,7 +199,7 @@ def leaf_catalog(document: dict[str, Any]) -> dict[str, tuple[tuple[str, ...], t
         # False when a flag mode (e.g. task unassign --all) makes the
         # positional optional; that is still a Node-compatible catalog.
         arguments = tuple(
-            f"{arg['name']}:{arg['variadic']}"
+            (arg["name"], bool(arg["variadic"]), bool(arg["required"]))
             for arg in command.get("arguments", [])
         )
         options = tuple(option["flags"] for option in command.get("options", []))
@@ -208,6 +208,19 @@ def leaf_catalog(document: dict[str, Any]) -> dict[str, tuple[tuple[str, ...], t
     for command in document["commands"]:
         visit(command, ())
     return leaves
+
+
+def arguments_compatible(
+    node_arguments: tuple[tuple[str, bool, bool], ...],
+    zig_arguments: tuple[tuple[str, bool, bool], ...],
+) -> bool:
+    """Zig may add an optional positional a Node caller simply omits (HTPR-8388)."""
+    if len(zig_arguments) < len(node_arguments):
+        return False
+    shared = zip(node_arguments, zig_arguments)
+    if any(node_arg[:2] != zig_arg[:2] for node_arg, zig_arg in shared):
+        return False
+    return not any(required for _, _, required in zig_arguments[len(node_arguments) :])
 
 
 def capabilities(node_cli: list[str], zig_cli: list[str]) -> None:
@@ -223,7 +236,7 @@ def capabilities(node_cli: list[str], zig_cli: list[str]) -> None:
     for name in node.keys() & zig.keys():
         node_arguments, node_options = node[name]
         zig_arguments, zig_options = zig[name]
-        if node_arguments != zig_arguments or not set(node_options) <= set(zig_options):
+        if not arguments_compatible(node_arguments, zig_arguments) or not set(node_options) <= set(zig_options):
             changed.append(name)
         elif node_options != zig_options:
             supersets += 1
