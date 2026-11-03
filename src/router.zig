@@ -1,5 +1,6 @@
 const std = @import("std");
 const Context = @import("command_context.zig").Context;
+const args = @import("args.zig");
 const output = @import("output.zig");
 
 const admin = @import("commands/admin.zig");
@@ -216,6 +217,18 @@ pub fn dispatch(context: *const Context) !void {
     return error.UnknownCommand;
 }
 
+/// The command path a help request asks about: `--help` asks about the path given, and
+/// `hypertask help <path>` asks about the path after `help`. Null when neither form was used.
+/// `help features` is a command of its own, so it is not a topic.
+pub fn requestedHelpTopic(parsed: *const args.Parsed) ?[]const []const u8 {
+    if (parsed.has("help")) return parsed.positional;
+    const positional = parsed.positional;
+    if (positional.len == 0 or !std.mem.eql(u8, positional[0], "help")) return null;
+    if (positional.len == 1) return &.{};
+    if (std.mem.eql(u8, positional[1], "features")) return null;
+    return positional[1..];
+}
+
 pub fn printHelp(allocator: std.mem.Allocator, path: []const []const u8) !void {
     const help = renderHelp(allocator, path) catch |err| switch (err) {
         error.UnknownCommand => return printHelpTopicHint(allocator, path),
@@ -243,24 +256,35 @@ fn helpTopicHint(allocator: std.mem.Allocator, path: []const []const u8) ![]u8 {
 }
 
 fn renderHelp(allocator: std.mem.Allocator, path: []const []const u8) ![]u8 {
-    if (path.len == 0) return allocator.dupe(u8,
-        \\hypertask 0.2.0 (zig), native Hypertask CLI
-        \\
-        \\Usage: hypertask [--json] [--token <jwt>] [--api-url <url>] <command> ...
-        \\
-        \\Run `hypertask capabilities --json` for the complete command and option catalog.
-        \\Agent sessions: run `hypertask chat listen` in the background; answer with `hypertask chat reply <chat-id> --text <text>`.
-        \\Run `hypertask help features` for live product features and their destinations.
-        \\A Question: comment that @mentions a person using a real mention shows up in their Inbox, split Decisions when enabled: https://app.hypertask.ai/inbox?split=Decisions.
-        \\Agent log: `hypertask activity add <ticket> --text <note>` writes it (no --kind, nobody is notified) and `hypertask task agent-log <ticket>` reads it.
-        \\
-        \\AI agents: run `hypertask feedback --kind bug --tool "task get" "what went wrong"` on your own when a hypertask command fails unexpectedly. The kind and the note are kept on the filed ticket for our own team's agents and dropped for customer agents. Never include task, board or comment content.
-        \\Unexpected failures send command name and error type only, no task content; disable with HYPERTASK_NO_ERROR_REPORTS=1 or error_reports=false in ~/.hypertask/config.json.
-    );
-
     const catalog = @embedFile("capabilities.json");
     const parsed = try std.json.parseFromSlice(std.json.Value, allocator, catalog, .{});
     defer parsed.deinit();
+
+    if (path.len == 0) {
+        var root: std.ArrayListUnmanaged(u8) = .{};
+        errdefer root.deinit(allocator);
+        try root.appendSlice(allocator,
+            \\hypertask 0.2.0 (zig), native Hypertask CLI
+            \\
+            \\Usage: hypertask [--json] [--token <jwt>] [--api-url <url>] <command> ...
+            \\
+            \\Run `hypertask capabilities --json` for the complete command and option catalog.
+            \\Agent sessions: run `hypertask chat listen` in the background; answer with `hypertask chat reply <chat-id> --text <text>`.
+            \\Run `hypertask help features` for live product features and their destinations.
+            \\A Question: comment that @mentions a person using a real mention shows up in their Inbox, split Decisions when enabled: https://app.hypertask.ai/inbox?split=Decisions.
+            \\Agent log: `hypertask activity add <ticket> --text <note>` writes it (no --kind, nobody is notified) and `hypertask task agent-log <ticket>` reads it.
+            \\
+            \\AI agents: run `hypertask feedback --kind bug --tool "task get" "what went wrong"` on your own when a hypertask command fails unexpectedly. The kind and the note are kept on the filed ticket for our own team's agents and dropped for customer agents. Never include task, board or comment content.
+            \\Unexpected failures send command name and error type only, no task content; disable with HYPERTASK_NO_ERROR_REPORTS=1 or error_reports=false in ~/.hypertask/config.json.
+        );
+        try root.appendSlice(allocator, "\n\nCommands:");
+        for (try arrayFieldOrEmpty(parsed.value, "commands")) |command| {
+            try root.append(allocator, ' ');
+            try root.appendSlice(allocator, try stringField(command, "name"));
+        }
+        try root.append(allocator, '\n');
+        return root.toOwnedSlice(allocator);
+    }
 
     var command = parsed.value;
     var canonical_path: std.ArrayListUnmanaged([]const u8) = .{};

@@ -1907,6 +1907,69 @@ test "help features rejects missing or unknown subcommands and extra arguments" 
     try expectDispatchError(error.UnknownCommand, &.{ "help", "unknown" });
 }
 
+fn expectHelpRequest(argv: []const []const u8, out: []u8) ![]const u8 {
+    const posix = std.posix;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    var parsed = try args.parse(allocator, argv);
+    defer parsed.deinit();
+    const topic = router.requestedHelpTopic(&parsed) orelse return error.NotAHelpRequest;
+    const pipe = try posix.pipe();
+    defer posix.close(pipe[0]);
+    {
+        defer posix.close(pipe[1]);
+        const saved_stdout = try posix.dup(1);
+        defer posix.close(saved_stdout);
+        try posix.dup2(pipe[1], 1);
+        defer posix.dup2(saved_stdout, 1) catch {};
+        try router.printHelp(allocator, topic);
+    }
+    const printed = try posix.read(pipe[0], out);
+    return out[0..printed];
+}
+
+test "a help request answers any command path, not only features" {
+    for ([_]struct { topic: []const []const u8, flag: []const []const u8 }{
+        .{ .topic = &.{ "help", "feedback" }, .flag = &.{ "feedback", "--help" } },
+        .{ .topic = &.{ "help", "task", "list" }, .flag = &.{ "task", "list", "--help" } },
+        .{ .topic = &.{"help"}, .flag = &.{"--help"} },
+    }) |pair| {
+        var topic_output: [16384]u8 = undefined;
+        var flag_output: [16384]u8 = undefined;
+        const from_topic = try expectHelpRequest(pair.topic, &topic_output);
+        const from_flag = try expectHelpRequest(pair.flag, &flag_output);
+        try std.testing.expectEqualStrings(from_flag, from_topic);
+        try std.testing.expect(std.mem.indexOf(u8, from_topic, "Usage: hypertask") != null);
+    }
+}
+
+test "the top level help page lists the commands" {
+    var out: [16384]u8 = undefined;
+    const printed = try expectHelpRequest(&.{"help"}, &out);
+    try std.testing.expect(std.mem.indexOf(u8, printed, "\nCommands: feedback login") != null);
+    try std.testing.expect(std.mem.indexOf(u8, printed, " valid commands:") == null);
+}
+
+test "a help request for an unknown topic names a working form" {
+    var out: [16384]u8 = undefined;
+    const printed = try expectHelpRequest(&.{ "help", "nosuchtopic" }, &out);
+    try std.testing.expect(std.mem.indexOf(u8, printed, "no help page for: hypertask nosuchtopic") != null);
+    try std.testing.expect(std.mem.indexOf(u8, printed, "run `hypertask help`") != null);
+    try std.testing.expect(std.mem.indexOf(u8, printed, "valid commands") == null);
+}
+
+test "help features stays its own command, not a help page" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    for ([_][]const []const u8{ &.{ "help", "features" }, &.{ "help", "features", "--json" } }) |argv| {
+        var parsed = try args.parse(allocator, argv);
+        defer parsed.deinit();
+        try std.testing.expect(router.requestedHelpTopic(&parsed) == null);
+    }
+}
+
 test "an unknown command names the closest real command" {
     const posix = std.posix;
     const pipe = try posix.pipe();
