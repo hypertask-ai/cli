@@ -174,11 +174,15 @@ test "project is rejected on task assign" {
     try std.testing.expectError(error.UnknownOption, rejectUnknownOptions(std.testing.allocator, &parsed));
 }
 
-test "project is rejected on task move" {
-    const argv = [_][]const u8{ "task", "move", "HYFA-70", "--section", "In Progress", "--project", "5156" };
-    var parsed = try args_mod.parse(std.testing.allocator, &argv);
-    defer parsed.deinit();
-    try std.testing.expectError(error.UnknownOption, rejectUnknownOptions(std.testing.allocator, &parsed));
+test "project is accepted on task move and task agent-log" {
+    for ([_][]const []const u8{
+        &.{ "task", "move", "HYFA-70", "--section", "In Progress", "--project", "5156" },
+        &.{ "task", "agent-log", "1529", "--project", "2060" },
+    }) |argv| {
+        var parsed = try args_mod.parse(std.testing.allocator, argv);
+        defer parsed.deinit();
+        try rejectUnknownOptions(std.testing.allocator, &parsed);
+    }
 }
 
 test "accepted flags lists the command options in order" {

@@ -53,10 +53,11 @@ Activity is opt-in; omit `--include-activity` to read comments only. Unrecognize
 ```bash
 hypertask tasks agent-log HTPR-7620
 hypertask task agent-log 35007 --limit 100 --agent 11111111-1111-4111-8111-111111111111
+hypertask task agent-log 1529 --project 2060
 hypertask tasks agent-log HTPR-7620 --human
 ```
 
-Reads `GET /api/mcp/tasks/{ticket-or-task-id}/agent-activity` without changing the ticket. Numeric identifiers are task IDs, not board indexes. Returns `activities` newest first, including `agentName`, `type`, `text`, and `createdAt`. JSON is the default; `--human` uses the standard readable format. `--limit` defaults to 20 and must be an integer from 1 to 100; `--agent` filters by agent UUID (`agent_id`).
+Reads `GET /api/mcp/tasks/{ticket-or-task-id}/agent-activity` without changing the ticket. Numeric identifiers are task IDs, not board indexes. Add `--project <board id>` to read a number as that board's index; the CLI resolves it there and reads the task it names. `task move` takes the same `--project`, so a bare board number moves the ticket on its own board instead of wherever that task ID lives. Returns `activities` newest first, including `agentName`, `type`, `text`, and `createdAt`. JSON is the default; `--human` uses the standard readable format. `--limit` defaults to 20 and must be an integer from 1 to 100; `--agent` filters by agent UUID (`agent_id`).
 
 ## Authentication
 
