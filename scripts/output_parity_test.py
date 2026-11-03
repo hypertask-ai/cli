@@ -553,6 +553,37 @@ def main() -> None:
             with Handler.lock:
                 expect(len(Handler.requests) == before, "invalid blocker-comment made network requests")
 
+            # HTPR-8424: the server makes an agent say why it clears a blocker,
+            # so the clear paths carry the reason and refuse a useless one.
+            for root, origin, body in (
+                ("blocker-comment", ("--comment-id", "none"), {"taskId": 35007, "blockerCommentId": None, "reason": "Answered on the ticket"}),
+                ("waiting-on", ("--user", "none"), {"taskId": 35007, "userId": None, "blockerCommentId": None, "reason": "Answered on the ticket"}),
+            ):
+                with Handler.lock:
+                    before = len(Handler.requests)
+                cleared = run(
+                    binary, token, api_url, home,
+                    "task", root, "HTPR-5787", *origin, "--reason", "  Answered on the ticket  ",
+                )
+                expect(cleared.returncode == 0 and cleared.stderr == "", cleared)
+                with Handler.lock:
+                    requests = Handler.requests[before:]
+                expect([(r["method"], r["path"], r["body"]) for r in requests] == [
+                    ("GET", "/mcp/tasks", None),
+                    ("POST", "/mcp/tasks/waiting-on", body),
+                ], f"{root} clear requests were {requests}")
+                with Handler.lock:
+                    before = len(Handler.requests)
+                for args in (
+                    (*origin, "--reason", "   "),
+                    (*origin, "--reason", "a" * 501),
+                    (("--comment-id", "101") if root == "blocker-comment" else ("--user", "6")) + ("--reason", "Answered"),
+                ):
+                    refused = run(binary, token, api_url, home, "task", root, "HTPR-5787", *args)
+                    expect(refused.returncode == 2 and refused.stdout == "", refused)
+                with Handler.lock:
+                    expect(len(Handler.requests) == before, f"invalid {root} reason made network requests")
+
             # HTPR-6313: an agent command run without any agent identity must
             # fail loudly, non-zero exit, error on stderr, nothing on stdout,
             # no network call, so a caller checking $? never sees success.
