@@ -13,7 +13,7 @@ const rich_text = @import("../rich_text.zig");
 pub fn run(context: *const Context, subcommand: []const u8) !void {
     if (std.mem.eql(u8, subcommand, "list")) return list(context);
     if (std.mem.eql(u8, subcommand, "next")) return next(context);
-    if (std.mem.eql(u8, subcommand, "get") or std.mem.eql(u8, subcommand, "show")) return get(context);
+    if (std.mem.eql(u8, subcommand, "get") or std.mem.eql(u8, subcommand, "show") or std.mem.eql(u8, subcommand, "view")) return get(context);
     if (std.mem.eql(u8, subcommand, "agent-log")) return agentLog(context);
     if (std.mem.eql(u8, subcommand, "description-history")) return descriptionHistory(context);
     if (std.mem.eql(u8, subcommand, "description-restore")) return descriptionRestore(context);
