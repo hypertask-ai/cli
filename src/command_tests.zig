@@ -1044,6 +1044,83 @@ test "task assign --self sends assign_self without requiring --assignee" {
     );
 }
 
+test "task relations and description-history take --project" {
+    try expectRequest(
+        &.{ "task", "relations", "HTPR-8409", "--project", "15" },
+        .GET,
+        "/mcp/tasks/relations?ticket_number=HTPR-8409&project_id=15",
+        null,
+    );
+    try expectRequest(
+        &.{ "task", "description-history", "HTPR-8409", "--project", "15" },
+        .GET,
+        "/mcp/tasks/description-versions?ticket_number=HTPR-8409&project_id=15",
+        null,
+    );
+}
+
+test "task related resolves the ticket on the board --project names" {
+    try expectRequestCountWithResponses(
+        &.{ "task", "related", "HTPR-8409", "--project", "15" },
+        &.{ "{\"tasks\":[{\"id\":38870,\"ticketNumber\":\"HTPR-8409\",\"projectId\":15}]}", "{\"success\":true,\"tasks\":[]}" },
+        2,
+        .GET,
+        "/mcp/tasks/related?task_id=38870",
+        null,
+    );
+}
+
+test "task assign and move-to-inbox carry --project into the body" {
+    try expectRequest(
+        &.{ "task", "assign", "HTPR-8409", "--project", "15", "--assignee", "7" },
+        .POST,
+        "/mcp/assignees/assign",
+        "{\"ticket_number\":\"HTPR-8409\",\"project_id\":15,\"user_id\":7,\"intent\":\"assign\"}",
+    );
+    try expectRequest(
+        &.{ "task", "move-to-inbox", "HTPR-8409", "--project", "15" },
+        .POST,
+        "/mcp/inbox/move",
+        "{\"ticket_number\":\"HTPR-8409\",\"project_id\":15}",
+    );
+}
+
+test "every task subcommand that takes a ticket argument declares --project" {
+    const catalog = @embedFile("capabilities.json");
+    var parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, catalog, .{});
+    defer parsed.deinit();
+    const ticket_arguments = [_][]const u8{ "ticket-or-task-id", "ticket-or-id", "ticket", "source", "target" };
+    var task_commands: ?[]std.json.Value = null;
+    for ((parsed.value.object.get("commands") orelse return error.TestUnexpectedResult).array.items) |command| {
+        const name = command.object.get("name") orelse continue;
+        if (std.mem.eql(u8, name.string, "task")) task_commands = (command.object.get("commands") orelse continue).array.items;
+    }
+    var checked: usize = 0;
+    for (task_commands orelse return error.TestUnexpectedResult) |command| {
+        const name = (command.object.get("name") orelse continue).string;
+        const arguments = command.object.get("arguments") orelse continue;
+        var takes_ticket = false;
+        for (arguments.array.items) |argument| {
+            const argument_name = argument.object.get("name") orelse continue;
+            for (ticket_arguments) |wanted| {
+                if (std.mem.eql(u8, argument_name.string, wanted)) takes_ticket = true;
+            }
+        }
+        if (!takes_ticket) continue;
+        checked += 1;
+        var declares = false;
+        if (command.object.get("options")) |options| {
+            for (options.array.items) |option| {
+                const flags = option.object.get("flags") orelse continue;
+                if (std.mem.indexOf(u8, flags.string, "--project") != null) declares = true;
+            }
+        }
+        if (!declares) std.debug.print("task {s} takes a ticket argument and does not declare --project\n", .{name});
+        try std.testing.expect(declares);
+    }
+    try std.testing.expect(checked >= 15);
+}
+
 test "task assign --assignee <agent-uuid> is confirmed by that exact agent in the response" {
     try expectRequestWithResponses(
         &.{ "task", "assign", "HTPR-6136", "--assignee", "agent-1" },

@@ -167,11 +167,28 @@ test "unknown option on task get is rejected" {
     try std.testing.expectError(error.UnknownOption, rejectUnknownOptions(std.testing.allocator, &parsed));
 }
 
-test "project is rejected on task assign" {
-    const argv = [_][]const u8{ "task", "assign", "HTPR-1", "--assignee", "6", "--project", "15" };
+test "project is rejected where a task takes no ticket argument" {
+    const argv = [_][]const u8{ "task", "tree", "--ticket", "HTPR-1", "--project", "15" };
     var parsed = try args_mod.parse(std.testing.allocator, &argv);
     defer parsed.deinit();
     try std.testing.expectError(error.UnknownOption, rejectUnknownOptions(std.testing.allocator, &parsed));
+}
+
+test "project is accepted on every task subcommand that takes a ticket" {
+    for ([_][]const []const u8{
+        &.{ "task", "assign", "HTPR-1", "--assignee", "6", "--project", "15" },
+        &.{ "task", "relations", "HTPR-1", "--project", "15" },
+        &.{ "task", "related", "HTPR-1", "--project", "15" },
+        &.{ "task", "description-history", "HTPR-1", "--project", "15" },
+        &.{ "task", "description-restore", "HTPR-1", "--version", "3", "--project", "15" },
+        &.{ "task", "link", "HTPR-1", "HTPR-2", "--project", "15" },
+        &.{ "task", "unlink", "HTPR-1", "HTPR-2", "--project", "15" },
+        &.{ "task", "move-to-inbox", "HTPR-1", "--project", "15" },
+    }) |argv| {
+        var parsed = try args_mod.parse(std.testing.allocator, argv);
+        defer parsed.deinit();
+        try rejectUnknownOptions(std.testing.allocator, &parsed);
+    }
 }
 
 test "project is accepted on task move and task agent-log" {

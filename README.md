@@ -42,6 +42,7 @@ Scripts may use the exit code category, while people and agents should follow th
 ## Release notes: native 0.2.40
 
 - `task get 8288` names the flags that reach the ticket when a bare number is no task id, instead of only `Task not found or access denied`, so a ticket number no longer needs `--project` guessed (HTPR-8288).
+- Every `task` subcommand that takes a ticket now accepts `--project <id>`, so `relations`, `related`, `description-history`, `description-restore`, `link`, `unlink`, `assign` and `move-to-inbox` read the ticket a board index names instead of refusing the flag (HTPR-8409).
 
 ## Release notes: native 0.2.39
 
