@@ -1664,6 +1664,33 @@ test "comment add catalog says --file holds HTML" {
     try std.testing.expect(std.mem.indexOf(u8, catalog, "the file holds HTML") != null);
 }
 
+test "comment update --file sends the file text" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(.{ .sub_path = "edited.html", .data = "<p>edited</p>\n<ul><li>one</li></ul>" });
+    const directory = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(directory);
+    const path = try std.fs.path.join(std.testing.allocator, &.{ directory, "edited.html" });
+    defer std.testing.allocator.free(path);
+
+    try expectRequest(
+        &.{ "comment", "update", "119", "--file", path },
+        .PATCH,
+        "/mcp/comments/119",
+        "{\"text\":\"<p>edited</p>\\n<ul><li>one</li></ul>\"}",
+    );
+}
+
+test "comment update keeps --text and refuses neither" {
+    try expectRequest(
+        &.{ "comment", "update", "119", "--text", "<p>edited</p>" },
+        .PATCH,
+        "/mcp/comments/119",
+        "{\"text\":\"<p>edited</p>\"}",
+    );
+    try expectDispatchError(error.MissingOption, &.{ "comment", "update", "119" });
+}
+
 test "comment add rejects invalid kind before resolving or improving" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();

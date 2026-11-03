@@ -95,7 +95,11 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
     if (std.mem.eql(u8, subcommand, "update")) {
         var body = try json.Object.init(context.allocator);
         defer body.deinit();
-        try body.string("text", try context.args.require("text"));
+        const text = if (context.args.get("file")) |file_path|
+            try common.readFile(context.allocator, file_path, 1024 * 1024)
+        else
+            context.args.get("text") orelse return error.MissingOption;
+        try body.string("text", text);
         return context.call(.PATCH, path, try body.finish());
     }
     if (std.mem.eql(u8, subcommand, "delete")) return context.call(.DELETE, path, null);
