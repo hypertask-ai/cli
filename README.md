@@ -31,6 +31,9 @@ Scripts may use the exit code category, while people and agents should follow th
 
 ## Release notes: native 0.2.27
 
+- `task agent-log` and `task move` accept `--project <board id>`, so a bare number reads or moves the ticket on the board you name instead of another board's task with that ID (HTPR-8336).
+- New `chat listen` and `chat reply`, so an agent can attach to in-app chat (HTPR-7742).
+- An unknown command now names the closest real command (HTPR-8206).
 - Clearing the waiting person clears the comment marker.
 - Mark or clear blocking comments with `task blocker-comment`.
 - Fleet updates follow the GitHub release. npm stays unchanged.
