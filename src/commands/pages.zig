@@ -72,7 +72,7 @@ fn update(context: *const Context, mode: []const u8) !void {
     if (context.args.get("title")) |value| try body.string("title", value);
     if (hasContent(context)) {
         try body.string("content", try content(context));
-        if (context.args.has("canvas") or context.args.has("html") or context.args.has("markdown")) {
+        if (context.args.has("canvas") or context.args.has("html") or context.args.has("markdown") or context.args.get("html-file") != null) {
             try body.string("content_type", contentType(context));
         }
         try body.string("mode", mode);
