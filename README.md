@@ -16,7 +16,7 @@ JSON is the default output. Pass `--human` for the minimal human-readable mode.
 
 `hypertask create-board` is a shorthand for `hypertask project create-board` and accepts the same flags, manifest input, and help.
 
-`hypertask task view` is an alias for `hypertask task get`, next to `task show`. A wrong command is answered as a command: `hypertask task view-hint HTPR-1 --project 15` prints `unknown command: view-hint`, the commands that do exist, and a suggestion, instead of blaming the flag that followed it.
+`hypertask task view` is an alias for `hypertask task get`, next to `task show`. A wrong command is answered as a command: `hypertask task lst HTPR-1 --project 15` prints `unknown command: lst`, the commands that do exist, and `did you mean: list`, instead of blaming the flag that followed it.
 
 ## Failure contract
 
@@ -33,7 +33,7 @@ Scripts may use the exit code category, while people and agents should follow th
 
 ## Release notes: native 0.2.30
 
-- A wrong command is answered as a command: `task view-hint HTPR-1 --project 15` says `unknown command: view-hint` with the real commands and a suggestion, instead of blaming the flag that followed it. `task view` is an alias of `task get`, next to `task show` (HTPR-8379).
+- A wrong command is answered as a command: `task lst HTPR-1 --project 15` says `unknown command: lst` with the real commands and `did you mean: list`, instead of blaming the flag that followed it. `task view` is an alias of `task get`, next to `task show` (HTPR-8379).
 - `task waiting-on <ticket> --user none` and `task blocker-comment <ticket> --comment-id none` take `--reason <text>` and send it, so an agent can clear a blocker the way the server asks: with a reason of 500 characters or fewer. The flag is refused on the paths that do not clear a blocker (HTPR-8424).
 
 ## Release notes: native 0.2.29
