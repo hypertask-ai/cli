@@ -18,14 +18,26 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
     return error.UnknownCommand;
 }
 
+const content_file_flags = [_][]const u8{ "html-file", "content-file", "markdown-file" };
+
+fn hasContent(context: *const Context) bool {
+    if (context.args.get("content") != null) return true;
+    for (content_file_flags) |flag| {
+        if (context.args.get(flag) != null) return true;
+    }
+    return false;
+}
+
 fn content(context: *const Context) ![]const u8 {
-    if (context.args.get("markdown-file")) |path| return common.readFile(context.allocator, path, 10 * 1024 * 1024);
+    for (content_file_flags) |flag| {
+        if (context.args.get(flag)) |path| return common.readFile(context.allocator, path, 10 * 1024 * 1024);
+    }
     return context.args.require("content");
 }
 
 fn contentType(context: *const Context) []const u8 {
     if (context.args.has("canvas")) return "html_canvas";
-    if (context.args.has("html")) return "html";
+    if (context.args.has("html") or context.args.get("html-file") != null) return "html";
     return "markdown";
 }
 
@@ -58,9 +70,9 @@ fn update(context: *const Context, mode: []const u8) !void {
     defer body.deinit();
     try addPageId(&body, try context.args.requirePositional(2, "id"));
     if (context.args.get("title")) |value| try body.string("title", value);
-    if (context.args.get("content") != null or context.args.get("markdown-file") != null) {
+    if (hasContent(context)) {
         try body.string("content", try content(context));
-        if (context.args.has("canvas") or context.args.has("html") or context.args.has("markdown")) {
+        if (context.args.has("canvas") or context.args.has("html") or context.args.has("markdown") or context.args.get("html-file") != null) {
             try body.string("content_type", contentType(context));
         }
         try body.string("mode", mode);

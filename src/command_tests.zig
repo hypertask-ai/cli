@@ -1114,6 +1114,68 @@ test "pages create keeps markdown default and explicit canvas" {
     );
 }
 
+fn tmpFile(tmp: *std.testing.TmpDir, sub_path: []const u8, data: []const u8) ![]const u8 {
+    try tmp.dir.writeFile(.{ .sub_path = sub_path, .data = data });
+    const directory = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(directory);
+    return std.fs.path.join(std.testing.allocator, &.{ directory, sub_path });
+}
+
+test "pages read content from --html-file and --content-file" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const html_path = try tmpFile(&tmp, "report.html", "<h1>Report</h1>");
+    defer std.testing.allocator.free(html_path);
+    const content_path = try tmpFile(&tmp, "notes.md", "# Notes");
+    defer std.testing.allocator.free(content_path);
+
+    try expectRequest(
+        &.{ "pages", "create", "--task", "HTPR-6893", "--html-file", html_path },
+        .POST,
+        "/mcp/pages/create",
+        "{\"ticket_number\":\"HTPR-6893\",\"content\":\"<h1>Report</h1>\",\"content_type\":\"html\"}",
+    );
+    try expectRequest(
+        &.{ "pages", "create", "--task", "HTPR-6893", "--content-file", content_path },
+        .POST,
+        "/mcp/pages/create",
+        "{\"ticket_number\":\"HTPR-6893\",\"content\":\"# Notes\",\"content_type\":\"markdown\"}",
+    );
+    try expectRequest(
+        &.{ "pages", "update", "265", "--content-file", content_path },
+        .POST,
+        "/mcp/pages/update",
+        "{\"id\":265,\"content\":\"# Notes\",\"mode\":\"replace\"}",
+    );
+    try expectRequest(
+        &.{ "pages", "append", "265", "--html-file", html_path },
+        .POST,
+        "/mcp/pages/update",
+        "{\"id\":265,\"content\":\"<h1>Report</h1>\",\"content_type\":\"html\",\"mode\":\"append\"}",
+    );
+}
+
+test "pages --html-file carries a report larger than one argv string" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const size = 200 * 1024;
+    const html = try std.testing.allocator.alloc(u8, size);
+    defer std.testing.allocator.free(html);
+    @memset(html, 'x');
+    const html_path = try tmpFile(&tmp, "big.html", html);
+    defer std.testing.allocator.free(html_path);
+
+    const body = try std.fmt.allocPrint(std.testing.allocator, "{{\"id\":265,\"content\":\"{s}\",\"content_type\":\"html\",\"mode\":\"replace\"}}", .{html});
+    defer std.testing.allocator.free(body);
+
+    try expectRequest(
+        &.{ "pages", "update", "265", "--html-file", html_path },
+        .POST,
+        "/mcp/pages/update",
+        body,
+    );
+}
+
 test "agents get reads one owned agent" {
     try expectRequest(
         &.{ "agents", "get", "--id", "a0e75f8c-9080-47bd-b09a-71c55bd34a87" },
