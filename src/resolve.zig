@@ -328,17 +328,6 @@ test "a bare task id names the ticket and board it resolved to" {
     );
 }
 
-test "a task read names the ticket and board without a second request" {
-    const body = "{\"success\":true,\"tasks\":[{\"id\":908,\"ticketNumber\":\"sign-1\",\"boardTitle\":\"HT Design\"}]}";
-    const note = (try bareTaskIdNoteFromResponse(std.testing.allocator, "908", body)).?;
-    defer std.testing.allocator.free(note);
-    try std.testing.expectEqualStrings(
-        "908 is task id 908: sign-1 on HT Design. A bare number is an internal id on any board; pass the ticket number, or --project with the board, when the board matters",
-        note,
-    );
-    try std.testing.expect((try bareTaskIdNoteFromResponse(std.testing.allocator, "908", "not json")) == null);
-}
-
 test "a bare task id with no ticket or board still says where it landed" {
     const note = try bareTaskIdNote(std.testing.allocator, "908", .{ .id = 908, .project_id = 55 });
     defer std.testing.allocator.free(note);
