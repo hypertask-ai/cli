@@ -153,11 +153,26 @@ fn fetchTaskRequired(context: *const Context, key: []const u8, value: []const u8
 /// A bare number without --project is an internal task id, which can live on any board.
 /// Naming the ticket and board keeps a wrong board visible instead of silent (HTPR-8423).
 pub fn bareTaskIdNote(allocator: std.mem.Allocator, identifier: []const u8, found: Task) ![]u8 {
+    return bareTaskIdNoteText(allocator, identifier, found.id, found.ticket_number, found.board);
+}
+
+fn bareTaskIdNoteText(allocator: std.mem.Allocator, identifier: []const u8, task_id: i64, ticket_number: ?[]const u8, board: ?[]const u8) ![]u8 {
     return std.fmt.allocPrint(
         allocator,
         "{s} is task id {d}: {s} on {s}. A bare number is an internal id on any board; pass the ticket number, or --project with the board, when the board matters",
-        .{ identifier, found.id, found.ticket_number orelse "an untitled task", found.board orelse "a board the token can see" },
+        .{ identifier, task_id, ticket_number orelse "an untitled task", board orelse "a board the token can see" },
     );
+}
+
+/// The same note from a read the command already made, so naming the ticket costs no second request.
+pub fn bareTaskIdNoteFromResponse(allocator: std.mem.Allocator, identifier: []const u8, body: []const u8) !?[]u8 {
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch return null;
+    defer parsed.deinit();
+    const tasks = json.objectField(parsed.value, "tasks") orelse return null;
+    if (tasks != .array or tasks.array.items.len == 0) return null;
+    const row = tasks.array.items[0];
+    const task_id = json.integerField(row, "id", true) orelse return null;
+    return try bareTaskIdNoteText(allocator, identifier, task_id, json.stringField(row, "ticketNumber"), json.stringField(row, "boardTitle"));
 }
 
 fn ownedStringField(context: *const Context, row: std.json.Value, name: []const u8) !?[]const u8 {

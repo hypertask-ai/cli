@@ -187,7 +187,15 @@ fn get(context: *const Context) !void {
     var path = try query.Builder.init(context.allocator, "/mcp/tasks");
     defer path.deinit();
     try addIdentifierQuery(&path, context, identifier);
-    try context.call(.GET, path.path(), null);
+    var response = try context.fetch(.GET, path.path(), null);
+    defer response.deinit();
+    // A bare number without --project is an internal id on any board (HTPR-8423),
+    // so name the ticket and board this read landed on.
+    if (resolve.isNumeric(identifier) and resolve.internalId(identifier) == null and context.args.get("project") == null) {
+        if (try resolve.bareTaskIdNoteFromResponse(context.allocator, identifier, response.body)) |note|
+            std.debug.print("{s}\n", .{note});
+    }
+    try context.finish(&response);
 }
 
 fn agentLog(context: *const Context) !void {
