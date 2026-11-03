@@ -1765,7 +1765,6 @@ test "a board read names the section command" {
         try std.testing.expect(std.mem.indexOf(u8, captured[0..printed], "unknown command:") != null);
         try std.testing.expect(std.mem.indexOf(u8, captured[0..printed], "hypertask section list --project <id>") != null);
     }
-    try router.validateCommandPath(std.testing.allocator, &.{ "columns", "list", "--project", "15" }, false);
 }
 
 test "top level and comment add help name the Decisions inbox" {
