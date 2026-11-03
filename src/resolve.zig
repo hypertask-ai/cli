@@ -153,11 +153,26 @@ fn fetchTaskRequired(context: *const Context, key: []const u8, value: []const u8
 /// A bare number without --project is an internal task id, which can live on any board.
 /// Naming the ticket and board keeps a wrong board visible instead of silent (HTPR-8423).
 pub fn bareTaskIdNote(allocator: std.mem.Allocator, identifier: []const u8, found: Task) ![]u8 {
+    return bareTaskIdNoteText(allocator, identifier, found.id, found.ticket_number, found.board);
+}
+
+fn bareTaskIdNoteText(allocator: std.mem.Allocator, identifier: []const u8, task_id: i64, ticket_number: ?[]const u8, board: ?[]const u8) ![]u8 {
     return std.fmt.allocPrint(
         allocator,
         "{s} is task id {d}: {s} on {s}. A bare number is an internal id on any board; pass the ticket number, or --project with the board, when the board matters",
-        .{ identifier, found.id, found.ticket_number orelse "an untitled task", found.board orelse "a board the token can see" },
+        .{ identifier, task_id, ticket_number orelse "an untitled task", board orelse "a board the token can see" },
     );
+}
+
+/// The same note from a read the command already made, so naming the ticket costs no second request.
+pub fn bareTaskIdNoteFromResponse(allocator: std.mem.Allocator, identifier: []const u8, body: []const u8) !?[]u8 {
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch return null;
+    defer parsed.deinit();
+    const tasks = json.objectField(parsed.value, "tasks") orelse return null;
+    if (tasks != .array or tasks.array.items.len == 0) return null;
+    const row = tasks.array.items[0];
+    const task_id = json.integerField(row, "id", true) orelse return null;
+    return try bareTaskIdNoteText(allocator, identifier, task_id, json.stringField(row, "ticketNumber"), json.stringField(row, "boardTitle"));
 }
 
 fn ownedStringField(context: *const Context, row: std.json.Value, name: []const u8) !?[]const u8 {
@@ -311,6 +326,17 @@ test "a bare task id names the ticket and board it resolved to" {
         "908 is task id 908: sign-1 on HT Design. A bare number is an internal id on any board; pass the ticket number, or --project with the board, when the board matters",
         note,
     );
+}
+
+test "a task read names the ticket and board without a second request" {
+    const body = "{\"success\":true,\"tasks\":[{\"id\":908,\"ticketNumber\":\"sign-1\",\"boardTitle\":\"HT Design\"}]}";
+    const note = (try bareTaskIdNoteFromResponse(std.testing.allocator, "908", body)).?;
+    defer std.testing.allocator.free(note);
+    try std.testing.expectEqualStrings(
+        "908 is task id 908: sign-1 on HT Design. A bare number is an internal id on any board; pass the ticket number, or --project with the board, when the board matters",
+        note,
+    );
+    try std.testing.expect((try bareTaskIdNoteFromResponse(std.testing.allocator, "908", "not json")) == null);
 }
 
 test "a bare task id with no ticket or board still says where it landed" {
