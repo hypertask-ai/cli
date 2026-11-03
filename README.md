@@ -39,7 +39,7 @@ Exit codes are stable:
 
 Scripts may use the exit code category, while people and agents should follow the `Next:` line.
 
-## Release notes: native 0.2.44
+## Release notes: native 0.2.45
 
 - `hypertask help <command path>` prints that command's own page, the same page as `<command path> --help`, so a help request no longer answers `unknown command: feedback` with `valid commands: features`. `hypertask help` with no topic prints the top-level page, which now ends with the list of commands (HTPR-8495).
 
