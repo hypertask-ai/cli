@@ -33,7 +33,8 @@ fn run() !void {
     defer parsed.deinit();
     // The command path is checked before options: an unknown subcommand leaves the
     // option validator with only global flags, and it would blame the first real flag.
-    if (parsed.positional.len != 0) try router.validateCommandPath(allocator, parsed.positional, !parsed.has("help"));
+    // A help request names a topic, and a topic need not be a command path.
+    if (parsed.positional.len != 0 and !parsed.has("help")) try router.validateCommandPath(allocator, parsed.positional, true);
     try option_validate.rejectUnknownOptions(allocator, &parsed);
     try parsed.requireValues();
     if (parsed.hasFlag("version") or (parsed.has("version") and parsed.positional.len == 0)) {
