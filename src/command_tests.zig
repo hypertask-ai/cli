@@ -77,6 +77,12 @@ fn expectDispatchErrorWithResponses(argv: []const []const u8, responses: []const
     try std.testing.expectError(expected, router.dispatch(&context));
 }
 
+test "board reads take the board as a flag or positionally, never two answers" {
+    try expectRequest(&.{ "project", "sections", "15", "--project", "15" }, .GET, "/mcp/projects/15/sections", null);
+    try expectDispatchError(error.InvalidOptions, &.{ "project", "sections", "15", "--project", "16" });
+    try expectDispatchError(error.MissingProject, &.{ "project", "sections" });
+}
+
 test "helper write command refuses before HTTP and read command reaches HTTP" {
     const helper_guard = @import("helper_guard.zig");
     helper_guard.testing.helper = true;
@@ -625,6 +631,42 @@ test "command handlers build request bodies and query strings without HTTP" {
         &.{ "pages", "get", "7", "--format", "html" },
         .GET,
         "/mcp/pages/get?id=7&format=html",
+        null,
+    );
+    try expectRequest(
+        &.{ "project", "manifest", "--project", "15" },
+        .GET,
+        "/mcp/projects/15/manifest",
+        null,
+    );
+    try expectRequest(
+        &.{ "project", "sections", "--project", "15" },
+        .GET,
+        "/mcp/projects/15/sections",
+        null,
+    );
+    try expectRequest(
+        &.{ "project", "members", "--project", "15" },
+        .GET,
+        "/mcp/projects/15/members",
+        null,
+    );
+    try expectRequest(
+        &.{ "project", "labels", "--project", "15" },
+        .GET,
+        "/mcp/projects/15/labels",
+        null,
+    );
+    try expectRequest(
+        &.{ "project", "labels", "15" },
+        .GET,
+        "/mcp/projects/15/labels",
+        null,
+    );
+    try expectRequest(
+        &.{ "labels", "list", "--project", "15" },
+        .GET,
+        "/mcp/projects/15/labels",
         null,
     );
     try expectRequest(

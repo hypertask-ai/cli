@@ -185,6 +185,22 @@ test "project is accepted on task move and task agent-log" {
     }
 }
 
+test "project is accepted on every board read" {
+    for ([_][]const []const u8{
+        &.{ "project", "manifest", "--project", "15" },
+        &.{ "project", "members", "--project", "15" },
+        &.{ "project", "sections", "--project", "15" },
+        &.{ "project", "labels", "--project", "15" },
+        &.{ "project", "playbook", "--project", "15" },
+        &.{ "project", "instructions", "--project", "15" },
+        &.{ "labels", "list", "--project", "15" },
+    }) |argv| {
+        var parsed = try args_mod.parse(std.testing.allocator, argv);
+        defer parsed.deinit();
+        try rejectUnknownOptions(std.testing.allocator, &parsed);
+    }
+}
+
 test "accepted flags lists the command options in order" {
     var flags: std.StringHashMapUnmanaged(void) = .{};
     defer flags.deinit(std.testing.allocator);
