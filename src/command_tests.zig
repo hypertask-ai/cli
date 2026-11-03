@@ -1767,6 +1767,32 @@ test "an unknown subcommand names the word that is wrong" {
     try std.testing.expect(std.mem.indexOf(u8, captured[0..printed], "valid commands:") != null);
 }
 
+test "activity add is the same command as comment add" {
+    try expectRequest(
+        &.{ "activity", "add", "HTPR-6501", "--text", "Agent note" },
+        .POST,
+        "/mcp/comments",
+        "{\"ticket_number\":\"HTPR-6501\",\"text\":\"<p>Agent note</p>\"}",
+    );
+}
+
+test "activity last names where a ticket's agent log is read" {
+    const posix = std.posix;
+    const pipe = try posix.pipe();
+    defer posix.close(pipe[0]);
+    {
+        defer posix.close(pipe[1]);
+        const saved_stderr = try posix.dup(2);
+        defer posix.close(saved_stderr);
+        try posix.dup2(pipe[1], 2);
+        defer posix.dup2(saved_stderr, 2) catch {};
+        try std.testing.expectError(error.UnknownCommand, router.validateCommandPath(std.testing.allocator, &.{ "activity", "last" }, true));
+    }
+    var captured: [1024]u8 = undefined;
+    const printed = try posix.read(pipe[0], &captured);
+    try std.testing.expect(std.mem.indexOf(u8, captured[0..printed], "hypertask task agent-log <ticket>") != null);
+}
+
 test "task comments names where a ticket's comments are read" {
     const posix = std.posix;
     const pipe = try posix.pipe();
