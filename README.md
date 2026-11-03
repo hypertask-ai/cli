@@ -33,6 +33,10 @@ Exit codes are stable:
 
 Scripts may use the exit code category, while people and agents should follow the `Next:` line.
 
+## Release notes: native 0.2.34
+
+- `comment list` takes the ticket as `--task <id-or-ticket>` as well as the positional, so the flag agents already type on `pages` and `task update` works here too; the positional wins when both are given, and the missing-identifier error now names both forms (HTPR-8438).
+
 ## Release notes: native 0.2.33
 
 - `hypertask label` is the same command as `hypertask labels`, so `hypertask label list --project 15 --json` prints JSON instead of an unknown-command list (HTPR-8351).
