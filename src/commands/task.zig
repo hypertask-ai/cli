@@ -201,7 +201,16 @@ fn agentLog(context: *const Context) !void {
 
     var path = try query.Builder.init(context.allocator, "/mcp/tasks/");
     defer path.deinit();
-    try query.encode(&path.buffer, context.allocator, identifier);
+    if (context.args.get("project") != null) {
+        // A bare board number without a project answers for the caller's default
+        // board, so resolve it inside the named project and address the task id.
+        const found = try resolve.task(context, identifier);
+        const id_text = try std.fmt.allocPrint(context.allocator, "{d}", .{found.id});
+        defer context.allocator.free(id_text);
+        try path.buffer.appendSlice(context.allocator, id_text);
+    } else {
+        try query.encode(&path.buffer, context.allocator, identifier);
+    }
     try path.buffer.appendSlice(context.allocator, "/agent-activity");
     try path.addInt("limit", limit);
     if (context.args.get("agent")) |value| try path.add("agent_id", value);
@@ -704,7 +713,11 @@ fn move(context: *const Context) !void {
     // --to <project id> is a cross-board move (HTPR-6813): it used to be read as a
     // section name on the current board, which the server rejects.
     if (context.args.get("to")) |target_project| {
-        const task_id = if (resolve.isNumeric(identifier)) try common.positiveInt(identifier, "task-id") else (try resolve.task(context, identifier)).id;
+        // A bare number is a task id unless --project names its board (HTPR-8336).
+        const task_id = if (resolve.isNumeric(identifier) and context.args.get("project") == null)
+            try common.positiveInt(identifier, "task-id")
+        else
+            (try resolve.task(context, identifier)).id;
         var body = try json.Object.init(context.allocator);
         defer body.deinit();
         try body.integer("task_id", task_id);
@@ -714,8 +727,9 @@ fn move(context: *const Context) !void {
     }
     const section = context.args.get("section") orelse context.args.get("to-section") orelse return error.MissingOption;
     const found = try resolve.task(context, identifier);
-    var body = try identifierBody(context, identifier, null);
+    var body = try json.Object.init(context.allocator);
     defer body.deinit();
+    try body.integer("task_id", found.id);
     try body.integer("sectionId", try resolve.sectionId(context, found.project_id, section));
     var response = try context.fetch(.POST, "/mcp/tasks/update", try body.finish());
     defer response.deinit();

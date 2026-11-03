@@ -316,6 +316,57 @@ test "task agent-log requires a ticket or task id" {
     try expectDispatchError(error.MissingArgument, &.{ "task", "agent-log", "--limit", "5" });
 }
 
+test "task agent-log resolves a bare board number inside the named project" {
+    try expectRequestCountWithResponses(
+        &.{ "task", "agent-log", "1529", "--project", "2060", "--limit", "5" },
+        &.{
+            "{\"success\":true,\"tasks\":[{\"id\":667788,\"project_id\":2060}]}",
+            "{\"success\":true,\"tasks\":[{\"id\":42,\"projectId\":15}]}",
+            "{\"success\":true,\"activities\":[]}",
+        },
+        3,
+        .GET,
+        "/mcp/tasks/667788/agent-activity?limit=5",
+        null,
+    );
+}
+
+test "task move honors --project for a bare board number" {
+    try expectRequestCountWithResponses(
+        &.{ "task", "move", "1529", "--project", "2060", "--section", "Doing" },
+        &.{
+            "{\"success\":true,\"tasks\":[{\"id\":667788,\"project_id\":2060}]}",
+            "{\"success\":true,\"tasks\":[{\"id\":42,\"projectId\":15}]}",
+            "{\"sections\":[{\"id\":11,\"section_title\":\"Doing\"}]}",
+            "{\"success\":true,\"tasks\":[{\"id\":667788}]}",
+        },
+        4,
+        .POST,
+        "/mcp/tasks/update",
+        "{\"task_id\":667788,\"sectionId\":11}",
+    );
+}
+
+test "task move --to keeps a bare number as a task id unless --project names its board" {
+    try expectRequest(
+        &.{ "task", "move", "667788", "--to", "15" },
+        .POST,
+        "/mcp/tasks/move",
+        "{\"task_id\":667788,\"target_project_id\":15}",
+    );
+    try expectRequestCountWithResponses(
+        &.{ "task", "move", "1529", "--project", "2060", "--to", "15" },
+        &.{
+            "{\"success\":true,\"tasks\":[{\"id\":667788,\"project_id\":2060}]}",
+            "{\"success\":true,\"tasks\":[{\"id\":42,\"projectId\":15}]}",
+        },
+        3,
+        .POST,
+        "/mcp/tasks/move",
+        "{\"task_id\":667788,\"target_project_id\":15}",
+    );
+}
+
 test "task get distinguishes internal ids from project ticket indexes" {
     try expectRequestWithResponses(
         &.{ "tasks", "get", "5661", "--project", "15" },
@@ -1437,20 +1488,17 @@ test "help features json preserves the complete server response" {
 
 test "help features on an older server prints one clear line and fails" {
     for ([_][]const []const u8{ &.{ "help", "features" }, &.{ "help", "features", "--json" } }) |argv| {
-        try expectFeaturesOutput(argv, "{\"success\":false,\"error\":\"Not found\"}", .not_found, null, error.FeaturesUnavailable,
-            "hypertask: live features are unavailable on this server (GET /api/mcp/features returned 404); update the server\n");
+        try expectFeaturesOutput(argv, "{\"success\":false,\"error\":\"Not found\"}", .not_found, null, error.FeaturesUnavailable, "hypertask: live features are unavailable on this server (GET /api/mcp/features returned 404); update the server\n");
     }
 }
 
 test "help features propagates transport failure instead of claiming an old server" {
-    try expectFeaturesOutput(&.{ "help", "features" }, "", .ok, error.ConnectionRefused, error.ConnectionRefused,
-        "hypertask: command failed (ConnectionRefused)\nNext: retry the same command once.\n");
+    try expectFeaturesOutput(&.{ "help", "features" }, "", .ok, error.ConnectionRefused, error.ConnectionRefused, "hypertask: command failed (ConnectionRefused)\nNext: retry the same command once.\n");
 }
 
 test "help features retains the existing authentication failure path" {
     for ([_]std.http.Status{ .unauthorized, .forbidden }) |status| {
-        try expectFeaturesOutput(&.{ "help", "features" }, "{\"success\":false,\"error\":\"Access denied\"}", status, null, error.ApiAuthentication,
-            "{\"success\":false,\"error\":\"Access denied\"}\nhypertask: this token does not have the required access\nNext: ask the project owner to add this token.\n");
+        try expectFeaturesOutput(&.{ "help", "features" }, "{\"success\":false,\"error\":\"Access denied\"}", status, null, error.ApiAuthentication, "{\"success\":false,\"error\":\"Access denied\"}\nhypertask: this token does not have the required access\nNext: ask the project owner to add this token.\n");
     }
 }
 
