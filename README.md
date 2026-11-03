@@ -33,6 +33,11 @@ Exit codes are stable:
 
 Scripts may use the exit code category, while people and agents should follow the `Next:` line.
 
+## Release notes: native 0.2.33
+
+- `hypertask label` is the same command as `hypertask labels`, so `hypertask label list --project 15 --json` prints JSON instead of an unknown-command list (HTPR-8351).
+- `task get` reads the tasks array, so a bare number names the ticket it landed on (HTPR-8423).
+
 ## Release notes: native 0.2.32
 
 - This release also carries the 0.2.31 change: `task get` names the ticket and board a bare number landed on (HTPR-8423).
