@@ -474,6 +474,7 @@ test "subcommand help renders command-specific options" {
     const pages_create_help = try renderHelp(std.testing.allocator, &.{ "pages", "create" });
     defer std.testing.allocator.free(pages_create_help);
     try std.testing.expect(std.mem.indexOf(u8, pages_create_help, "--task <id-or-ticket> (required)\n      Task ID or ticket reference") != null);
+    try std.testing.expect(std.mem.indexOf(u8, pages_create_help, "--project <id>\n      Project ID, to pick the project a ticket number belongs to") != null);
     try std.testing.expect(std.mem.indexOf(u8, pages_create_help, "--content <content>\n      Page content") != null);
     try std.testing.expect(std.mem.indexOf(u8, pages_create_help, "Example:\n  hypertask pages create --task <id-or-ticket> --title <title>") != null);
 

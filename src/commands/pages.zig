@@ -50,6 +50,7 @@ fn create(context: *const Context) !void {
     var body = try json.Object.init(context.allocator);
     defer body.deinit();
     if (resolve.isNumeric(task)) try body.integer("task_id", try common.positiveInt(task, "task")) else try body.string("ticket_number", task);
+    if (context.args.get("project")) |value| try body.integer("project_id", try common.positiveInt(value, "project"));
     if (context.args.get("title")) |value| try body.string("title", value);
     try body.string("content", try content(context));
     try body.string("content_type", contentType(context));
