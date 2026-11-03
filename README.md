@@ -214,6 +214,8 @@ Task identifiers come in three forms:
 
 - `HTPR-5726` is the full ticket number and works anywhere.
 - A bare `37799` is the internal task `id` from `tasks list` / JSON (`id: 37799`).
+  The command names the ticket and board it landed on, so a number read on another
+  board is visible instead of silent.
   With `--project`, the CLI also tries that number as the board index (`uniqueIndex`)
   and refuses to guess when both forms point at different tasks.
 - `id:37799` forces the internal task id.
