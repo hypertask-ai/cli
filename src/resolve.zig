@@ -7,6 +7,8 @@ const query_mod = @import("query.zig");
 pub const Task = struct {
     id: i64,
     project_id: i64,
+    ticket_number: ?[]const u8 = null,
+    board: ?[]const u8 = null,
 };
 
 pub fn isNumeric(value: []const u8) bool {
@@ -90,8 +92,8 @@ fn addTaskIdentifier(sink: IdentifierSink, allocator: std.mem.Allocator, identif
 }
 
 /// Resolve an identifier to one internal task. Bare digits without --project are
-/// the list `id`. With --project, unique_index and task_id are both read; a
-/// collision or project mismatch fails closed.
+/// the list `id`, and name the ticket and board they landed on. With --project,
+/// unique_index and task_id are both read; a collision or project mismatch fails closed.
 pub fn task(context: *const Context, identifier: []const u8) !Task {
     if (internalId(identifier)) |task_id| return fetchTaskRequired(context, "task_id", task_id, null);
     if (isNumeric(identifier)) {
@@ -100,7 +102,9 @@ pub fn task(context: *const Context, identifier: []const u8) !Task {
             const project_id = try common.positiveInt(project, "project");
             return resolveBareWithProject(context, identifier, project, project_id);
         }
-        return fetchTaskRequired(context, "task_id", identifier, null);
+        const found = try fetchTaskRequired(context, "task_id", identifier, null);
+        std.debug.print("{s}\n", .{try bareTaskIdNote(context.allocator, identifier, found)});
+        return found;
     }
     const ticket = try normalizedTicket(context.allocator, identifier);
     defer context.allocator.free(ticket);
@@ -146,6 +150,21 @@ fn fetchTaskRequired(context: *const Context, key: []const u8, value: []const u8
     return (try fetchTaskOptional(context, key, value, project)) orelse error.TaskNotFound;
 }
 
+/// A bare number without --project is an internal task id, which can live on any board.
+/// Naming the ticket and board keeps a wrong board visible instead of silent (HTPR-8423).
+pub fn bareTaskIdNote(allocator: std.mem.Allocator, identifier: []const u8, found: Task) ![]u8 {
+    return std.fmt.allocPrint(
+        allocator,
+        "{s} is task id {d}: {s} on {s}. A bare number is an internal id on any board; pass the ticket number, or --project with the board, when the board matters",
+        .{ identifier, found.id, found.ticket_number orelse "an untitled task", found.board orelse "a board the token can see" },
+    );
+}
+
+fn ownedStringField(context: *const Context, row: std.json.Value, name: []const u8) !?[]const u8 {
+    const value = json.stringField(row, name) orelse return null;
+    return try context.allocator.dupe(u8, value);
+}
+
 /// Read-only lookup. Empty success payloads become null. Auth, 5xx, and other
 /// transport failures propagate so callers never fall back after a soft error.
 fn fetchTaskOptional(context: *const Context, key: []const u8, value: []const u8, project: ?[]const u8) !?Task {
@@ -175,7 +194,12 @@ fn fetchTaskOptional(context: *const Context, key: []const u8, value: []const u8
     const row = tasks.array.items[0];
     const id = json.integerField(row, "id", true) orelse return error.InvalidResponse;
     const project_id = json.integerField(row, "projectId", true) orelse json.integerField(row, "project_id", true) orelse return error.InvalidResponse;
-    return .{ .id = id, .project_id = project_id };
+    return .{
+        .id = id,
+        .project_id = project_id,
+        .ticket_number = try ownedStringField(context, row, "ticketNumber"),
+        .board = try ownedStringField(context, row, "boardTitle"),
+    };
 }
 
 pub fn projectAccessDenied(project_id: i64) error{ProjectAccessDenied} {
@@ -272,5 +296,28 @@ test "colliding bare identifiers refuse to guess" {
     try std.testing.expectError(
         error.AmbiguousTaskIdentifier,
         collidingIdentifiers("5834", "15", 100, 200),
+    );
+}
+
+test "a bare task id names the ticket and board it resolved to" {
+    const note = try bareTaskIdNote(std.testing.allocator, "908", .{
+        .id = 908,
+        .project_id = 55,
+        .ticket_number = "sign-1",
+        .board = "HT Design",
+    });
+    defer std.testing.allocator.free(note);
+    try std.testing.expectEqualStrings(
+        "908 is task id 908: sign-1 on HT Design. A bare number is an internal id on any board; pass the ticket number, or --project with the board, when the board matters",
+        note,
+    );
+}
+
+test "a bare task id with no ticket or board still says where it landed" {
+    const note = try bareTaskIdNote(std.testing.allocator, "908", .{ .id = 908, .project_id = 55 });
+    defer std.testing.allocator.free(note);
+    try std.testing.expectEqualStrings(
+        "908 is task id 908: an untitled task on a board the token can see. A bare number is an internal id on any board; pass the ticket number, or --project with the board, when the board matters",
+        note,
     );
 }
