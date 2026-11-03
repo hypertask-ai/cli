@@ -110,7 +110,7 @@ fn listIdentifier(context: *const Context) ![]const u8 {
 }
 
 fn addIdentifierQuery(path: *query.Builder, context: *const Context, identifier: []const u8) !void {
-    if (resolve.isNumeric(identifier) and resolve.internalId(identifier) == null and context.args.get("project") != null) {
+    if (resolve.isNumeric(identifier) and resolve.internalId(identifier) == null) {
         const found = try resolve.task(context, identifier);
         try path.addInt("task_id", found.id);
         return;
@@ -119,7 +119,7 @@ fn addIdentifierQuery(path: *query.Builder, context: *const Context, identifier:
 }
 
 fn addIdentifierBody(body: *json.Object, context: *const Context, identifier: []const u8) !void {
-    if (resolve.isNumeric(identifier) and resolve.internalId(identifier) == null and context.args.get("project") != null) {
+    if (resolve.isNumeric(identifier) and resolve.internalId(identifier) == null) {
         const found = try resolve.task(context, identifier);
         try body.integer("task_id", found.id);
         return;
