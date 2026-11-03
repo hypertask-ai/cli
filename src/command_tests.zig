@@ -1491,6 +1491,29 @@ test "comment add sends each explicit kind and omits it by default" {
     );
 }
 
+test "comment add --file sends the file HTML unchanged" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(.{ .sub_path = "comment.html", .data = "<p>from file</p>\n<ul><li>one</li></ul>\n" });
+    const directory = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(directory);
+    const path = try std.fs.path.join(std.testing.allocator, &.{ directory, "comment.html" });
+    defer std.testing.allocator.free(path);
+
+    try expectRequest(
+        &.{ "comment", "add", "HTPR-7341", "--file", path },
+        .POST,
+        "/mcp/comments",
+        "{\"ticket_number\":\"HTPR-7341\",\"text\":\"<p>from file</p>\\n<ul><li>one</li></ul>\"}",
+    );
+}
+
+test "comment add catalog says --file holds HTML" {
+    const catalog = @embedFile("capabilities.json");
+    try std.testing.expect(std.mem.indexOf(u8, catalog, "--file <path>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, catalog, "the file holds HTML") != null);
+}
+
 test "comment add rejects invalid kind before resolving or improving" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
