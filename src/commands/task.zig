@@ -329,6 +329,7 @@ fn create(context: *const Context) !void {
     const labels = try resolveLabelIds(context, try common.optionList(context, "labels"), project, true);
     if (labels.len != 0) try body.identifiers("labels", labels);
     const assignees = try common.optionList(context, "assignee");
+    try validateAssigneeIds(assignees);
     if (assignees.len != 0) try body.integers("assignee", assignees);
     const attach_inputs = try common.optionList(context, "attach");
     var response = try context.fetchRaw(.POST, "/mcp/tasks/create", try body.finish());
@@ -374,6 +375,7 @@ fn update(context: *const Context) !void {
         }
     }
     const assignees = try common.optionList(context, "assignee");
+    try validateAssigneeIds(assignees);
     const clear_assignees = context.args.has("clear-assignees") or (context.args.has("assignee") and assignees.len == 0);
     if (clear_assignees) {
         // `assignee: []` on /mcp/tasks/update only drops human rows. Reuse the
@@ -1001,6 +1003,12 @@ fn collectAssignedTaskIds(
         }
         if (tasks.?.array.items.len < bulk_unassign_page_size) break;
         offset += tasks.?.array.items.len;
+    }
+}
+
+fn validateAssigneeIds(values: []const []const u8) !void {
+    for (values) |value| {
+        _ = try common.positiveInt(value, "assignee");
     }
 }
 
