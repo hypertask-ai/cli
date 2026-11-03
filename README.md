@@ -40,6 +40,7 @@ Scripts may use the exit code category, while people and agents should follow th
 ## Release notes: native 0.2.36
 
 - Asking for help on a topic no longer says the command is missing: `hypertask --help features` answers `live product features: hypertask help features`, and any other topic with no command path names `hypertask capabilities --json` (HTPR-8434).
+- A board read answers with the word for a column and names `hypertask section list`, instead of `unknown command: board` (HTPR-8462).
 
 ## Release notes: native 0.2.35
 
