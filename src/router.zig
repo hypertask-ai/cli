@@ -46,6 +46,8 @@ pub fn validateCommandPath(allocator: std.mem.Allocator, path: []const []const u
         command = findCommand(command, path[index]) orelse {
             std.debug.print("unknown command: {s}\n", .{path[index]});
             printCommandChoices(commands, path[index]);
+            const parent: []const u8 = if (index == 0) "" else path[index - 1];
+            printMisplacedHint(parent, path[index]);
             return error.UnknownCommand;
         };
     }
@@ -81,6 +83,13 @@ fn printCommandChoices(commands: []const std.json.Value, unknown: ?[]const u8) v
     if (suggestCommand(commands, noun) orelse suggestCommand(commands, name)) |suggestion| {
         std.debug.print("did you mean: {s}\n", .{suggestion});
     }
+}
+
+/// The word an agent guessed under one root that lives under another root.
+fn printMisplacedHint(parent: []const u8, unknown: []const u8) void {
+    if (!std.mem.eql(u8, parent, "task") and !std.mem.eql(u8, parent, "tasks")) return;
+    if (!std.mem.eql(u8, unknown, "comment") and !std.mem.eql(u8, unknown, "comments")) return;
+    std.debug.print("a ticket's comments are read with: hypertask comment list <ticket>\n", .{});
 }
 
 fn suggestCommand(commands: []const std.json.Value, name: []const u8) ?[]const u8 {
