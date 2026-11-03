@@ -20,6 +20,8 @@ JSON is the default output. Pass `--human` for the minimal human-readable mode.
 
 `hypertask task view` is an alias for `hypertask task get`, next to `task show`. A wrong command is answered as a command: `hypertask task lst HTPR-1 --project 15` prints `unknown command: lst`, the commands that do exist, and `did you mean: list`, instead of blaming the flag that followed it.
 
+A guess from the wrong command says where the work lives: `hypertask task comments 44` prints `unknown command: comments`, the commands that do exist, and `a ticket's comments are read with: hypertask comment list <ticket>`.
+
 ## Failure contract
 
 A command exits `0` only when it did what its arguments requested. Every failure except a helper write refusal prints what happened and one `Next:` action. Invalid finite values also list the accepted values.
@@ -32,6 +34,10 @@ Exit codes are stable:
 - `4`: server rejection, permission failure, or missing server-side item
 
 Scripts may use the exit code category, while people and agents should follow the `Next:` line.
+
+## Release notes: native 0.2.35
+
+- `hypertask task comments 44` now answers with where a ticket's comments are read (`hypertask comment list <ticket>`) next to `unknown command: comments`, instead of leaving an agent to guess which root owns comments (HTPR-8433).
 
 ## Release notes: native 0.2.34
 

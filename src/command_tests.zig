@@ -1717,6 +1717,24 @@ test "an unknown subcommand names the word that is wrong" {
     try std.testing.expect(std.mem.indexOf(u8, captured[0..printed], "valid commands:") != null);
 }
 
+test "task comments names where a ticket's comments are read" {
+    const posix = std.posix;
+    const pipe = try posix.pipe();
+    defer posix.close(pipe[0]);
+    {
+        defer posix.close(pipe[1]);
+        const saved_stderr = try posix.dup(2);
+        defer posix.close(saved_stderr);
+        try posix.dup2(pipe[1], 2);
+        defer posix.dup2(saved_stderr, 2) catch {};
+        try std.testing.expectError(error.UnknownCommand, router.validateCommandPath(std.testing.allocator, &.{ "task", "comments" }, true));
+    }
+    var captured: [1024]u8 = undefined;
+    const printed = try posix.read(pipe[0], &captured);
+    try std.testing.expect(std.mem.indexOf(u8, captured[0..printed], "hypertask comment list <ticket>") != null);
+    try router.validateCommandPath(std.testing.allocator, &.{ "comment", "list" }, true);
+}
+
 test "top level and comment add help name the Decisions inbox" {
     const posix = std.posix;
     for ([_][]const []const u8{ &.{}, &.{ "comment", "add" }, &.{ "comments", "add" } }) |path| {
