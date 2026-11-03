@@ -34,9 +34,6 @@ pub fn validateCommandPath(allocator: std.mem.Allocator, path: []const []const u
         return error.InvalidOptions;
     }
 
-    // `help` names a topic, and a topic need not be a command path.
-    if (path.len > 1 and std.mem.eql(u8, path[0], "help")) return;
-
     const catalog = @embedFile("capabilities.json");
     const parsed = try std.json.parseFromSlice(std.json.Value, allocator, catalog, .{});
     defer parsed.deinit();
@@ -156,12 +153,11 @@ pub fn dispatch(context: *const Context) !void {
     if (std.mem.eql(u8, root, "search")) return task.globalSearch(context);
     if (std.mem.eql(u8, root, "raw")) return meta.raw(context);
 
-    if (std.mem.eql(u8, root, "help")) {
-        const topic = context.args.positional[1..];
-        if (topic.len != 0 and std.mem.eql(u8, topic[0], "features")) return meta.features(context);
-        return printHelp(context.allocator, topic);
-    }
     const subcommand = context.args.positionalAt(1) orelse return error.MissingSubcommand;
+    if (std.mem.eql(u8, root, "help")) {
+        if (!std.mem.eql(u8, subcommand, "features")) return error.UnknownCommand;
+        return meta.features(context);
+    }
     if (std.mem.eql(u8, root, "token")) return auth.token(context, subcommand);
     if (std.mem.eql(u8, root, "teams") or std.mem.eql(u8, root, "team")) {
         if (!std.mem.eql(u8, subcommand, "list")) return error.UnknownCommand;

@@ -22,7 +22,7 @@ JSON is the default output. Pass `--human` for the minimal human-readable mode.
 
 A guess from the wrong command says where the work lives: `hypertask task comments 44` prints `unknown command: comments`, the commands that do exist, and `a ticket's comments are read with: hypertask comment list <ticket>`.
 
-Help takes a topic, not only a command path: `hypertask help task` and `hypertask help task update` print that command's help, `hypertask help` prints the top page, and a topic with no command path answers where its help lives. `hypertask --help features` prints `live product features: hypertask help features`, and any other unknown topic names `hypertask capabilities --json`, instead of `unknown command: features`.
+Help names where a topic's help lives. `hypertask --help task` and `hypertask task --help` print that command's page, `hypertask --help features` prints `live product features: hypertask help features`, and any other topic with no command path names `hypertask capabilities --json`, instead of replying `unknown command`.
 
 ## Failure contract
 
@@ -39,7 +39,7 @@ Scripts may use the exit code category, while people and agents should follow th
 
 ## Release notes: native 0.2.36
 
-- Asking for help on a topic no longer says the command is missing: `hypertask --help features` answers `live product features: hypertask help features`, and `hypertask help <command>` prints that command's help (HTPR-8434).
+- Asking for help on a topic no longer says the command is missing: `hypertask --help features` answers `live product features: hypertask help features`, and any other topic with no command path names `hypertask capabilities --json` (HTPR-8434).
 
 ## Release notes: native 0.2.35
 
