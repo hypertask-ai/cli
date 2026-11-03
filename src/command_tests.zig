@@ -462,12 +462,44 @@ test "task get distinguishes internal ids from project ticket indexes" {
         "/mcp/tasks?task_id=6162",
         null,
     );
-    try expectRequest(
+    try expectRequestCountWithResponses(
         &.{ "comment", "add", "6162", "--text", "hi" },
+        &.{
+            "{\"success\":true,\"tasks\":[{\"id\":6162,\"projectId\":15,\"ticketNumber\":\"HTPR-8082\",\"boardTitle\":\"Hypertask\"}]}",
+            "{\"success\":true,\"comments\":[]}",
+        },
+        2,
         .POST,
         "/mcp/comments",
         "{\"task_id\":6162,\"text\":\"<p>hi</p>\"}",
     );
+}
+
+test "comment list with a bare number names the ticket it read" {
+    const posix = std.posix;
+    const pipe = try posix.pipe();
+    defer posix.close(pipe[0]);
+    {
+        defer posix.close(pipe[1]);
+        const saved_stderr = try posix.dup(2);
+        defer posix.close(saved_stderr);
+        try posix.dup2(pipe[1], 2);
+        defer posix.dup2(saved_stderr, 2) catch {};
+        try expectRequestCountWithResponses(
+            &.{ "comment", "list", "--task", "6162", "--limit", "1" },
+            &.{
+                "{\"success\":true,\"tasks\":[{\"id\":6162,\"projectId\":15,\"ticketNumber\":\"HTPR-8082\",\"boardTitle\":\"Hypertask\"}]}",
+                "{\"success\":true,\"comments\":[],\"total\":0,\"offset\":0}",
+            },
+            2,
+            .GET,
+            "/mcp/comments?task_id=6162&limit=1",
+            null,
+        );
+    }
+    var captured: [1024]u8 = undefined;
+    const printed = try posix.read(pipe[0], &captured);
+    try std.testing.expect(std.mem.indexOf(u8, captured[0..printed], "6162 is task id 6162: HTPR-8082 on Hypertask.") != null);
 }
 
 test "root create-board uses project validation and request routing" {

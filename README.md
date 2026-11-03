@@ -39,6 +39,10 @@ Exit codes are stable:
 
 Scripts may use the exit code category, while people and agents should follow the `Next:` line.
 
+## Release notes: native 0.2.39
+
+- `comment list` names the ticket and board a bare number read landed on, and `comment add` names it before the write, so `--task 908` no longer reads or writes another board's ticket in silence (HTPR-8483).
+
 ## Release notes: native 0.2.38
 
 - `hypertask --help features` reaches its topic instead of `unknown command: features`, and any other topic with no command path names `hypertask capabilities --json` (HTPR-8434).
