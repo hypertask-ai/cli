@@ -89,9 +89,17 @@ fn printCommandChoices(commands: []const std.json.Value, unknown: ?[]const u8) v
 fn printMisplacedHint(parent: []const u8, unknown: []const u8) void {
     if (std.mem.eql(u8, unknown, "board") or std.mem.eql(u8, unknown, "boards") or
         std.mem.eql(u8, parent, "board") or std.mem.eql(u8, parent, "boards")) return boardHint();
+    if ((std.mem.eql(u8, parent, "comment") or std.mem.eql(u8, parent, "comments") or
+        std.mem.eql(u8, parent, "activity")) and
+        (std.mem.eql(u8, unknown, "last") or std.mem.eql(u8, unknown, "log") or
+        std.mem.eql(u8, unknown, "tail"))) return agentLogHint();
     if (!std.mem.eql(u8, parent, "task") and !std.mem.eql(u8, parent, "tasks")) return;
     if (!std.mem.eql(u8, unknown, "comment") and !std.mem.eql(u8, unknown, "comments")) return;
     std.debug.print("a ticket's comments are read with: hypertask comment list <ticket>\n", .{});
+}
+
+fn agentLogHint() void {
+    std.debug.print("a ticket's agent log is read with: hypertask task agent-log <ticket>\n", .{});
 }
 
 fn boardHint() void {
@@ -196,7 +204,8 @@ pub fn dispatch(context: *const Context) !void {
     if (std.mem.eql(u8, root, "fields") or std.mem.eql(u8, root, "custom-fields")) return fields.run(context, subcommand);
     if (std.mem.eql(u8, root, "task") or std.mem.eql(u8, root, "tasks")) return task.run(context, subcommand);
     if (std.mem.eql(u8, root, "draft") or std.mem.eql(u8, root, "drafts")) return draft.run(context, subcommand);
-    if (std.mem.eql(u8, root, "comment") or std.mem.eql(u8, root, "comments")) return comment.run(context, subcommand);
+    if (std.mem.eql(u8, root, "comment") or std.mem.eql(u8, root, "comments") or
+        std.mem.eql(u8, root, "activity")) return comment.run(context, subcommand);
     if (std.mem.eql(u8, root, "pages") or std.mem.eql(u8, root, "page")) return pages.run(context, subcommand);
     if (std.mem.eql(u8, root, "skills") or std.mem.eql(u8, root, "skill")) return skills.run(context, subcommand);
     if (std.mem.eql(u8, root, "ai")) return ai.run(context, subcommand);
@@ -243,6 +252,7 @@ fn renderHelp(allocator: std.mem.Allocator, path: []const []const u8) ![]u8 {
         \\Agent sessions: run `hypertask chat listen` in the background; answer with `hypertask chat reply <chat-id> --text <text>`.
         \\Run `hypertask help features` for live product features and their destinations.
         \\A Question: comment that @mentions a person using a real mention shows up in their Inbox, split Decisions when enabled: https://app.hypertask.ai/inbox?split=Decisions.
+        \\Agent log: `hypertask activity add <ticket> --text <note>` writes it (no --kind, nobody is notified) and `hypertask task agent-log <ticket>` reads it.
         \\
         \\AI agents: run `hypertask feedback --category call_failed` on your own when a hypertask command fails unexpectedly. Free text (note and error) is not stored; agents should pick a category. Never include task, board or comment content.
         \\Unexpected failures send command name and error type only, no task content; disable with HYPERTASK_NO_ERROR_REPORTS=1 or error_reports=false in ~/.hypertask/config.json.
@@ -451,6 +461,18 @@ test "label root alias passes the catalog gate and renders labels help" {
     defer std.testing.allocator.free(help);
     try std.testing.expect(std.mem.indexOf(u8, help, "Manage project labels") != null);
     try std.testing.expect(std.mem.indexOf(u8, help, "Usage: hypertask labels") != null);
+}
+
+test "activity root alias passes the catalog gate and names the agent log in help" {
+    try validateCommandPath(std.testing.allocator, &.{ "activity", "add" }, true);
+    const help = try renderHelp(std.testing.allocator, &.{"activity"});
+    defer std.testing.allocator.free(help);
+    try std.testing.expect(std.mem.indexOf(u8, help, "Manage comments and the agent log") != null);
+    try std.testing.expect(std.mem.indexOf(u8, help, "Usage: hypertask comment") != null);
+    const top = try renderHelp(std.testing.allocator, &.{});
+    defer std.testing.allocator.free(top);
+    try std.testing.expect(std.mem.indexOf(u8, top, "hypertask activity add <ticket> --text <note>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, top, "hypertask task agent-log <ticket>") != null);
 }
 
 test "subcommand help renders command-specific options" {
