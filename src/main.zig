@@ -8,7 +8,7 @@ const router = @import("router.zig");
 const error_reports = @import("error_reports.zig");
 const token_refresh = @import("token_refresh.zig");
 
-const version = "0.2.43 (zig)";
+const version = "0.2.44 (zig)";
 
 pub fn main() void {
     run() catch |err| {
@@ -34,7 +34,8 @@ fn run() !void {
     // The command path is checked before options: an unknown subcommand leaves the
     // option validator with only global flags, and it would blame the first real flag.
     // A help request names a topic, and a topic need not be a command path.
-    if (parsed.positional.len != 0 and !parsed.has("help")) try router.validateCommandPath(allocator, parsed.positional, true);
+    const help_topic = router.requestedHelpTopic(&parsed);
+    if (parsed.positional.len != 0 and help_topic == null) try router.validateCommandPath(allocator, parsed.positional, true);
     try option_validate.rejectUnknownOptions(allocator, &parsed);
     try parsed.requireValues();
     if (parsed.hasFlag("version") or (parsed.has("version") and parsed.positional.len == 0)) {
@@ -42,7 +43,7 @@ fn run() !void {
         return;
     }
     if (parsed.positional.len == 0) return router.printHelp(allocator, &.{});
-    if (parsed.has("help")) return router.printHelp(allocator, parsed.positional);
+    if (help_topic) |topic| return router.printHelp(allocator, topic);
 
     const root = parsed.positional[0];
     const needs_no_token = std.mem.eql(u8, root, "capabilities") or std.mem.eql(u8, root, "commands") or std.mem.eql(u8, root, "login");

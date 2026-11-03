@@ -24,7 +24,7 @@ JSON is the default output. Pass `--human` for the minimal human-readable mode.
 
 A guess from the wrong command says where the work lives: `hypertask task comments 44` prints `unknown command: comments`, the commands that do exist, and `a ticket's comments are read with: hypertask comment list <ticket>`.
 
-Help names where a topic's help lives. `hypertask --help task` and `hypertask task --help` print that command's page, `hypertask --help features` prints `live product features: hypertask help features`, and any other topic with no command path names `hypertask capabilities --json`, instead of replying `unknown command`.
+Help names where a topic's help lives. `hypertask help task`, `hypertask --help task` and `hypertask task --help` all print that command's page, `hypertask help features` keeps its own command, and any other topic with no command path names `hypertask capabilities --json`, instead of replying `unknown command`. `hypertask help` with no topic prints the top-level page, which ends with the list of commands.
 
 ## Failure contract
 
@@ -38,6 +38,10 @@ Exit codes are stable:
 - `4`: server rejection, permission failure, or missing server-side item
 
 Scripts may use the exit code category, while people and agents should follow the `Next:` line.
+
+## Release notes: native 0.2.44
+
+- `hypertask help <command path>` prints that command's own page, the same page as `<command path> --help`, so a help request no longer answers `unknown command: feedback` with `valid commands: features`. `hypertask help` with no topic prints the top-level page, which now ends with the list of commands (HTPR-8495).
 
 ## Release notes: native 0.2.43
 
