@@ -31,6 +31,10 @@ Exit codes are stable:
 
 Scripts may use the exit code category, while people and agents should follow the `Next:` line.
 
+## Release notes: native 0.2.32
+
+- This release also carries the 0.2.31 change: `task get` names the ticket and board a bare number landed on (HTPR-8423).
+
 ## Release notes: native 0.2.31
 
 - `task get` names the ticket and board a bare number landed on, so a number read on another board is visible instead of silent (HTPR-8423).
