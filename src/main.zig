@@ -44,7 +44,7 @@ fn run() !void {
     if (parsed.has("help")) return router.printHelp(allocator, parsed.positional);
 
     const root = parsed.positional[0];
-    const needs_no_token = std.mem.eql(u8, root, "capabilities") or std.mem.eql(u8, root, "commands") or std.mem.eql(u8, root, "login") or std.mem.eql(u8, root, "help");
+    const needs_no_token = std.mem.eql(u8, root, "capabilities") or std.mem.eql(u8, root, "commands") or std.mem.eql(u8, root, "login");
     var cfg = if (needs_no_token)
         try config.loadAllowingEmptyToken(allocator, parsed.get("token"), parsed.get("api-url"), parsed.get("management-key"))
     else

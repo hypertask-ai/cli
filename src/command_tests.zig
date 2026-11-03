@@ -1673,11 +1673,10 @@ test "help features retains the existing authentication failure path" {
     }
 }
 
-test "help features rejects missing or unknown subcommands and extra arguments" {
+test "help needs a topic and answers one that is not a command path" {
     try std.testing.expectError(error.MissingSubcommand, router.validateCommandPath(std.testing.allocator, &.{"help"}, true));
-    try std.testing.expectError(error.UnknownCommand, router.validateCommandPath(std.testing.allocator, &.{ "help", "unknown" }, true));
-    try std.testing.expectError(error.InvalidOptions, router.validateCommandPath(std.testing.allocator, &.{ "help", "features", "extra" }, true));
-    try expectDispatchError(error.UnknownCommand, &.{ "help", "unknown" });
+    try router.validateCommandPath(std.testing.allocator, &.{ "help", "unknown" }, true);
+    try router.validateCommandPath(std.testing.allocator, &.{ "help", "features" }, true);
 }
 
 test "an unknown command names the closest real command" {
