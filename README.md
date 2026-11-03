@@ -39,6 +39,10 @@ Exit codes are stable:
 
 Scripts may use the exit code category, while people and agents should follow the `Next:` line.
 
+## Release notes: native 0.2.40
+
+- `task get 8288` names the flags that reach the ticket when a bare number is no task id, instead of only `Task not found or access denied`, so a ticket number no longer needs `--project` guessed (HTPR-8288).
+
 ## Release notes: native 0.2.39
 
 - `comment list` names the ticket and board a bare number read landed on, and `comment add` names it before the write, so `--task 908` no longer reads or writes another board's ticket in silence (HTPR-8483).
