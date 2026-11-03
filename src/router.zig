@@ -87,9 +87,15 @@ fn printCommandChoices(commands: []const std.json.Value, unknown: ?[]const u8) v
 
 /// The word an agent guessed under one root that lives under another root.
 fn printMisplacedHint(parent: []const u8, unknown: []const u8) void {
+    if (std.mem.eql(u8, unknown, "board") or std.mem.eql(u8, unknown, "boards") or
+        std.mem.eql(u8, parent, "board") or std.mem.eql(u8, parent, "boards")) return boardHint();
     if (!std.mem.eql(u8, parent, "task") and !std.mem.eql(u8, parent, "tasks")) return;
     if (!std.mem.eql(u8, unknown, "comment") and !std.mem.eql(u8, unknown, "comments")) return;
     std.debug.print("a ticket's comments are read with: hypertask comment list <ticket>\n", .{});
+}
+
+fn boardHint() void {
+    std.debug.print("board columns are sections: hypertask section list --project <id>\n", .{});
 }
 
 fn suggestCommand(commands: []const std.json.Value, name: []const u8) ?[]const u8 {
@@ -185,7 +191,8 @@ pub fn dispatch(context: *const Context) !void {
     }
     if (std.mem.eql(u8, root, "project") or std.mem.eql(u8, root, "projects")) return project.run(context, subcommand);
     if (std.mem.eql(u8, root, "labels") or std.mem.eql(u8, root, "label")) return project.labelsCommand(context, subcommand);
-    if (std.mem.eql(u8, root, "section") or std.mem.eql(u8, root, "sections")) return section.run(context, subcommand);
+    if (std.mem.eql(u8, root, "section") or std.mem.eql(u8, root, "sections") or
+        std.mem.eql(u8, root, "column") or std.mem.eql(u8, root, "columns")) return section.run(context, subcommand);
     if (std.mem.eql(u8, root, "fields") or std.mem.eql(u8, root, "custom-fields")) return fields.run(context, subcommand);
     if (std.mem.eql(u8, root, "task") or std.mem.eql(u8, root, "tasks")) return task.run(context, subcommand);
     if (std.mem.eql(u8, root, "draft") or std.mem.eql(u8, root, "drafts")) return draft.run(context, subcommand);
