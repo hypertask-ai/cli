@@ -39,6 +39,10 @@ Exit codes are stable:
 
 Scripts may use the exit code category, while people and agents should follow the `Next:` line.
 
+## Release notes: native 0.2.43
+
+- `task move` takes the destination section as its second argument, so `hypertask task move HTPR-8388 "Flag: Everyone"` works like `agent move` instead of refusing the section and listing no working form (HTPR-8388).
+
 ## Release notes: native 0.2.40
 
 - `hypertask feedback list` no longer files a junk ticket: a listing word (`list`, `ls`, `show`, `get`, `status`) is refused before the request, and the error names `hypertask task list --project 15 --label ai-feedback` as the way to read filed feedback (HTPR-8432).
@@ -256,6 +260,7 @@ Use `hypertask` for board operations:
 hypertask tasks get HTPR-5726
 hypertask tasks get 5726 --project 15
 hypertask tasks move HTPR-5726 --section "In Progress"
+hypertask tasks move HTPR-5726 "In Progress"
 hypertask task waiting-on HTPR-7723 --user me
 hypertask task blocker-comment HTPR-7723 --comment-id 101
 hypertask task waiting-on HTPR-7723 --user none --reason "Answered on the ticket"

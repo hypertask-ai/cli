@@ -112,6 +112,23 @@ class ParityTest(unittest.TestCase):
         )
         self.assertEqual(parity_test.error_shape(stderr), "unknown-command")
 
+    def test_arguments_allow_an_extra_optional_zig_positional(self) -> None:
+        node = (("ticket-or-task-id", False, True),)
+        self.assertTrue(parity_test.arguments_compatible(node, node))
+        self.assertTrue(
+            parity_test.arguments_compatible(node, (("ticket-or-task-id", False, True), ("section", False, False)))
+        )
+        self.assertFalse(
+            parity_test.arguments_compatible(node, (("ticket-or-task-id", False, True), ("section", False, True)))
+        )
+        self.assertFalse(parity_test.arguments_compatible(node, ()))
+        self.assertFalse(
+            parity_test.arguments_compatible(node, (("ticket", False, True), ("section", False, False)))
+        )
+        self.assertFalse(
+            parity_test.arguments_compatible(node, (("ticket-or-task-id", True, True), ("section", False, False)))
+        )
+
     def test_write_mode_requires_an_explicit_token(self) -> None:
         environment = {"HT_TOKEN": "", "HYPERTASKS_JWT_TOKEN": ""}
         with mock.patch.dict(os.environ, environment, clear=False):

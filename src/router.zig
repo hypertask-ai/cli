@@ -426,6 +426,17 @@ test "task agent-log help includes filters for both aliases" {
     }
 }
 
+test "task move takes the section as an optional second argument" {
+    for ([_][]const u8{ "task", "tasks" }) |root| {
+        try validateCommandPath(std.testing.allocator, &.{ root, "move", "HTPR-8388" }, true);
+        try validateCommandPath(std.testing.allocator, &.{ root, "move", "HTPR-8388", "Flag: Everyone" }, true);
+        try std.testing.expectError(error.InvalidOptions, validateCommandPath(std.testing.allocator, &.{ root, "move", "HTPR-8388", "Done", "extra" }, true));
+        const help = try renderHelp(std.testing.allocator, &.{ root, "move" });
+        defer std.testing.allocator.free(help);
+        try std.testing.expect(std.mem.indexOf(u8, help, "Usage: hypertask task move <ticket-or-task-id> [section] [options]") != null);
+    }
+}
+
 test "task waiting-on help includes required user and project for both aliases" {
     for ([_][]const u8{ "task", "tasks" }) |root| {
         try validateCommandPath(std.testing.allocator, &.{ root, "waiting-on", "HTPR-7723" }, true);
