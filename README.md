@@ -31,6 +31,10 @@ Exit codes are stable:
 
 Scripts may use the exit code category, while people and agents should follow the `Next:` line.
 
+## Release notes: native 0.2.30
+
+- A wrong command is answered as a command: `task view-hint HTPR-1 --project 15` says `unknown command: view-hint` with the real commands and a suggestion, instead of blaming the flag that followed it. `task view` is an alias of `task get`, next to `task show` (HTPR-8379).
+
 ## Release notes: native 0.2.29
 
 - A bare number with no `--project` is still the internal task id, and the command now names the ticket and board it landed on, so a number read on another board is visible instead of silent (HTPR-8423).
