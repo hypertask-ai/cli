@@ -1235,6 +1235,21 @@ test "pages create keeps markdown default and explicit canvas" {
     );
 }
 
+test "pages create takes --project to pick the project a ticket number belongs to" {
+    try expectRequest(
+        &.{ "pages", "create", "--task", "8419", "--project", "15", "--title", "Report", "--content", "# Report" },
+        .POST,
+        "/mcp/pages/create",
+        "{\"task_id\":8419,\"project_id\":15,\"title\":\"Report\",\"content\":\"# Report\",\"content_type\":\"markdown\"}",
+    );
+    try expectRequest(
+        &.{ "pages", "create", "--task", "HTPR-8419", "--project", "15", "--content", "# Report" },
+        .POST,
+        "/mcp/pages/create",
+        "{\"ticket_number\":\"HTPR-8419\",\"project_id\":15,\"content\":\"# Report\",\"content_type\":\"markdown\"}",
+    );
+}
+
 fn tmpFile(tmp: *std.testing.TmpDir, sub_path: []const u8, data: []const u8) ![]const u8 {
     try tmp.dir.writeFile(.{ .sub_path = sub_path, .data = data });
     const directory = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
