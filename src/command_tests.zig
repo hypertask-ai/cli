@@ -852,6 +852,16 @@ test "task update empty assignee or --clear-assignees unassigns through the assi
     );
 }
 
+test "task update and task create name the assignee option instead of a parse error" {
+    // A name in --assignee used to reach std.json integer output and fail as
+    // InvalidCharacter with no option named. Section names resolve normally, so
+    // the assignee list is the only raw integer boundary left in these commands.
+    for ([_][]const u8{ "Some Agent", "agent-1", "6,Runner 7" }) |value| {
+        try expectDispatchError(error.InvalidInteger, &.{ "task", "update", "id:41043", "--assignee", value });
+        try expectDispatchError(error.InvalidInteger, &.{ "task", "create", "--project", "15", "--title", "T", "--assignee", value });
+    }
+}
+
 test "the local agent dev loop refuses to guess an agent or a handler URL" {
     // `--agent` has no default on purpose: a stray `agent dev` in the wrong
     // shell must not be able to repoint a live agent's webhook.
