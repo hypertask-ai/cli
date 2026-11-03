@@ -1578,6 +1578,21 @@ test "feedback accepts every category without a note" {
     }
 }
 
+test "feedback refuses a listing word instead of filing it as a note" {
+    for ([_][]const u8{ "list", "ls", "show", "get", "status" }) |word| {
+        try expectDispatchError(error.InvalidOptions, &.{ "feedback", word });
+    }
+    const response = "{\"success\":true,\"ticketNumber\":\"TEST-1\",\"url\":\"https://example.test/1\",\"deduped\":false,\"count\":1}";
+    try expectRequestCountWithResponses(
+        &.{ "feedback", "listing is confusing" },
+        &.{response},
+        1,
+        .POST,
+        "/mcp/feedback",
+        "{\"surface\":\"cli\",\"client\":\"hypertask-cli\",\"category\":\"other\",\"note\":\"listing is confusing\"}",
+    );
+}
+
 test "feedback rejects invalid category surface and status" {
     for ([_][]const u8{ "", "broken", "CALL_FAILED", "call-failed" }) |category| {
         try expectDispatchError(error.InvalidOptions, &.{ "feedback", "--category", category });

@@ -21,6 +21,16 @@ pub fn run(context: *const Context) !void {
         return error.InvalidOptions;
     }
 
+    const listing_words = [_][]const u8{ "list", "ls", "show", "get", "status" };
+    if (context.args.positionalAt(1)) |first| {
+        for (listing_words) |word| {
+            if (std.ascii.eqlIgnoreCase(first, word)) {
+                std.debug.print("hypertask feedback has no {s} command; each call files one note.\nList filed feedback with: hypertask task list --project 15 --label ai-feedback\n", .{first});
+                return error.InvalidOptions;
+            }
+        }
+    }
+
     var body = try json.Object.init(context.allocator);
     defer body.deinit();
     try body.string("surface", surface);
