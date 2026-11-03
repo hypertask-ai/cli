@@ -175,7 +175,7 @@ pub fn dispatch(context: *const Context) !void {
         return admin.run(context, subcommand, admin_subcommand);
     }
     if (std.mem.eql(u8, root, "project") or std.mem.eql(u8, root, "projects")) return project.run(context, subcommand);
-    if (std.mem.eql(u8, root, "labels")) return project.labelsCommand(context, subcommand);
+    if (std.mem.eql(u8, root, "labels") or std.mem.eql(u8, root, "label")) return project.labelsCommand(context, subcommand);
     if (std.mem.eql(u8, root, "section") or std.mem.eql(u8, root, "sections")) return section.run(context, subcommand);
     if (std.mem.eql(u8, root, "fields") or std.mem.eql(u8, root, "custom-fields")) return fields.run(context, subcommand);
     if (std.mem.eql(u8, root, "task") or std.mem.eql(u8, root, "tasks")) return task.run(context, subcommand);
@@ -406,6 +406,15 @@ test "task blocker-comment help exposes marker-only operations for both aliases"
         try std.testing.expect(std.mem.indexOf(u8, help, "--project <id>") != null);
         try std.testing.expect(std.mem.indexOf(u8, help, "without changing the waiting person") != null);
     }
+}
+
+test "label root alias passes the catalog gate and renders labels help" {
+    try validateCommandPath(std.testing.allocator, &.{ "label", "list" }, true);
+    try validateCommandPath(std.testing.allocator, &.{"label"}, false);
+    const help = try renderHelp(std.testing.allocator, &.{"label"});
+    defer std.testing.allocator.free(help);
+    try std.testing.expect(std.mem.indexOf(u8, help, "Manage project labels") != null);
+    try std.testing.expect(std.mem.indexOf(u8, help, "Usage: hypertask labels") != null);
 }
 
 test "subcommand help renders command-specific options" {
