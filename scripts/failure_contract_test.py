@@ -194,6 +194,10 @@ def token_refresh_still_saves_a_user_credential(api_url: str) -> None:
 
 def main() -> None:
     assert_failure(run("not-a-command"), 1, "valid commands:")
+    # A wrong command is answered as a command even when a flag follows it (HTPR-8379).
+    assert_failure(run("not-a-command", "--bogus"), 1, "unknown command: not-a-command", "valid commands:")
+    assert_failure(run("task", "view-hint", "HTPR-1", "--project", "15"), 1, "unknown command: view-hint")
+    assert_failure(run("task", "list", "--project", "15", "--bogus"), 2, "unknown option: --bogus")
     assert_failure(run("task"), 2, "valid commands:")
     assert_failure(run("status", "ignored"), 2, "unexpected argument: ignored", "accepted arguments: (none)")
     assert_failure(run("pages", "create"), 2, "required option: --task")

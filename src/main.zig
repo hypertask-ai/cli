@@ -31,6 +31,9 @@ fn run() !void {
 
     var parsed = try args_mod.parse(allocator, raw.items);
     defer parsed.deinit();
+    // The command path is checked before options: an unknown subcommand leaves the
+    // option validator with only global flags, and it would blame the first real flag.
+    if (parsed.positional.len != 0) try router.validateCommandPath(allocator, parsed.positional, !parsed.has("help"));
     try option_validate.rejectUnknownOptions(allocator, &parsed);
     try parsed.requireValues();
     if (parsed.hasFlag("version") or (parsed.has("version") and parsed.positional.len == 0)) {
@@ -38,7 +41,6 @@ fn run() !void {
         return;
     }
     if (parsed.positional.len == 0) return router.printHelp(allocator, &.{});
-    try router.validateCommandPath(allocator, parsed.positional, !parsed.has("help"));
     if (parsed.has("help")) return router.printHelp(allocator, parsed.positional);
 
     const root = parsed.positional[0];

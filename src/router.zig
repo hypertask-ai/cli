@@ -44,6 +44,7 @@ pub fn validateCommandPath(allocator: std.mem.Allocator, path: []const []const u
         const commands = try arrayFieldOrEmpty(command, "commands");
         if (commands.len == 0) return validateArguments(command, path[index..]);
         command = findCommand(command, path[index]) orelse {
+            std.debug.print("unknown command: {s}\n", .{path[index]});
             printCommandChoices(commands, path[index]);
             return error.UnknownCommand;
         };

@@ -403,6 +403,12 @@ test "task get distinguishes internal ids from project ticket indexes" {
         null,
     );
     try expectRequest(
+        &.{ "tasks", "view", "htpr-5661" },
+        .GET,
+        "/mcp/tasks?ticket_number=HTPR-5661",
+        null,
+    );
+    try expectRequest(
         &.{ "tasks", "get", "id:35672" },
         .GET,
         "/mcp/tasks?task_id=35672",
@@ -1588,6 +1594,24 @@ test "an unknown command names the closest real command" {
     try std.testing.expect(std.mem.indexOf(u8, captured[0..printed], "did you mean: comment\n") != null);
     try std.testing.expectError(error.UnknownCommand, router.validateCommandPath(std.testing.allocator, &.{ "task", "comments" }, true));
     try std.testing.expectError(error.UnknownCommand, router.validateCommandPath(std.testing.allocator, &.{"taks"}, true));
+}
+
+test "an unknown subcommand names the word that is wrong" {
+    const posix = std.posix;
+    const pipe = try posix.pipe();
+    defer posix.close(pipe[0]);
+    {
+        defer posix.close(pipe[1]);
+        const saved_stderr = try posix.dup(2);
+        defer posix.close(saved_stderr);
+        try posix.dup2(pipe[1], 2);
+        defer posix.dup2(saved_stderr, 2) catch {};
+        try std.testing.expectError(error.UnknownCommand, router.validateCommandPath(std.testing.allocator, &.{ "task", "comments" }, true));
+    }
+    var captured: [1024]u8 = undefined;
+    const printed = try posix.read(pipe[0], &captured);
+    try std.testing.expect(std.mem.indexOf(u8, captured[0..printed], "unknown command: comments\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, captured[0..printed], "valid commands:") != null);
 }
 
 test "top level and comment add help name the Decisions inbox" {
