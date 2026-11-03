@@ -68,6 +68,15 @@ def main() -> None:
                     "surface": "cli", "client": "hypertask-cli", "category": category,
                 }, Handler.requests[-1]
 
+            for kind in ("bug", "friction", "missing", "idea"):
+                kinded = run("feedback", "The board lost my filter", "--kind", kind)
+                assert kinded.returncode == 0, kinded.stderr
+                assert kinded.stdout == "Filed TEST-1: https://example.test/1\n", kinded.stdout
+                assert Handler.requests[-1][3] == {
+                    "surface": "cli", "client": "hypertask-cli", "category": "other", "kind": kind,
+                    "note": "The board lost my filter",
+                }, Handler.requests[-1]
+
             Handler.response = {**RESULT, "deduped": True, "count": 3}
             deduped = run("feedback", "Unexpected failure")
             assert deduped.returncode == 0, deduped.stderr
@@ -128,6 +137,9 @@ def main() -> None:
                   for value in ("", "broken", "CALL_FAILED", "call-failed"))),
                 (("feedback", "failure", "extra"), "unexpected argument: extra"),
                 (("feedback", "failure", "--tool"), "missing value for --tool"),
+                (("feedback", "failure", "--kind"), "missing value for --kind"),
+                *(((("feedback", "failure", "--kind", value), "valid kinds: bug, friction, missing, idea")
+                  for value in ("", "broken", "BUG", "Bug", "false"))),
                 (("feedback", "failure", "--surface", "web"), "valid surfaces: cli, agent"),
                 (("feedback", "failure", "--status", "abc"), "invalid integer for status"),
                 (("feedback", "failure", "--status", "600"), "status must be an HTTP status"),
@@ -150,7 +162,7 @@ def main() -> None:
                 assert help_output.returncode == 0, help_output.stderr
                 assert "on your own when a hypertask command fails unexpectedly" in help_output.stdout
                 assert "Never include task, board or comment content" in help_output.stdout
-                assert "Free text (note and error) is not stored; agents should pick a category" in help_output.stdout
+                assert "are kept on the filed ticket for our own team's agents" in help_output.stdout
                 if args:
                     assert "Usage: hypertask feedback [note] [options]" in help_output.stdout
                     assert all(category in help_output.stdout for category in categories)
@@ -158,6 +170,7 @@ def main() -> None:
             assert catalog.returncode == 0, catalog.stderr
             feedback = next(command for command in json.loads(catalog.stdout)["commands"] if command["name"] == "feedback")
             assert {option["flags"] for option in feedback["options"]} == {
+                "--kind <bug|friction|missing|idea>",
                 "--category <value>", "--tool <command name>", "--status <http status>", "--error-code <slug>",
                 "--error <message>", "--surface <cli|agent>", "--json",
             }, feedback

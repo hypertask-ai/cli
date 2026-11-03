@@ -254,7 +254,7 @@ fn renderHelp(allocator: std.mem.Allocator, path: []const []const u8) ![]u8 {
         \\A Question: comment that @mentions a person using a real mention shows up in their Inbox, split Decisions when enabled: https://app.hypertask.ai/inbox?split=Decisions.
         \\Agent log: `hypertask activity add <ticket> --text <note>` writes it (no --kind, nobody is notified) and `hypertask task agent-log <ticket>` reads it.
         \\
-        \\AI agents: run `hypertask feedback --category call_failed` on your own when a hypertask command fails unexpectedly. Free text (note and error) is not stored; agents should pick a category. Never include task, board or comment content.
+        \\AI agents: run `hypertask feedback --kind bug --tool "task get" "what went wrong"` on your own when a hypertask command fails unexpectedly. The kind and the note are kept on the filed ticket for our own team's agents and dropped for customer agents. Never include task, board or comment content.
         \\Unexpected failures send command name and error type only, no task content; disable with HYPERTASK_NO_ERROR_REPORTS=1 or error_reports=false in ~/.hypertask/config.json.
     );
 
@@ -529,18 +529,20 @@ test "subcommand help renders command-specific options" {
 }
 
 test "feedback help explains autonomous reporting and content privacy" {
-    for ([_][]const []const u8{ &.{}, &.{"feedback"} }) |path| {
-        const help = try renderHelp(std.testing.allocator, path);
-        defer std.testing.allocator.free(help);
-        try std.testing.expect(std.mem.indexOf(u8, help, "on your own when a hypertask command fails unexpectedly") != null);
-        try std.testing.expect(std.mem.indexOf(u8, help, "Never include task, board or comment content") != null);
-        try std.testing.expect(std.mem.indexOf(u8, help, "is not stored; agents should pick a category") != null);
-    }
+    const top = try renderHelp(std.testing.allocator, &.{});
+    defer std.testing.allocator.free(top);
+    try std.testing.expect(std.mem.indexOf(u8, top, "on your own when a hypertask command fails unexpectedly") != null);
+    try std.testing.expect(std.mem.indexOf(u8, top, "Never include task, board or comment content") != null);
+    try std.testing.expect(std.mem.indexOf(u8, top, "--kind bug") != null);
     const help = try renderHelp(std.testing.allocator, &.{"feedback"});
     defer std.testing.allocator.free(help);
+    try std.testing.expect(std.mem.indexOf(u8, help, "on your own when a hypertask command fails unexpectedly") != null);
+    try std.testing.expect(std.mem.indexOf(u8, help, "Never include task, board or comment content") != null);
+    try std.testing.expect(std.mem.indexOf(u8, help, "kept on the filed ticket for our own team's agents") != null);
     try std.testing.expect(std.mem.indexOf(u8, help, "Usage: hypertask feedback [note] [options]") != null);
     try std.testing.expect(std.mem.indexOf(u8, help, "There is no list command") != null);
     try std.testing.expect(std.mem.indexOf(u8, help, "--category <value>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, help, "--kind <bug|friction|missing|idea>") != null);
     try std.testing.expect(std.mem.indexOf(u8, help, "--surface <cli|agent>") != null);
     try std.testing.expect(std.mem.indexOf(u8, help, "--json") != null);
 }

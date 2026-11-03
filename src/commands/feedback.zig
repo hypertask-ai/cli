@@ -15,6 +15,18 @@ pub fn run(context: *const Context) !void {
         std.debug.print("valid categories: call_failed, empty_result, unexpected_result, auth_failed, slow, user_reported_broken, other\n", .{});
         return error.InvalidOptions;
     }
+    const kind = context.args.get("kind");
+    if (kind) |value| {
+        const kinds = [_][]const u8{ "bug", "friction", "missing", "idea" };
+        var valid_kind = false;
+        for (kinds) |valid| {
+            if (std.mem.eql(u8, value, valid)) valid_kind = true;
+        }
+        if (!valid_kind) {
+            std.debug.print("valid kinds: bug, friction, missing, idea\n", .{});
+            return error.InvalidOptions;
+        }
+    }
     const surface = context.args.get("surface") orelse "cli";
     if (!std.mem.eql(u8, surface, "cli") and !std.mem.eql(u8, surface, "agent")) {
         std.debug.print("valid surfaces: cli, agent\n", .{});
@@ -36,6 +48,7 @@ pub fn run(context: *const Context) !void {
     try body.string("surface", surface);
     try body.string("client", "hypertask-cli");
     try body.string("category", category);
+    if (kind) |value| try body.string("kind", value);
     if (context.args.get("tool")) |value| try body.string("tool", value);
     if (context.args.get("status")) |value| {
         const status = try common.int(value, "status");

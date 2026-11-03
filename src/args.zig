@@ -262,11 +262,12 @@ test "comment improve-command keeps its explicit value" {
 }
 
 test "feedback parses positional note and optional metadata" {
-    var parsed = try parse(std.testing.allocator, &.{ "--json", "feedback", "Unexpected failure", "--tool", "task get", "--status=503", "--error-code", "upstream-error", "--error", "Unavailable", "--surface", "agent" });
+    var parsed = try parse(std.testing.allocator, &.{ "--json", "feedback", "Unexpected failure", "--kind", "bug", "--tool", "task get", "--status=503", "--error-code", "upstream-error", "--error", "Unavailable", "--surface", "agent" });
     defer parsed.deinit();
     try parsed.requireValues();
     try std.testing.expectEqual(@as(usize, 2), parsed.positional.len);
     try std.testing.expectEqualStrings("Unexpected failure", parsed.positional[1]);
+    try std.testing.expectEqualStrings("bug", parsed.get("kind").?);
     try std.testing.expectEqualStrings("task get", parsed.get("tool").?);
     try std.testing.expectEqualStrings("503", parsed.get("status").?);
     try std.testing.expectEqualStrings("upstream-error", parsed.get("error-code").?);
