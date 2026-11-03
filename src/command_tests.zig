@@ -248,6 +248,21 @@ test "every HTPR-6530 list command forwards --limit" {
         "/mcp/comments?ticket_number=HTPR-6516&include_activity=true",
         null,
     );
+    try expectRequestWithResponses(
+        &.{ "comment", "list", "--task", "HTPR-8438" },
+        &.{"{\"success\":true,\"comments\":[],\"total\":0,\"offset\":0}"},
+        .GET,
+        "/mcp/comments?ticket_number=HTPR-8438",
+        null,
+    );
+    try expectRequestWithResponses(
+        &.{ "comment", "list", "HTPR-8438", "--task", "HTPR-1000" },
+        &.{"{\"success\":true,\"comments\":[],\"total\":0,\"offset\":0}"},
+        .GET,
+        "/mcp/comments?ticket_number=HTPR-8438",
+        null,
+    );
+    try expectDispatchError(error.MissingArgument, &.{ "comment", "list" });
     try expectRequest(
         &.{ "section", "list", "--project", "15", "--limit", "3" },
         .GET,

@@ -78,9 +78,10 @@ Scripts may use the exit code category, while people and agents should follow th
 
 ```bash
 hypertask --json comment list HTPR-7546 --include-activity --limit 5
+hypertask --json comment list --task HTPR-7546 --project 15
 ```
 
-Activity is opt-in; omit `--include-activity` to read comments only. Unrecognized options are rejected before authentication or HTTP requests.
+Activity is opt-in; omit `--include-activity` to read comments only. The ticket is either the positional argument or `--task`; the positional wins when both are given. Unrecognized options are rejected before authentication or HTTP requests.
 
 ## Reading a ticket's agent log
 
