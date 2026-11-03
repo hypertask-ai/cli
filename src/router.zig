@@ -34,6 +34,9 @@ pub fn validateCommandPath(allocator: std.mem.Allocator, path: []const []const u
         return error.InvalidOptions;
     }
 
+    // `help` names a topic, and a topic need not be a command path.
+    if (path.len > 1 and std.mem.eql(u8, path[0], "help")) return;
+
     const catalog = @embedFile("capabilities.json");
     const parsed = try std.json.parseFromSlice(std.json.Value, allocator, catalog, .{});
     defer parsed.deinit();
@@ -153,11 +156,12 @@ pub fn dispatch(context: *const Context) !void {
     if (std.mem.eql(u8, root, "search")) return task.globalSearch(context);
     if (std.mem.eql(u8, root, "raw")) return meta.raw(context);
 
-    const subcommand = context.args.positionalAt(1) orelse return error.MissingSubcommand;
     if (std.mem.eql(u8, root, "help")) {
-        if (!std.mem.eql(u8, subcommand, "features")) return error.UnknownCommand;
-        return meta.features(context);
+        const topic = context.args.positional[1..];
+        if (topic.len != 0 and std.mem.eql(u8, topic[0], "features")) return meta.features(context);
+        return printHelp(context.allocator, topic);
     }
+    const subcommand = context.args.positionalAt(1) orelse return error.MissingSubcommand;
     if (std.mem.eql(u8, root, "token")) return auth.token(context, subcommand);
     if (std.mem.eql(u8, root, "teams") or std.mem.eql(u8, root, "team")) {
         if (!std.mem.eql(u8, subcommand, "list")) return error.UnknownCommand;
@@ -201,9 +205,29 @@ pub fn dispatch(context: *const Context) !void {
 }
 
 pub fn printHelp(allocator: std.mem.Allocator, path: []const []const u8) !void {
-    const help = try renderHelp(allocator, path);
+    const help = renderHelp(allocator, path) catch |err| switch (err) {
+        error.UnknownCommand => return printHelpTopicHint(allocator, path),
+        else => return err,
+    };
     defer allocator.free(help);
     try output.print(help);
+}
+
+/// A help topic that is not a command path: name where its help lives.
+fn printHelpTopicHint(allocator: std.mem.Allocator, path: []const []const u8) !void {
+    const hint = try helpTopicHint(allocator, path);
+    defer allocator.free(hint);
+    try output.print(hint);
+}
+
+fn helpTopicHint(allocator: std.mem.Allocator, path: []const []const u8) ![]u8 {
+    if (path.len == 1 and std.mem.eql(u8, path[0], "features")) {
+        return allocator.dupe(u8, "live product features: hypertask help features\n");
+    }
+    const topic = try std.mem.join(allocator, " ", path);
+    defer allocator.free(topic);
+    return std.fmt.allocPrint(allocator,
+        "no help page for: hypertask {s}\nrun `hypertask help` for the command list, or `hypertask capabilities --json` for every command and option.\n", .{topic});
 }
 
 fn renderHelp(allocator: std.mem.Allocator, path: []const []const u8) ![]u8 {
@@ -512,4 +536,18 @@ test "chat routing help and options teach agent attachment" {
     const help = try renderHelp(std.testing.allocator, &.{ "chat", "reply" });
     defer std.testing.allocator.free(help);
     try std.testing.expect(std.mem.indexOf(u8, help, "--text <text> (required)") != null);
+}
+
+test "help names where a topic with no command path lives" {
+    try std.testing.expectError(error.UnknownCommand, renderHelp(std.testing.allocator, &.{"features"}));
+    const features_hint = try helpTopicHint(std.testing.allocator, &.{"features"});
+    defer std.testing.allocator.free(features_hint);
+    try std.testing.expectEqualStrings("live product features: hypertask help features\n", features_hint);
+
+    try std.testing.expectError(error.UnknownCommand, renderHelp(std.testing.allocator, &.{"board"}));
+    const unknown_hint = try helpTopicHint(std.testing.allocator, &.{"board"});
+    defer std.testing.allocator.free(unknown_hint);
+    try std.testing.expect(std.mem.indexOf(u8, unknown_hint, "no help page for: hypertask board") != null);
+    try std.testing.expect(std.mem.indexOf(u8, unknown_hint, "hypertask capabilities --json") != null);
+    try std.testing.expect(std.mem.indexOf(u8, unknown_hint, "hypertask --help board") == null);
 }

@@ -1806,3 +1806,24 @@ test "restored catalog options reach existing request builders" {
         "{\"name\":\"Skill\",\"enabled\":true}",
     );
 }
+
+test "help takes a command path as its topic" {
+    try router.validateCommandPath(std.testing.allocator, &.{ "help", "task" }, true);
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    var parsed = try args.parse(allocator, &.{ "help", "task" });
+    defer parsed.deinit();
+    var cfg = config.Config{ .allocator = allocator, .token = "test-token" };
+    defer cfg.deinit();
+    var client = std.http.Client{ .allocator = allocator };
+    defer client.deinit();
+    const context = command_context.Context{
+        .client = &client,
+        .allocator = allocator,
+        .args = &parsed,
+        .cfg = &cfg,
+        .json = true,
+    };
+    try router.dispatch(&context);
+}

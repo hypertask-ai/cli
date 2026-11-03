@@ -22,6 +22,8 @@ JSON is the default output. Pass `--human` for the minimal human-readable mode.
 
 A guess from the wrong command says where the work lives: `hypertask task comments 44` prints `unknown command: comments`, the commands that do exist, and `a ticket's comments are read with: hypertask comment list <ticket>`.
 
+Help takes a topic, not only a command path: `hypertask help task` and `hypertask help task update` print that command's help, `hypertask help` prints the top page, and a topic with no command path answers where its help lives. `hypertask --help features` prints `live product features: hypertask help features`, and any other unknown topic names `hypertask capabilities --json`, instead of `unknown command: features`. Local help needs no login.
+
 ## Failure contract
 
 A command exits `0` only when it did what its arguments requested. Every failure except a helper write refusal prints what happened and one `Next:` action. Invalid finite values also list the accepted values.
@@ -38,6 +40,7 @@ Scripts may use the exit code category, while people and agents should follow th
 ## Release notes: native 0.2.35
 
 - `hypertask task comments 44` now answers with where a ticket's comments are read (`hypertask comment list <ticket>`) next to `unknown command: comments`, instead of leaving an agent to guess which root owns comments (HTPR-8433).
+- Asking for help on a topic no longer says the command is missing: `hypertask --help features` answers `live product features: hypertask help features`, `hypertask help <command>` prints that command's help, and local help works without a login (HTPR-8434).
 
 ## Release notes: native 0.2.34
 
