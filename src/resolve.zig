@@ -102,7 +102,10 @@ pub fn task(context: *const Context, identifier: []const u8) !Task {
             const project_id = try common.positiveInt(project, "project");
             return resolveBareWithProject(context, identifier, project, project_id);
         }
-        const found = try fetchTaskRequired(context, "task_id", identifier, null);
+        const found = fetchTaskRequired(context, "task_id", identifier, null) catch |err| {
+            if (err == error.TaskNotFound) std.debug.print("{s}\n", .{try bareTaskIdMissNote(context.allocator, identifier)});
+            return err;
+        };
         std.debug.print("{s}\n", .{try bareTaskIdNote(context.allocator, identifier, found)});
         return found;
     }
@@ -174,6 +177,29 @@ pub fn bareTaskIdNoteFromResponse(allocator: std.mem.Allocator, identifier: []co
     const row = tasks.array.items[0];
     const task_id = json.integerField(row, "id", true) orelse return null;
     return try bareTaskIdNoteText(allocator, identifier, task_id, json.stringField(row, "ticketNumber"), json.stringField(row, "boardTitle"));
+}
+
+/// A bare number that is no task id is usually a ticket number on a board the
+/// caller did not name, so say which flag reaches it (HTPR-8288).
+pub fn bareTaskIdMissNote(allocator: std.mem.Allocator, identifier: []const u8) ![]u8 {
+    return std.fmt.allocPrint(
+        allocator,
+        "no task has id {s}. A bare number is a task id on any board; pass the ticket key, or --project with the board, when it is a ticket number",
+        .{identifier},
+    );
+}
+
+/// The same note from a read the command already made, so a miss costs no second request.
+pub fn bareTaskIdMissFromResponse(allocator: std.mem.Allocator, identifier: []const u8, body: []const u8) !?[]u8 {
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch return null;
+    defer parsed.deinit();
+    if (parsed.value != .object) return null;
+    if (parsed.value.object.get("tasks")) |tasks| {
+        if (tasks != .array or tasks.array.items.len != 0) return null;
+    } else if (json.stringField(parsed.value, "error")) |error_text| {
+        if (std.mem.indexOf(u8, error_text, "not found") == null) return null;
+    } else return null;
+    return try bareTaskIdMissNote(allocator, identifier);
 }
 
 fn ownedStringField(context: *const Context, row: std.json.Value, name: []const u8) !?[]const u8 {
@@ -349,4 +375,27 @@ test "a bare task id with no ticket or board still says where it landed" {
         "908 is task id 908: an untitled task on a board the token can see. A bare number is an internal id on any board; pass the ticket number, or --project with the board, when the board matters",
         note,
     );
+}
+
+test "a bare number that is no task id names the flags that reach it" {
+    const note = try bareTaskIdMissNote(std.testing.allocator, "8288");
+    defer std.testing.allocator.free(note);
+    try std.testing.expectEqualStrings(
+        "no task has id 8288. A bare number is a task id on any board; pass the ticket key, or --project with the board, when it is a ticket number",
+        note,
+    );
+}
+
+test "a task read that found nothing names the flags without a second request" {
+    const missing = try bareTaskIdMissFromResponse(std.testing.allocator, "8288", "{\"success\":false,\"error\":\"Task not found or access denied\"}");
+    defer if (missing) |value| std.testing.allocator.free(value);
+    try std.testing.expect(missing != null);
+
+    const empty = try bareTaskIdMissFromResponse(std.testing.allocator, "8288", "{\"success\":true,\"tasks\":[]}");
+    defer if (empty) |value| std.testing.allocator.free(value);
+    try std.testing.expect(empty != null);
+
+    try std.testing.expect((try bareTaskIdMissFromResponse(std.testing.allocator, "8288", "{\"success\":true,\"tasks\":[{\"id\":908}]}")) == null);
+    try std.testing.expect((try bareTaskIdMissFromResponse(std.testing.allocator, "8288", "{\"success\":false,\"error\":\"Unauthorized\"}")) == null);
+    try std.testing.expect((try bareTaskIdMissFromResponse(std.testing.allocator, "8288", "not json")) == null);
 }

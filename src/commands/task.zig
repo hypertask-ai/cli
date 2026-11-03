@@ -187,12 +187,20 @@ fn get(context: *const Context) !void {
     var path = try query.Builder.init(context.allocator, "/mcp/tasks");
     defer path.deinit();
     try addIdentifierQuery(&path, context, identifier);
-    var response = try context.fetch(.GET, path.path(), null);
-    defer response.deinit();
     // A bare number without --project is an internal id on any board (HTPR-8423),
-    // so name the ticket and board this read landed on.
-    if (resolve.isNumeric(identifier) and resolve.internalId(identifier) == null and context.args.get("project") == null) {
+    // so name the ticket and board this read landed on, or the flags that reach
+    // the ticket number it probably was (HTPR-8288).
+    const bare_number = resolve.isNumeric(identifier) and resolve.internalId(identifier) == null and context.args.get("project") == null;
+    var response = context.fetch(.GET, path.path(), null) catch |err| {
+        if (bare_number and (err == error.ApiNotFound or err == error.TaskNotFound))
+            std.debug.print("{s}\n", .{try resolve.bareTaskIdMissNote(context.allocator, identifier)});
+        return err;
+    };
+    defer response.deinit();
+    if (bare_number) {
         if (try resolve.bareTaskIdNoteFromResponse(context.allocator, identifier, response.body)) |note|
+            std.debug.print("{s}\n", .{note})
+        else if (try resolve.bareTaskIdMissFromResponse(context.allocator, identifier, response.body)) |note|
             std.debug.print("{s}\n", .{note});
     }
     try context.finish(&response);
