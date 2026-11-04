@@ -905,6 +905,7 @@ fn addIdentifierQuery(path: *query.Builder, context: *const Context, identifier:
 }
 
 fn identifierBody(context: *const Context, identifier: []const u8, resolved_task: ?*?resolve.Task) !json.Object {
+    try resolve.refuseBareWrite(context, identifier);
     var body = try json.Object.init(context.allocator);
     errdefer body.deinit();
     if (resolve.isNumeric(identifier) and resolve.internalId(identifier) == null and context.args.get("project") != null) {

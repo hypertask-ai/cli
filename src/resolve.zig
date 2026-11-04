@@ -161,6 +161,20 @@ pub fn task(context: *const Context, identifier: []const u8) !Task {
     return fetchTaskRequired(context, "ticket_number", ticket, context.args.get("project"));
 }
 
+/// A write cannot be undone, so a bare number without --project never writes: it is
+/// the list `id`, which lives on any board. The refusal names the task it would have
+/// hit; the ticket number writes to the ticket, id:<n> to that internal id.
+pub fn refuseBareWrite(context: *const Context, identifier: []const u8) !void {
+    if (!isNumeric(identifier) or internalId(identifier) != null) return;
+    if (context.args.get("project") != null) return;
+    const found = (fetchTaskOptional(context, "task_id", identifier, null) catch return) orelse return;
+    std.debug.print(
+        "nothing was written: {s} is task id {d}: {s} on {s}. Pass the ticket number to write to the ticket, or id:{d} to write to that task\n",
+        .{ identifier, found.id, found.ticket_number orelse "an unnamed task", found.board orelse "another board", found.id },
+    );
+    return error.AmbiguousTaskIdentifier;
+}
+
 fn resolveBareWithProject(context: *const Context, identifier: []const u8, project: []const u8, project_id: i64) !Task {
     const by_index = try fetchTaskOptional(context, "unique_index", identifier, project);
     const by_id = try fetchTaskOptional(context, "task_id", identifier, null);

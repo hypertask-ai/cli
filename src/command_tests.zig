@@ -77,6 +77,48 @@ fn expectDispatchErrorWithResponses(argv: []const []const u8, responses: []const
     try std.testing.expectError(expected, router.dispatch(&context));
 }
 
+fn expectRefusedWrite(argv: []const []const u8, responses: []const []const u8) !void {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var parsed = try args.parse(allocator, argv);
+    defer parsed.deinit();
+    var cfg = config.Config{ .allocator = allocator, .token = "test-token" };
+    defer cfg.deinit();
+    var recorder = command_context.RequestRecorder.init(allocator);
+    defer recorder.deinit();
+    recorder.responses = responses;
+    var client = std.http.Client{ .allocator = allocator };
+    defer client.deinit();
+    const context = command_context.Context{
+        .client = &client,
+        .allocator = allocator,
+        .args = &parsed,
+        .cfg = &cfg,
+        .json = true,
+        .request_recorder = &recorder,
+    };
+
+    try std.testing.expectError(error.AmbiguousTaskIdentifier, router.dispatch(&context));
+    try std.testing.expectEqual(@as(usize, 1), recorder.responses_index);
+    try std.testing.expectEqual(std.http.Method.GET, recorder.method.?);
+    try std.testing.expectEqualStrings("/mcp/tasks?task_id=1172", recorder.path.?);
+}
+
+test "a write refuses a bare task id without a project" {
+    const resolved = "{\"success\":true,\"tasks\":[{\"id\":1172,\"projectId\":15,\"ticketNumber\":\"HTPR-481\",\"boardTitle\":\"Hypertask\"}]}";
+    try expectRefusedWrite(&.{ "activity", "add", "1172", "--text", "note" }, &.{resolved});
+    try expectRefusedWrite(&.{ "comment", "add", "1172", "--text", "note" }, &.{resolved});
+    try expectRefusedWrite(&.{ "task", "update", "1172", "--title", "x" }, &.{resolved});
+    try expectRequest(
+        &.{ "comment", "add", "id:1172", "--text", "note" },
+        .POST,
+        "/mcp/comments",
+        "{\"task_id\":1172,\"text\":\"<p>note</p>\"}",
+    );
+}
+
 test "board reads take the board as a flag or positionally, never two answers" {
     try expectRequest(&.{ "project", "sections", "15", "--project", "15" }, .GET, "/mcp/projects/15/sections", null);
     try expectDispatchError(error.InvalidOptions, &.{ "project", "sections", "15", "--project", "16" });
@@ -490,12 +532,11 @@ test "task get distinguishes internal ids from project ticket indexes" {
         null,
     );
     try expectRequestCountWithResponses(
-        &.{ "comment", "add", "6162", "--text", "hi" },
+        &.{ "comment", "add", "id:6162", "--text", "hi" },
         &.{
-            "{\"success\":true,\"tasks\":[{\"id\":6162,\"projectId\":15,\"ticketNumber\":\"HTPR-8082\",\"boardTitle\":\"Hypertask\"}]}",
             "{\"success\":true,\"comments\":[]}",
         },
-        2,
+        1,
         .POST,
         "/mcp/comments",
         "{\"task_id\":6162,\"text\":\"<p>hi</p>\"}",
