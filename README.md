@@ -434,3 +434,14 @@ python3 scripts/parity_test.py --write --token "$HYPERTASKS_JWT_TOKEN"
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for bug reports, ideas, and our contribution policy.
+
+### Blockers
+
+`hypertask blockers` lists blockers waiting on the authenticated user. It is an alias for `hypertask inbox list --waiting-on me`. Use `--user <me|user-id>` to select a user (`--waiting-on` is also accepted), repeat `--project <id>` to filter boards, and use `--state waiting|answered|no-question` to filter by state.
+
+JSON is returned unchanged by default (or with `--json`). Use `--human` for a compact tab-separated table, including when piped. Question and recommendation text is shortened; links remain complete. Use JSON for full text and all fields.
+
+```bash
+hypertask blockers --project 15 --project 16 --state waiting --human
+hypertask inbox list --waiting-on 42 --json
+```

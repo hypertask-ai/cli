@@ -2404,3 +2404,42 @@ test "restored catalog options reach existing request builders" {
         "{\"name\":\"Skill\",\"enabled\":true}",
     );
 }
+
+test "blockers alias and inbox filters request the blockers endpoint" {
+    try expectRequest(&.{"blockers"}, .GET, "/mcp/inbox/blockers?user=me", null);
+    try expectRequest(&.{ "blockers", "--user", "me" }, .GET, "/mcp/inbox/blockers?user=me", null);
+    try expectRequest(&.{ "blockers", "--user", "42", "--project", "15", "--project", "16" }, .GET, "/mcp/inbox/blockers?user=42&projectId=15&projectId=16", null);
+    try expectRequest(&.{ "inbox", "list", "--user", "42" }, .GET, "/mcp/inbox/blockers?user=42", null);
+    try expectRequest(&.{ "inbox", "list", "--waiting-on", "me" }, .GET, "/mcp/inbox/blockers?user=me", null);
+    try expectRequest(&.{ "blockers", "--waiting-on", "42", "--project", "15", "--project", "16", "--state", "no-question" }, .GET, "/mcp/inbox/blockers?user=42&projectId=15&projectId=16&state=no-question", null);
+    try expectRequest(&.{ "inbox", "list", "--waiting-on", "42", "--project", "15", "--project", "16", "--state", "answered" }, .GET, "/mcp/inbox/blockers?user=42&projectId=15&projectId=16&state=answered", null);
+}
+
+test "blockers reject invalid filters before requesting" {
+    try expectDispatchError(error.InvalidInteger, &.{ "blockers", "--user", "bad" });
+    try expectDispatchError(error.InvalidInteger, &.{ "blockers", "--user", "0" });
+    try expectDispatchError(error.InvalidOptions, &.{ "blockers", "--user", "me", "--user", "42" });
+    try expectDispatchError(error.InvalidOptions, &.{ "blockers", "--user", "me", "--waiting-on", "42" });
+    try expectDispatchError(error.InvalidOptions, &.{ "inbox", "list", "--user", "me", "--waiting-on", "42" });
+    try expectDispatchError(error.InvalidOptions, &.{ "blockers", "--waiting-on", "me", "--waiting-on", "42" });
+    try expectDispatchError(error.InvalidOptions, &.{ "blockers", "--state", "waiting", "--state", "answered" });
+    try expectDispatchErrorAfterRequests(&.{ "blockers", "--waiting-on", "0" }, &.{}, error.InvalidInteger, 0, null, null);
+    try expectDispatchErrorAfterRequests(&.{ "blockers", "--waiting-on", "+1" }, &.{}, error.InvalidInteger, 0, null, null);
+    try expectDispatchErrorAfterRequests(&.{ "blockers", "--project", "15", "--project", "bad" }, &.{}, error.InvalidInteger, 0, null, null);
+    try expectDispatchErrorAfterRequests(&.{ "blockers", "--state", "invalid" }, &.{}, error.InvalidOptions, 0, null, null);
+    try expectDispatchErrorAfterRequests(&.{ "inbox", "list", "--project", "15" }, &.{}, error.InvalidOptions, 0, null, null);
+}
+
+test "blockers commands are listed and accept their filters" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    for ([_][]const []const u8{
+        &.{ "blockers", "--user", "me", "--project", "15", "--state", "waiting" },
+        &.{ "inbox", "list", "--waiting-on", "me", "--project", "15" },
+    }) |argv| {
+        var parsed = try args.parse(arena.allocator(), argv);
+        defer parsed.deinit();
+        try router.validateCommandPath(arena.allocator(), parsed.positional, true);
+        try @import("option_validate.zig").rejectUnknownOptions(arena.allocator(), &parsed);
+    }
+}

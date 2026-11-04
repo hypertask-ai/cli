@@ -72,6 +72,8 @@ class Handler(BaseHTTPRequestHandler):
         "boardsTotal": 1,
     })
     login_authorization = None
+    blockers_failure = False
+    blocker_rows = [{"id": i, "ticketNumber": f"HTPR-{i}", "url": f"https://example.com/{i}", "title": "Title", "projectId": 15, "boardTitle": "Board", "section": "Doing", "priority": "High", "waitingSince": "2020-01-01T00:00:00.000Z", "blockerCommentId": i + 10, "question": "Question " * 30, "recommendation": "Recommendation " * 20, "state": "waiting"} for i in range(1, 31)]
 
     def do_GET(self) -> None:
         self.handle_request()
@@ -97,6 +99,10 @@ class Handler(BaseHTTPRequestHandler):
         if route == ("GET", "/mcp/hello"):
             Handler.login_authorization = self.headers.get("Authorization")
             self.respond(Handler.login_status, Handler.login_body)
+            return
+        if route == ("GET", "/mcp/inbox/blockers"):
+            body = {"success": False, "error": "Unavailable"} if Handler.blockers_failure else {"success": True, "blockers": Handler.blocker_rows, "total": len(Handler.blocker_rows)}
+            self.respond(200, json.dumps(body))
             return
         if route == ("GET", "/mcp/inbox/list"):
             self.respond(200, json.dumps({
@@ -322,6 +328,22 @@ def main() -> None:
 
     try:
         with tempfile.TemporaryDirectory() as home:
+            result = run(binary, token, api_url, home, "blockers", "--user", "42", "--project", "15", "--project", "16")
+            expect(result.returncode == 0, result)
+            expect(json.loads(result.stdout) == {"success": True, "blockers": Handler.blocker_rows, "total": 30}, result.stdout)
+            human = run(binary, token, api_url, home, "inbox", "list", "--waiting-on", "me", "--human")
+            expect(human.returncode == 0, human)
+            lines = human.stdout.splitlines()
+            expect(len(lines) == 31, human.stdout)
+            fields = lines[0].split("\t")
+            first = dict(zip(fields, lines[1].split("\t")))
+            for key, value in {"ticket": "HTPR-1", "state": "waiting", "boardTitle": "Board", "section": "Doing", "priority": "High", "waitingSince": "2020-01-01T00:00:00.000Z", "url": "https://example.com/1"}.items():
+                expect(first[key] == value, first)
+            expect(first["question"].startswith("Question ") and first["recommendation"].startswith("Recommendation ") and "d " in first["age"], first)
+            Handler.blockers_failure = True
+            failed = run(binary, token, api_url, home, "blockers", "--human")
+            expect(failed.returncode != 0 and json.loads(failed.stdout)["success"] is False, failed)
+            Handler.blockers_failure = False
             expect_command(
                 binary, token, api_url, home,
                 ("status",), "status.json", 0, None,
