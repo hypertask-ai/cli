@@ -20,6 +20,8 @@ JSON is the default output. Pass `--human` for the minimal human-readable mode.
 
 `hypertask label` is the same command as `hypertask labels`, like every other root that accepts both forms, so `hypertask label list --project 15` prints JSON instead of an unknown-command list.
 
+`hypertask ticket` is the same command as `hypertask task`, so `hypertask ticket get HTPR-1` reads a ticket instead of answering `unknown command: ticket` with the whole command list.
+
 `hypertask task view` is an alias for `hypertask task get`, next to `task show`. A wrong command is answered as a command: `hypertask task lst HTPR-1 --project 15` prints `unknown command: lst`, the commands that do exist, and `did you mean: list`, instead of blaming the flag that followed it.
 
 A guess from the wrong command says where the work lives: `hypertask task comments 44` prints `unknown command: comments`, the commands that do exist, and `a ticket's comments are read with: hypertask comment list <ticket>`.
@@ -41,6 +43,7 @@ Scripts may use the exit code category, while people and agents should follow th
 
 ## Release notes: native 0.2.45
 
+- `hypertask ticket` is the same command as `hypertask task`, so `hypertask ticket get HTPR-1`, `hypertask ticket list --project 15` and `hypertask help ticket get` work the way an agent that says "ticket" expects instead of answering `unknown command: ticket` with the whole command list (HTPR-8503).
 - `hypertask help <command path>` prints that command's own page, the same page as `<command path> --help`, so a help request no longer answers `unknown command: feedback` with `valid commands: features`. `hypertask help` with no topic prints the top-level page, which now ends with the list of commands (HTPR-8495).
 
 ## Release notes: native 0.2.43
