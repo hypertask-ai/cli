@@ -188,6 +188,7 @@ fn get(context: *const Context) !void {
     var path = try query.Builder.init(context.allocator, "/mcp/tasks");
     defer path.deinit();
     try addIdentifierQuery(&path, context, identifier);
+    if (context.args.get("fields")) |fields| try path.add("fields", fields);
     // A bare number without --project is an internal id on any board (HTPR-8423),
     // so name the ticket and board this read landed on, or the flags that reach
     // the ticket number it probably was (HTPR-8288).

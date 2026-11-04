@@ -531,6 +531,12 @@ test "task get distinguishes internal ids from project ticket indexes" {
         "/mcp/tasks?task_id=6162",
         null,
     );
+    try expectRequest(
+        &.{ "tasks", "get", "htpr-5661", "--fields", "title,section" },
+        .GET,
+        "/mcp/tasks?ticket_number=HTPR-5661&fields=title%2Csection",
+        null,
+    );
     try expectRequestCountWithResponses(
         &.{ "comment", "add", "id:6162", "--text", "hi" },
         &.{
