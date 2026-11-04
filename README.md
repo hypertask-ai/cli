@@ -299,7 +299,7 @@ Runners: after handling an answer, run `vcc task waiting-on <ticket> --user none
 Board reads take the board as `--project <id>`, the same as the task commands, or as the positional id: `project manifest`, `project members`, `project sections`, `project labels`, `project playbook`, and `project instructions` all accept both. Naming a different board twice is an error, and naming none is an error.
 
 
-Task identifiers come in three forms:
+Task identifiers come in four forms:
 
 - `HTPR-5726` is the full ticket number and works anywhere.
 - A bare `37799` is the internal task `id` from `tasks list` / JSON (`id: 37799`).
@@ -307,6 +307,10 @@ Task identifiers come in three forms:
   board is visible instead of silent.
   With `--project`, the CLI also tries that number as the board index (`uniqueIndex`)
   and refuses to guess when both forms point at different tasks.
+- `https://app.hypertask.ai/detail/project-15/5726` is a ticket link copied from the
+  app. The board and the ticket number are read from the link, so a link pasted into
+  any command that takes a ticket works like `5726 --project 15`. A `--project` that
+  names a different board is an error.
 - `id:37799` forces the internal task id.
 
 Board-wide unassign:
