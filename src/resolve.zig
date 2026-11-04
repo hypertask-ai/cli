@@ -39,6 +39,30 @@ pub fn normalizedTicket(allocator: std.mem.Allocator, value: []const u8) ![]u8 {
     return result;
 }
 
+pub const TicketLink = struct {
+    project: []const u8,
+    number: []const u8,
+};
+
+/// A ticket link copied from the app, such as
+/// https://app.hypertask.ai/detail/project-15/8341. The board and the ticket
+/// number are the two path segments after /detail/.
+pub fn ticketLink(value: []const u8) ?TicketLink {
+    const marker = "/detail/";
+    const start = (std.mem.indexOf(u8, value, marker) orelse return null) + marker.len;
+    var path = value[start..];
+    if (std.mem.indexOfAny(u8, path, "?#")) |end| path = path[0..end];
+    const slash = std.mem.indexOfScalar(u8, path, '/') orelse return null;
+    const board = path[0..slash];
+    const tail = path[slash + 1 ..];
+    const number = if (std.mem.indexOfScalar(u8, tail, '/')) |end| tail[0..end] else tail;
+    if (!isNumeric(number)) return null;
+    const dash = std.mem.indexOfScalar(u8, board, '-') orelse return null;
+    if (dash == 0 or !isNumeric(board[dash + 1 ..])) return null;
+    for (board[0..dash]) |byte| if (!std.ascii.isAlphabetic(byte)) return null;
+    return .{ .project = board[dash + 1 ..], .number = number };
+}
+
 const IdentifierSink = union(enum) {
     query: *query_mod.Builder,
     body: *json.Object,
@@ -76,6 +100,13 @@ pub fn addTaskIdentifierBodyForProject(body: *json.Object, allocator: std.mem.Al
 }
 
 fn addTaskIdentifier(sink: IdentifierSink, allocator: std.mem.Allocator, identifier: []const u8, project: ?[]const u8) !void {
+    if (ticketLink(identifier)) |link| {
+        if (project) |project_id| {
+            if (!std.mem.eql(u8, project_id, link.project)) return error.InvalidOptions;
+        }
+        try sink.integer("unique_index", link.number, "ticket");
+        return sink.integer("project_id", link.project, "project");
+    }
     if (internalId(identifier)) |task_id| return sink.integer("task_id", task_id, "task-id");
     if (isNumeric(identifier)) {
         const label = if (sink == .body and project != null) "ticket" else "task-id";
@@ -95,6 +126,12 @@ fn addTaskIdentifier(sink: IdentifierSink, allocator: std.mem.Allocator, identif
 /// the list `id`, and name the ticket and board they landed on. With --project,
 /// unique_index and task_id are both read; a collision or project mismatch fails closed.
 pub fn task(context: *const Context, identifier: []const u8) !Task {
+    if (ticketLink(identifier)) |link| {
+        if (context.args.get("project")) |project| {
+            if (!std.mem.eql(u8, project, link.project)) return error.InvalidOptions;
+        }
+        return resolveBareWithProject(context, link.number, link.project, try common.positiveInt(link.project, "project"));
+    }
     if (internalId(identifier)) |task_id| return fetchTaskRequired(context, "task_id", task_id, null);
     if (isNumeric(identifier)) {
         _ = try common.positiveInt(identifier, "task-id");
@@ -332,6 +369,48 @@ test "task identifier helpers normalize tickets and accept bare list ids" {
 
     try std.testing.expectError(error.InvalidTicket, normalizedTicket(std.testing.allocator, "not-a-ticket"));
     try std.testing.expectError(error.InvalidTicket, normalizedTicket(std.testing.allocator, "123-4"));
+}
+
+test "a ticket link resolves like a ticket key" {
+    const link = ticketLink("https://app.hypertask.ai/detail/project-15/8341").?;
+    try std.testing.expectEqualStrings("15", link.project);
+    try std.testing.expectEqualStrings("8341", link.number);
+
+    const bare = ticketLink("/detail/project-15/8341#comment-77").?;
+    try std.testing.expectEqualStrings("15", bare.project);
+    try std.testing.expectEqualStrings("8341", bare.number);
+
+    const deep = ticketLink("https://app.hypertask.ai/detail/project-4060/12/comments?tab=all").?;
+    try std.testing.expectEqualStrings("4060", deep.project);
+    try std.testing.expectEqualStrings("12", deep.number);
+
+    try std.testing.expect(ticketLink("HTPR-8341") == null);
+    try std.testing.expect(ticketLink("id:8341") == null);
+    try std.testing.expect(ticketLink("/detail/project/8341") == null);
+    try std.testing.expect(ticketLink("/detail/project-15/notanumber") == null);
+    try std.testing.expect(ticketLink("/detail/-15/8341") == null);
+
+    var link_path = try query_mod.Builder.init(std.testing.allocator, "/mcp/comments");
+    defer link_path.deinit();
+    try addTaskIdentifierQuery(&link_path, std.testing.allocator, "https://app.hypertask.ai/detail/project-15/8341");
+    try std.testing.expectEqualStrings("/mcp/comments?unique_index=8341&project_id=15", link_path.path());
+
+    var link_body = try json.Object.init(std.testing.allocator);
+    defer link_body.deinit();
+    try addTaskIdentifierBody(&link_body, std.testing.allocator, "https://app.hypertask.ai/detail/project-15/8341");
+    try std.testing.expectEqualStrings("{\"unique_index\":8341,\"project_id\":15}", try link_body.finish());
+
+    var same_project = try query_mod.Builder.init(std.testing.allocator, "/mcp/comments");
+    defer same_project.deinit();
+    try addTaskIdentifierQueryForProject(&same_project, std.testing.allocator, "https://app.hypertask.ai/detail/project-15/8341", "15");
+    try std.testing.expectEqualStrings("/mcp/comments?unique_index=8341&project_id=15", same_project.path());
+
+    var other_project = try query_mod.Builder.init(std.testing.allocator, "/mcp/comments");
+    defer other_project.deinit();
+    try std.testing.expectError(
+        error.InvalidOptions,
+        addTaskIdentifierQueryForProject(&other_project, std.testing.allocator, "https://app.hypertask.ai/detail/project-15/8341", "4060"),
+    );
 }
 
 test "colliding bare identifiers refuse to guess" {
