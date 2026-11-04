@@ -52,6 +52,17 @@ fn expectDispatchError(expected: anyerror, argv: []const []const u8) !void {
 }
 
 fn expectDispatchErrorWithResponses(argv: []const []const u8, responses: []const []const u8, expected: anyerror) !void {
+    return expectDispatchErrorAfterRequests(argv, responses, expected, null, null, null);
+}
+
+fn expectDispatchErrorAfterRequests(
+    argv: []const []const u8,
+    responses: []const []const u8,
+    expected: anyerror,
+    expected_count: ?usize,
+    method: ?std.http.Method,
+    path: ?[]const u8,
+) !void {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -75,6 +86,9 @@ fn expectDispatchErrorWithResponses(argv: []const []const u8, responses: []const
     };
 
     try std.testing.expectError(expected, router.dispatch(&context));
+    if (expected_count) |count| try std.testing.expectEqual(count, recorder.responses_index);
+    if (method) |expected_method| try std.testing.expectEqual(expected_method, recorder.method.?);
+    if (path) |expected_path| try std.testing.expectEqualStrings(expected_path, recorder.path.?);
 }
 
 fn expectRefusedWrite(argv: []const []const u8, responses: []const []const u8) !void {
@@ -1270,6 +1284,119 @@ test "task assign --assignee <agent-uuid> fails when the response shows a differ
         &.{ "task", "assign", "HTPR-6136", "--assignee", "agent-1" },
         &.{"{\"assignees\":[{\"userId\":6,\"agent\":{\"id\":\"agent-2\"}}]}"},
         error.AssigneeNotConfirmed,
+    );
+}
+
+test "task assign --agent <display name> resolves the agent id on the ticket's board" {
+    // HTPR-8538: an agent knows its own display name, not its uuid, and the
+    // assign route only reads agent_id. One members read turns the name into
+    // the id before the single write.
+    try expectRequestCountWithResponses(
+        &.{ "task", "assign", "HTPR-6136", "--agent", "Runner 3" },
+        &.{
+            "{\"tasks\":[{\"id\":38870,\"projectId\":15,\"ticketNumber\":\"HTPR-6136\"}]}",
+            "{\"success\":true,\"members\":[{\"id\":6,\"displayName\":\"Valentin Yeo\"},{\"id\":\"agent-1\",\"displayName\":\"Runner 3\"}]}",
+            "{\"assignees\":[{\"userId\":6,\"agent\":{\"id\":\"agent-1\"}}]}",
+        },
+        3,
+        .POST,
+        "/mcp/assignees/assign",
+        "{\"ticket_number\":\"HTPR-6136\",\"agent_id\":\"agent-1\",\"intent\":\"assign\"}",
+    );
+}
+
+test "task unassign --agent <display name> resolves the agent id and verifies the row is gone" {
+    try expectRequestCountWithResponses(
+        &.{ "task", "unassign", "HTPR-6136", "--agent", "Runner 3" },
+        &.{
+            "{\"tasks\":[{\"id\":38870,\"projectId\":15,\"ticketNumber\":\"HTPR-6136\"}]}",
+            "{\"success\":true,\"members\":[{\"id\":\"agent-1\",\"displayName\":\"Runner 3\"}]}",
+            "{\"assignees\":[{\"userId\":6}]}",
+        },
+        3,
+        .POST,
+        "/mcp/assignees/assign",
+        "{\"ticket_number\":\"HTPR-6136\",\"agent_id\":\"agent-1\",\"intent\":\"unassign\"}",
+    );
+}
+
+test "task assign --agent me is the --self request and reads no member list" {
+    try expectRequest(
+        &.{ "task", "assign", "HTPR-6136", "--agent", "me" },
+        .POST,
+        "/mcp/assignees/assign",
+        "{\"ticket_number\":\"HTPR-6136\",\"assign_self\":true,\"intent\":\"assign\"}",
+    );
+}
+
+test "task assign --agent <uuid> sends the id without a member read" {
+    try expectRequestWithResponses(
+        &.{ "task", "assign", "HTPR-6136", "--agent", "7e72ef7c-26b7-45a3-b189-9482ed0ead59" },
+        &.{"{\"assignees\":[{\"userId\":6,\"agent\":{\"id\":\"7e72ef7c-26b7-45a3-b189-9482ed0ead59\"}}]}"},
+        .POST,
+        "/mcp/assignees/assign",
+        "{\"ticket_number\":\"HTPR-6136\",\"agent_id\":\"7e72ef7c-26b7-45a3-b189-9482ed0ead59\",\"intent\":\"assign\"}",
+    );
+}
+
+test "task assign --agent refuses an unknown name before any write" {
+    try expectDispatchErrorAfterRequests(
+        &.{ "task", "assign", "HTPR-6136", "--agent", "No Such Agent" },
+        &.{
+            "{\"tasks\":[{\"id\":38870,\"projectId\":15,\"ticketNumber\":\"HTPR-6136\"}]}",
+            "{\"success\":true,\"members\":[{\"id\":\"agent-1\",\"displayName\":\"Runner 3\"}]}",
+        },
+        error.InvalidOptions,
+        2,
+        .GET,
+        "/mcp/projects/15/members",
+    );
+}
+
+test "task assign --agent refuses two agents with the same name before any write" {
+    try expectDispatchErrorAfterRequests(
+        &.{ "task", "assign", "HTPR-6136", "--agent", "Runner 3" },
+        &.{
+            "{\"tasks\":[{\"id\":38870,\"projectId\":15,\"ticketNumber\":\"HTPR-6136\"}]}",
+            "{\"success\":true,\"members\":[{\"id\":\"agent-1\",\"displayName\":\"Runner 3\"},{\"id\":\"agent-2\",\"displayName\":\"runner 3\"}]}",
+        },
+        error.InvalidOptions,
+        2,
+        .GET,
+        "/mcp/projects/15/members",
+    );
+}
+
+test "task assign --agent never sends a person's name as an agent id" {
+    try expectDispatchErrorAfterRequests(
+        &.{ "task", "assign", "HTPR-6136", "--agent", "Valentin Yeo" },
+        &.{
+            "{\"tasks\":[{\"id\":38870,\"projectId\":15,\"ticketNumber\":\"HTPR-6136\"}]}",
+            "{\"success\":true,\"members\":[{\"id\":6,\"displayName\":\"Valentin Yeo\"},{\"id\":\"agent-1\",\"displayName\":\"Runner 3\"}]}",
+        },
+        error.InvalidOptions,
+        2,
+        .GET,
+        "/mcp/projects/15/members",
+    );
+}
+
+test "task assign --agent refuses a numeric id and both agent flags together" {
+    try expectDispatchErrorAfterRequests(
+        &.{ "task", "assign", "HTPR-6136", "--agent", "6" },
+        &.{},
+        error.InvalidOptions,
+        0,
+        null,
+        null,
+    );
+    try expectDispatchErrorAfterRequests(
+        &.{ "task", "assign", "HTPR-6136", "--agent", "Runner 3", "--assignee", "6" },
+        &.{},
+        error.InvalidOptions,
+        0,
+        null,
+        null,
     );
 }
 

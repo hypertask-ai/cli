@@ -414,8 +414,10 @@ fn update(context: *const Context) !void {
 fn assign(context: *const Context, intent: []const u8) !void {
     const self_flag = context.args.has("self");
     const assignee = context.args.get("assignee");
+    const agent = context.args.get("agent");
     if (self_flag and assignee != null) return output.invalidOptions("Error: use either --self or --assignee, not both");
-    if (!self_flag and assignee == null) return output.invalidOptions("Error: provide --assignee <id> or --self");
+    if (agent != null and (self_flag or assignee != null)) return output.invalidOptions("Error: use one of --agent, --assignee or --self");
+    if (!self_flag and assignee == null and agent == null) return output.invalidOptions("Error: provide --agent <name|id>, --assignee <id> or --self");
     if (context.args.has("all")) {
         if (!std.mem.eql(u8, intent, "unassign")) return output.invalidOptions("Error: --all is only valid for tasks unassign");
         if (context.args.positionalAt(2) != null) return output.invalidOptions("Error: --all cannot be combined with a ticket argument");
@@ -423,17 +425,19 @@ fn assign(context: *const Context, intent: []const u8) !void {
         return unassignAll(context);
     }
     const identifier = try context.args.requirePositional(2, "ticket-or-task-id");
-    if (!self_flag and std.mem.eql(u8, intent, "unassign") and resolve.isNumeric(assignee.?)) {
+    const self_request = self_flag or (agent != null and agentNamesSelf(agent.?));
+    if (!self_request and std.mem.eql(u8, intent, "unassign") and assignee != null and resolve.isNumeric(assignee.?)) {
         return unassignById(context, identifier, assignee.?);
     }
+    const target: ?[]const u8 = if (self_request) null else if (assignee) |value| value else try resolveAgentTarget(context, identifier, agent.?);
     var body = try identifierBody(context, identifier, null);
     defer body.deinit();
-    if (self_flag) {
+    if (self_request) {
         try body.boolean("assign_self", true);
-    } else if (resolve.isNumeric(assignee.?)) {
-        try body.integer("user_id", try common.positiveInt(assignee.?, "assignee"));
+    } else if (assignee != null and resolve.isNumeric(target.?)) {
+        try body.integer("user_id", try common.positiveInt(target.?, "assignee"));
     } else {
-        try body.string("agent_id", assignee.?);
+        try body.string("agent_id", target.?);
     }
     try body.string("intent", intent);
     var response = try context.fetch(.POST, "/mcp/assignees/assign", try body.finish());
@@ -443,17 +447,85 @@ fn assign(context: *const Context, intent: []const u8) !void {
     // in the resulting assignees, so a wrong or stuck attachment cannot pass
     // silently (the response's top-level `agent` field is the calling session,
     // not the assignee, and must never be read as one).
-    if (!self_flag and assignee != null and !resolve.isNumeric(assignee.?)) {
+    if (target != null and !resolve.isNumeric(target.?)) {
         var arena = std.heap.ArenaAllocator.init(context.allocator);
         defer arena.deinit();
-        const present = agentInAssignees(arena.allocator(), response.body, assignee.?);
+        const present = agentInAssignees(arena.allocator(), response.body, target.?);
         if (std.mem.eql(u8, intent, "assign")) {
-            if (present != true) return unconfirmedAgent(assignee.?);
+            if (present != true) return unconfirmedAgent(target.?);
         } else {
-            if (present == true) return stuckAssigneeAgent(assignee.?);
+            if (present == true) return stuckAssigneeAgent(target.?);
         }
     }
     try context.print(response.body);
+}
+
+/// HTPR-8538: `--agent` takes the agent the caller names, which is usually its
+/// own display name: an agent knows "Runner 3", not its uuid. `me` and `self`
+/// are the calling session, the same request `--self` sends.
+fn agentNamesSelf(value: []const u8) bool {
+    return std.ascii.eqlIgnoreCase(value, "me") or std.ascii.eqlIgnoreCase(value, "self");
+}
+
+fn resolveAgentTarget(context: *const Context, identifier: []const u8, value: []const u8) ![]const u8 {
+    if (resolve.isNumeric(value)) return output.invalidOptions("Error: --agent names an agent, not a person; use --assignee <id> for a person");
+    if (isAgentId(value)) return value;
+    const task = try resolve.task(context, identifier);
+    return resolveAgentName(context, context.allocator, task.project_id, value);
+}
+
+fn isAgentId(value: []const u8) bool {
+    if (value.len != 36) return false;
+    for (value, 0..) |byte, index| {
+        const dash = index == 8 or index == 13 or index == 18 or index == 23;
+        if (dash) {
+            if (byte != '-') return false;
+        } else if (!std.ascii.isHex(byte)) return false;
+    }
+    return true;
+}
+
+/// One exact agent name on the ticket's own board resolves to its agent id. An
+/// unknown, duplicated or person name is refused before any write, because the
+/// assign route cannot tell the caller which one it meant.
+fn resolveAgentName(context: *const Context, allocator: std.mem.Allocator, project_id: i64, name: []const u8) ![]const u8 {
+    const path = try std.fmt.allocPrint(allocator, "/mcp/projects/{d}/members", .{project_id});
+    var response = try context.fetch(.GET, path, null);
+    defer response.deinit();
+    if (!response.isSuccess()) {
+        try context.finish(&response);
+        return error.CommandFailed;
+    }
+
+    const document = std.json.parseFromSliceLeaky(std.json.Value, allocator, response.body, .{}) catch return error.InvalidResponse;
+    if (document != .object) return error.InvalidResponse;
+    const members = document.object.get("members") orelse return error.InvalidResponse;
+    if (members != .array) return error.InvalidResponse;
+
+    var matches: std.ArrayListUnmanaged([]const u8) = .{};
+    var person: ?i64 = null;
+    for (members.array.items) |row| {
+        if (row != .object) continue;
+        const display_name = row.object.get("displayName") orelse continue;
+        if (display_name != .string or !std.ascii.eqlIgnoreCase(display_name.string, name)) continue;
+        const id = row.object.get("id") orelse continue;
+        switch (id) {
+            .string => |agent_id| try matches.append(allocator, agent_id),
+            .integer => |user_id| person = user_id,
+            else => {},
+        }
+    }
+    if (matches.items.len == 1) return matches.items[0];
+    if (matches.items.len > 1) {
+        var ids: std.ArrayListUnmanaged(u8) = .{};
+        for (matches.items, 0..) |agent_id, index| {
+            if (index != 0) try ids.appendSlice(allocator, ", ");
+            try ids.appendSlice(allocator, agent_id);
+        }
+        return output.invalidOptions(try std.fmt.allocPrint(allocator, "Error: {d} agents on this board are named \"{s}\": {s}. Pass the agent id: --agent <id>", .{ matches.items.len, name, ids.items }));
+    }
+    if (person) |user_id| return output.invalidOptions(try std.fmt.allocPrint(allocator, "Error: \"{s}\" is a person on this board (user {d}); assign a person with --assignee {d}", .{ name, user_id, user_id }));
+    return output.invalidOptions(try std.fmt.allocPrint(allocator, "Error: no agent named \"{s}\" on this board. `hypertask project members {d}` lists the agents and their ids", .{ name, project_id }));
 }
 
 fn unassignById(context: *const Context, identifier: []const u8, user_id_text: []const u8) !void {
