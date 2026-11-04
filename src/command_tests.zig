@@ -2406,13 +2406,13 @@ test "restored catalog options reach existing request builders" {
 }
 
 test "blockers alias and inbox filters request the blockers endpoint" {
-    try expectRequest(&.{"blockers"}, .GET, "/mcp/inbox/blockers?user=me", null);
-    try expectRequest(&.{ "blockers", "--user", "me" }, .GET, "/mcp/inbox/blockers?user=me", null);
-    try expectRequest(&.{ "blockers", "--user", "42", "--project", "15", "--project", "16" }, .GET, "/mcp/inbox/blockers?user=42&projectId=15&projectId=16", null);
-    try expectRequest(&.{ "inbox", "list", "--user", "42" }, .GET, "/mcp/inbox/blockers?user=42", null);
-    try expectRequest(&.{ "inbox", "list", "--waiting-on", "me" }, .GET, "/mcp/inbox/blockers?user=me", null);
-    try expectRequest(&.{ "blockers", "--waiting-on", "42", "--project", "15", "--project", "16", "--state", "no-question" }, .GET, "/mcp/inbox/blockers?user=42&projectId=15&projectId=16&state=no-question", null);
-    try expectRequest(&.{ "inbox", "list", "--waiting-on", "42", "--project", "15", "--project", "16", "--state", "answered" }, .GET, "/mcp/inbox/blockers?user=42&projectId=15&projectId=16&state=answered", null);
+    try expectRequest(&.{"blockers"}, .GET, "/mcp/inbox/list?waiting_on=me", null);
+    try expectRequest(&.{ "blockers", "--user", "me" }, .GET, "/mcp/inbox/list?waiting_on=me", null);
+    try expectRequest(&.{ "blockers", "--user", "42", "--project", "15", "--project", "16" }, .GET, "/mcp/inbox/list?waiting_on=42&projectId=15&projectId=16", null);
+    try expectRequest(&.{ "inbox", "list", "--user", "42" }, .GET, "/mcp/inbox/list?waiting_on=42", null);
+    try expectRequest(&.{ "inbox", "list", "--waiting-on", "me" }, .GET, "/mcp/inbox/list?waiting_on=me", null);
+    try expectRequest(&.{ "blockers", "--waiting-on", "42", "--project", "15", "--project", "16", "--state", "no-question" }, .GET, "/mcp/inbox/list?waiting_on=42&projectId=15&projectId=16&state=no-question", null);
+    try expectRequest(&.{ "inbox", "list", "--waiting-on", "42", "--project", "15", "--project", "16", "--state", "answered" }, .GET, "/mcp/inbox/list?waiting_on=42&projectId=15&projectId=16&state=answered", null);
 }
 
 test "blockers reject invalid filters before requesting" {

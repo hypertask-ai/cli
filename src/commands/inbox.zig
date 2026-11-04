@@ -52,9 +52,9 @@ pub fn blockers(context: *const Context) !void {
         }
     }
 
-    var path = try query.Builder.init(context.allocator, "/mcp/inbox/blockers");
+    var path = try query.Builder.init(context.allocator, "/mcp/inbox/list");
     defer path.deinit();
-    try path.add("user", context.args.get("user") orelse context.args.get("waiting-on") orelse "me");
+    try path.add("waiting_on", context.args.get("user") orelse context.args.get("waiting-on") orelse "me");
     for (projects) |project| try path.add("projectId", project);
     if (context.args.get("state")) |state| try path.add("state", state);
 

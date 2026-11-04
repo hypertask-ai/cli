@@ -100,7 +100,7 @@ class Handler(BaseHTTPRequestHandler):
             Handler.login_authorization = self.headers.get("Authorization")
             self.respond(Handler.login_status, Handler.login_body)
             return
-        if route == ("GET", "/mcp/inbox/blockers"):
+        if route == ("GET", "/mcp/inbox/list") and "waiting_on" in request["query"]:
             body = {"success": False, "error": "Unavailable"} if Handler.blockers_failure else {"success": True, "blockers": Handler.blocker_rows, "total": len(Handler.blocker_rows)}
             self.respond(200, json.dumps(body))
             return
