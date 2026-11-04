@@ -51,6 +51,7 @@ fn list(context: *const Context) !void {
     };
     for (mappings) |mapping| if (context.args.get(mapping[0])) |value| try path.add(mapping[1], value);
     for (try common.optionList(context, "assigned-to")) |value| try path.add("assigned_to", value);
+    for (try common.optionList(context, "assignee")) |value| try path.add("assigned_to", value);
     if (context.args.get("section")) |value| {
         if (context.args.get("project") == null) return error.MissingOption;
         try path.add("section", value);
