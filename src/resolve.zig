@@ -17,6 +17,16 @@ pub fn isNumeric(value: []const u8) bool {
     return true;
 }
 
+/// A task named as the positional or as `--task`, so one command shape reaches
+/// the ticket either way (HTPR-8509). The positional wins when both are given,
+/// as `comment list` has always done.
+pub fn identifierArgument(context: *const Context, index: usize) ![]const u8 {
+    if (context.args.positionalAt(index)) |positional| return positional;
+    if (context.args.get("task")) |flag| return flag;
+    std.debug.print("required argument: ticket-or-task-id (or --task <id-or-ticket>)\n", .{});
+    return error.MissingArgument;
+}
+
 pub const internal_id_prefix = "id:";
 
 /// An explicit internal task id, as printed in JSON output: `id:37799`.

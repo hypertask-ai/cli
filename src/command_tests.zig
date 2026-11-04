@@ -529,6 +529,32 @@ test "comment list with a bare number names the ticket it read" {
     try std.testing.expect(std.mem.indexOf(u8, captured[0..printed], "6162 is task id 6162: HTPR-8082 on Hypertask.") != null);
 }
 
+test "task get and comment add take --task instead of the positional" {
+    try expectRequest(
+        &.{ "task", "get", "--task", "HTPR-8509" },
+        .GET,
+        "/mcp/tasks?ticket_number=HTPR-8509",
+        null,
+    );
+    try expectRequest(
+        &.{ "comment", "add", "--task", "HTPR-8509", "--text", "hello" },
+        .POST,
+        "/mcp/comments",
+        "{\"ticket_number\":\"HTPR-8509\",\"text\":\"<p>hello</p>\"}",
+    );
+}
+
+test "the positional still names the task when --task is also given" {
+    try expectRequest(
+        &.{ "task", "get", "HTPR-8509", "--task", "HTPR-8510" },
+        .GET,
+        "/mcp/tasks?ticket_number=HTPR-8509",
+        null,
+    );
+    try expectDispatchError(error.MissingArgument, &.{ "task", "get" });
+    try expectDispatchError(error.MissingArgument, &.{ "comment", "add", "--text", "hi" });
+}
+
 test "root create-board uses project validation and request routing" {
     const argv = [_][]const u8{ "--json", "create-board", "--title", "Pecunia", "--team", "team-1", "--description", "Finance board" };
     var parsed = try args.parse(std.testing.allocator, &argv);
