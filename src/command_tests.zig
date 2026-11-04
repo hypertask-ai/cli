@@ -170,6 +170,17 @@ test "time mutations reject empty changes and metadata on negative corrections" 
     }
 }
 
+test "ticket root is the same command as task" {
+    for ([_][]const u8{ "ticket", "tickets" }) |root| {
+        try expectRequest(
+            &.{ root, "get", "htpr-5661" },
+            .GET,
+            "/mcp/tasks?ticket_number=HTPR-5661",
+            null,
+        );
+    }
+}
+
 test "singular label root reaches the project labels route" {
     try expectRequest(
         &.{ "label", "list", "--project", "15" },
@@ -2005,6 +2016,23 @@ test "an unknown subcommand names the word that is wrong" {
     const printed = try posix.read(pipe[0], &captured);
     try std.testing.expect(std.mem.indexOf(u8, captured[0..printed], "unknown command: comments\n") != null);
     try std.testing.expect(std.mem.indexOf(u8, captured[0..printed], "valid commands:") != null);
+}
+
+test "the ticket root answers a comments guess where comments are read" {
+    const posix = std.posix;
+    const pipe = try posix.pipe();
+    defer posix.close(pipe[0]);
+    {
+        defer posix.close(pipe[1]);
+        const saved_stderr = try posix.dup(2);
+        defer posix.close(saved_stderr);
+        try posix.dup2(pipe[1], 2);
+        defer posix.dup2(saved_stderr, 2) catch {};
+        try std.testing.expectError(error.UnknownCommand, router.validateCommandPath(std.testing.allocator, &.{ "ticket", "comments" }, true));
+    }
+    var captured: [1024]u8 = undefined;
+    const printed = try posix.read(pipe[0], &captured);
+    try std.testing.expect(std.mem.indexOf(u8, captured[0..printed], "a ticket's comments are read with: hypertask comment list <ticket>\n") != null);
 }
 
 test "activity add is the same command as comment add" {

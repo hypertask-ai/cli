@@ -108,7 +108,8 @@ fn printMisplacedHint(parent: []const u8, unknown: []const u8) void {
         std.mem.eql(u8, parent, "activity")) and
         (std.mem.eql(u8, unknown, "last") or std.mem.eql(u8, unknown, "log") or
         std.mem.eql(u8, unknown, "tail"))) return agentLogHint();
-    if (!std.mem.eql(u8, parent, "task") and !std.mem.eql(u8, parent, "tasks")) return;
+    if (!std.mem.eql(u8, parent, "task") and !std.mem.eql(u8, parent, "tasks") and
+        !std.mem.eql(u8, parent, "ticket") and !std.mem.eql(u8, parent, "tickets")) return;
     if (!std.mem.eql(u8, unknown, "comment") and !std.mem.eql(u8, unknown, "comments")) return;
     std.debug.print("a ticket's comments are read with: hypertask comment list <ticket>\n", .{});
 }
@@ -217,7 +218,8 @@ pub fn dispatch(context: *const Context) !void {
     if (std.mem.eql(u8, root, "section") or std.mem.eql(u8, root, "sections") or
         std.mem.eql(u8, root, "column") or std.mem.eql(u8, root, "columns")) return section.run(context, subcommand);
     if (std.mem.eql(u8, root, "fields") or std.mem.eql(u8, root, "custom-fields")) return fields.run(context, subcommand);
-    if (std.mem.eql(u8, root, "task") or std.mem.eql(u8, root, "tasks")) return task.run(context, subcommand);
+    if (std.mem.eql(u8, root, "task") or std.mem.eql(u8, root, "tasks") or
+        std.mem.eql(u8, root, "ticket") or std.mem.eql(u8, root, "tickets")) return task.run(context, subcommand);
     if (std.mem.eql(u8, root, "draft") or std.mem.eql(u8, root, "drafts")) return draft.run(context, subcommand);
     if (std.mem.eql(u8, root, "comment") or std.mem.eql(u8, root, "comments") or
         std.mem.eql(u8, root, "activity")) return comment.run(context, subcommand);
@@ -500,6 +502,16 @@ test "task blocker-comment help exposes marker-only operations for both aliases"
         try std.testing.expect(std.mem.indexOf(u8, help, "--reason <text>") != null);
         try std.testing.expect(std.mem.indexOf(u8, help, "--project <id>") != null);
         try std.testing.expect(std.mem.indexOf(u8, help, "without changing the waiting person") != null);
+    }
+}
+
+test "ticket root alias passes the catalog gate and renders the task help" {
+    for ([_][]const u8{ "ticket", "tickets" }) |root| {
+        try validateCommandPath(std.testing.allocator, &.{ root, "get", "HTPR-8503" }, true);
+        const help = try renderHelp(std.testing.allocator, &.{ root, "get" });
+        defer std.testing.allocator.free(help);
+        try std.testing.expect(std.mem.indexOf(u8, help, "Usage: hypertask task get <ticket-or-task-id> [options]") != null);
+        try std.testing.expect(std.mem.indexOf(u8, help, "--project <id>") != null);
     }
 }
 
