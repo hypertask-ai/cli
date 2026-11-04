@@ -183,7 +183,7 @@ fn next(context: *const Context) !void {
 }
 
 fn get(context: *const Context) !void {
-    const identifier = try context.args.requirePositional(2, "ticket-or-task-id");
+    const identifier = try resolve.identifierArgument(context, 2);
     var path = try query.Builder.init(context.allocator, "/mcp/tasks");
     defer path.deinit();
     try addIdentifierQuery(&path, context, identifier);

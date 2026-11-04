@@ -14,7 +14,7 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
     if (std.mem.eql(u8, subcommand, "list")) {
         var path = try query.Builder.init(context.allocator, "/mcp/comments");
         defer path.deinit();
-        try addIdentifierQuery(&path, context, try listIdentifier(context));
+        try addIdentifierQuery(&path, context, try resolve.identifierArgument(context, 2));
         try list_query.addListQuery(&path, context.args, context.allocator);
         if (context.args.has("include-activity")) try path.add("include_activity", "true");
         var response = try context.fetch(.GET, path.path(), null);
@@ -35,7 +35,7 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
         }
         if (context.args.get("improve-command") != null and !context.args.has("improve")) return error.InvalidOptions;
         var text = if (context.args.get("file")) |path| try common.readFile(context.allocator, path, 1024 * 1024) else context.args.get("text") orelse context.args.get("body") orelse return error.MissingOption;
-        const ticket = try context.args.requirePositional(2, "ticket-or-task-id");
+        const ticket = try resolve.identifierArgument(context, 2);
         if (context.args.has("improve")) {
             text = try improve(context, ticket, text);
         } else if (!context.args.has("markdown")) {
@@ -104,13 +104,6 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
     }
     if (std.mem.eql(u8, subcommand, "delete")) return context.call(.DELETE, path, null);
     return error.UnknownCommand;
-}
-
-fn listIdentifier(context: *const Context) ![]const u8 {
-    return context.args.positionalAt(2) orelse context.args.get("task") orelse {
-        std.debug.print("required argument: ticket-or-task-id (or --task <id-or-ticket>)\n", .{});
-        return error.MissingArgument;
-    };
 }
 
 fn addIdentifierQuery(path: *query.Builder, context: *const Context, identifier: []const u8) !void {
