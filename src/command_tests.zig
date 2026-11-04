@@ -549,6 +549,25 @@ test "task get distinguishes internal ids from project ticket indexes" {
     );
 }
 
+test "task get and comment add read the ticket from --ticket, the same flag as --task" {
+    try expectRequest(
+        &.{ "task", "get", "--ticket", "HTPR-8539" },
+        .GET,
+        "/mcp/tasks?ticket_number=HTPR-8539",
+        null,
+    );
+    try expectRequestCountWithResponses(
+        &.{ "comment", "add", "--ticket", "id:6162", "--text", "hi" },
+        &.{
+            "{\"success\":true,\"comments\":[]}",
+        },
+        1,
+        .POST,
+        "/mcp/comments",
+        "{\"task_id\":6162,\"text\":\"<p>hi</p>\"}",
+    );
+}
+
 test "comment list with a bare number names the ticket it read" {
     const posix = std.posix;
     const pipe = try posix.pipe();

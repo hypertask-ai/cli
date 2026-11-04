@@ -181,6 +181,26 @@ test "project is rejected where a task takes no ticket argument" {
     try std.testing.expectError(error.UnknownOption, rejectUnknownOptions(std.testing.allocator, &parsed));
 }
 
+test "a ticket named with --ticket is accepted where --task is" {
+    for ([_][]const []const u8{
+        &.{ "task", "get", "--ticket", "HTPR-1" },
+        &.{ "comment", "list", "--ticket", "HTPR-1" },
+        &.{ "comment", "add", "--ticket", "HTPR-1", "--text", "hi" },
+        &.{ "task", "tree", "--ticket", "HTPR-1" },
+    }) |argv| {
+        var parsed = try args_mod.parse(std.testing.allocator, argv);
+        defer parsed.deinit();
+        try rejectUnknownOptions(std.testing.allocator, &parsed);
+    }
+}
+
+test "a ticket named with --ticket is still rejected where the command takes none" {
+    const argv = [_][]const u8{ "task", "move", "HTPR-1", "--ticket", "HTPR-1", "--section", "Bugs" };
+    var parsed = try args_mod.parse(std.testing.allocator, &argv);
+    defer parsed.deinit();
+    try std.testing.expectError(error.UnknownOption, rejectUnknownOptions(std.testing.allocator, &parsed));
+}
+
 test "project is accepted on every task subcommand that takes a ticket" {
     for ([_][]const []const u8{
         &.{ "task", "assign", "HTPR-1", "--assignee", "6", "--project", "15" },
