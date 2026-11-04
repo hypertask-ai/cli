@@ -41,6 +41,10 @@ Exit codes are stable:
 
 Scripts may use the exit code category, while people and agents should follow the `Next:` line.
 
+## Release notes: native 0.2.48
+
+- `task list` accepts `--assignee`, the name every other task command already uses for the same filter, so an agent that guesses `--assignee 6` gets that person's tasks instead of `unknown option`. `--assigned-to` works unchanged (HTPR-8518).
+
 ## Release notes: native 0.2.47
 
 - `task get` and `comment add` take the ticket as `--task <id-or-ticket>`, as `comment list` already did, so one ticket has one name on all three commands. The positional still wins when both are given (HTPR-8509).
