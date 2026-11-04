@@ -41,6 +41,10 @@ Exit codes are stable:
 
 Scripts may use the exit code category, while people and agents should follow the `Next:` line.
 
+## Release notes: native 0.2.51
+
+- `--ticket` is the same flag as `--task` on `task get`, `comment list` and `comment add`, so an agent that names a ticket with `--ticket HTPR-1` reaches it instead of `unknown option: --ticket`. `--task` works unchanged, the positional still wins, and the missing-argument line names both (HTPR-8539).
+
 ## Release notes: native 0.2.50
 
 - `task get` accepts `--fields <names>`, the same projection `task list` takes: `hypertask task get HTPR-8535 --fields title,section` answers only those two keys instead of the whole ticket with its description and comments. A read with no `--fields` is unchanged (HTPR-8535).
