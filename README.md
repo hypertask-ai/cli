@@ -41,6 +41,10 @@ Exit codes are stable:
 
 Scripts may use the exit code category, while people and agents should follow the `Next:` line.
 
+## Release notes: native 0.2.47
+
+- A ticket link copied from the app, `https://app.hypertask.ai/detail/project-15/8341`, works wherever the CLI takes a ticket: the board and the ticket number are read from the link, a `#comment-<id>` anchor and later path segments are ignored, and a `--project` that names another board is refused instead of reading the wrong board (HTPR-8456).
+
 ## Release notes: native 0.2.46
 
 - A stray value after a type flag is refused with the options that would have taken it, so `hypertask pages append 265 --markdown "$(cat file.md)"` answers `options that take a value: --content <content>, --markdown-file <path>, ...` instead of only `accepted arguments: id` (HTPR-8401).
