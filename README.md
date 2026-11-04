@@ -41,6 +41,10 @@ Exit codes are stable:
 
 Scripts may use the exit code category, while people and agents should follow the `Next:` line.
 
+## Release notes: native 0.2.47
+
+- `task get` and `comment add` take the ticket as `--task <id-or-ticket>`, as `comment list` already did, so one ticket has one name on all three commands. The positional still wins when both are given (HTPR-8509).
+
 ## Release notes: native 0.2.46
 
 - A stray value after a type flag is refused with the options that would have taken it, so `hypertask pages append 265 --markdown "$(cat file.md)"` answers `options that take a value: --content <content>, --markdown-file <path>, ...` instead of only `accepted arguments: id` (HTPR-8401).
