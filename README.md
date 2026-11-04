@@ -41,6 +41,10 @@ Exit codes are stable:
 
 Scripts may use the exit code category, while people and agents should follow the `Next:` line.
 
+## Release notes: native 0.2.49
+
+- A write refuses a bare number with no `--project` instead of writing to another board's ticket: `activity add 1172` and `comment add 1172` answer `nothing was written: 1172 is task id 1172: HTPR-481 on Hypertask` and ask for the ticket number or `id:1172`, so a note lands on the ticket you named or nowhere. Reads still name the ticket and continue. `--project`, ticket keys and `id:<n>` write as before (HTPR-8537).
+
 ## Release notes: native 0.2.48
 
 - `task list` accepts `--assignee`, the name every other task command already uses for the same filter, so an agent that guesses `--assignee 6` gets that person's tasks instead of `unknown option`. `--assigned-to` works unchanged (HTPR-8518).
