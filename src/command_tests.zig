@@ -616,6 +616,21 @@ test "task list accepts priority names" {
     );
 }
 
+test "task list accepts --assignee as another name for --assigned-to" {
+    try expectRequest(
+        &.{ "task", "list", "--project", "15", "--assignee", "6" },
+        .GET,
+        "/mcp/tasks?project_id=15&assigned_to=6&limit=10&offset=0",
+        null,
+    );
+    try expectRequest(
+        &.{ "task", "list", "--project", "15", "--assignee", "me,unassigned" },
+        .GET,
+        "/mcp/tasks?project_id=15&assigned_to=me&assigned_to=unassigned&limit=10&offset=0",
+        null,
+    );
+}
+
 test "task commands reject unknown priorities before making a request" {
     try expectDispatchError(error.InvalidOptions, &.{ "task", "list", "--project", "15", "--priority", "impossible", "--limit", "1" });
     try expectDispatchError(error.InvalidOptions, &.{ "task", "create", "--project", "15", "--title", "x", "--priority", "eventually" });
