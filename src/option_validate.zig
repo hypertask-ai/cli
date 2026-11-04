@@ -167,6 +167,13 @@ test "unknown option on task get is rejected" {
     try std.testing.expectError(error.UnknownOption, rejectUnknownOptions(std.testing.allocator, &parsed));
 }
 
+test "task get accepts the field projection the task list accepts" {
+    const argv = [_][]const u8{ "task", "get", "HTPR-1", "--fields", "title,section" };
+    var parsed = try args_mod.parse(std.testing.allocator, &argv);
+    defer parsed.deinit();
+    try rejectUnknownOptions(std.testing.allocator, &parsed);
+}
+
 test "project is rejected where a task takes no ticket argument" {
     const argv = [_][]const u8{ "task", "tree", "--ticket", "HTPR-1", "--project", "15" };
     var parsed = try args_mod.parse(std.testing.allocator, &argv);
