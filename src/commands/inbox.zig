@@ -5,7 +5,11 @@ const json = @import("../json_util.zig");
 const query = @import("../query.zig");
 
 pub fn run(context: *const Context, subcommand: []const u8) !void {
-    if (std.mem.eql(u8, subcommand, "list")) return list(context);
+    if (std.mem.eql(u8, subcommand, "list")) {
+        if (context.args.has("waiting-on") or context.args.has("user")) return blockers(context);
+        if (context.args.has("project") or context.args.has("state")) return error.InvalidOptions;
+        return list(context);
+    }
     if (std.mem.eql(u8, subcommand, "composition")) {
         var path = try query.Builder.init(context.allocator, "/mcp/inbox/composition");
         defer path.deinit();
@@ -21,6 +25,117 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
         return context.call(.POST, if (std.mem.eql(u8, subcommand, "archive")) "/mcp/inbox/archive" else "/mcp/inbox/unarchive", try body.finish());
     }
     return error.UnknownCommand;
+}
+
+pub fn blockers(context: *const Context) !void {
+    const explicit_users = try context.args.getAll(context.allocator, "user");
+    defer context.allocator.free(explicit_users);
+    const users = try context.args.getAll(context.allocator, "waiting-on");
+    defer context.allocator.free(users);
+    if (users.len + explicit_users.len > 1) return error.InvalidOptions;
+    for (explicit_users) |user| {
+        if (!std.mem.eql(u8, user, "me")) try validateId(user, "--user");
+    }
+    for (users) |user| {
+        if (!std.mem.eql(u8, user, "me")) try validateId(user, "--waiting-on");
+    }
+    const projects = try context.args.getAll(context.allocator, "project");
+    defer context.allocator.free(projects);
+    for (projects) |project| try validateId(project, "--project");
+    const states = try context.args.getAll(context.allocator, "state");
+    defer context.allocator.free(states);
+    if (states.len > 1) return error.InvalidOptions;
+    for (states) |state| {
+        if (!std.mem.eql(u8, state, "waiting") and !std.mem.eql(u8, state, "answered") and !std.mem.eql(u8, state, "no-question")) {
+            std.debug.print("--state must be waiting, answered, or no-question\n", .{});
+            return error.InvalidOptions;
+        }
+    }
+
+    var path = try query.Builder.init(context.allocator, "/mcp/inbox/list");
+    defer path.deinit();
+    try path.add("waiting_on", context.args.get("user") orelse context.args.get("waiting-on") orelse "me");
+    for (projects) |project| try path.add("projectId", project);
+    if (context.args.get("state")) |state| try path.add("state", state);
+
+    var response = try context.fetchRaw(.GET, path.path(), null);
+    defer response.deinit();
+    if (!response.isSuccess() or @import("../output.zig").responseReportsFailure(context.allocator, response.body) or context.json) return context.finish(&response);
+    if (context.request_recorder != null) return;
+    const body = try formatBlockers(context.allocator, response.body);
+    defer context.allocator.free(body);
+    try context.print(body);
+}
+
+fn validateId(value: []const u8, label: []const u8) !void {
+    if (value.len == 0) return error.InvalidInteger;
+    for (value) |byte| if (!std.ascii.isDigit(byte)) return error.InvalidInteger;
+    _ = try common.positiveInt(value, label);
+}
+
+fn formatBlockers(allocator: std.mem.Allocator, body: []const u8) ![]u8 {
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, body, .{});
+    defer parsed.deinit();
+    if (parsed.value != .object) return error.InvalidResponse;
+    const rows = parsed.value.object.get("blockers") orelse return error.InvalidResponse;
+    if (rows != .array) return error.InvalidResponse;
+    var out: std.ArrayListUnmanaged(u8) = .{};
+    errdefer out.deinit(allocator);
+    const writer = out.writer(allocator);
+    try writer.writeAll("ticket\tstate\tboardTitle\tsection\tpriority\twaitingSince\tage\tquestion\trecommendation\turl\n");
+    for (rows.array.items) |row| {
+        if (row != .object) return error.InvalidResponse;
+        try writeJsonCell(writer, row.object.get("ticketNumber"));
+        try writer.writeByte('\t');
+        try writeJsonCell(writer, row.object.get("state"));
+        try writer.writeByte('\t');
+        inline for (.{ "boardTitle", "section", "priority", "waitingSince" }) |field| {
+            try writeJsonCell(writer, row.object.get(field));
+            try writer.writeByte('\t');
+        }
+        try writeAge(writer, textOf(row.object.get("waitingSince")) orelse "");
+        try writer.writeByte('\t');
+        try writeBriefCell(writer, textOf(row.object.get("question")) orelse "", 60);
+        try writer.writeByte('\t');
+        try writeBriefCell(writer, textOf(row.object.get("recommendation")) orelse "", 40);
+        try writer.writeByte('\t');
+        try writeJsonCell(writer, row.object.get("url"));
+        try writer.writeByte('\n');
+    }
+    return out.toOwnedSlice(allocator);
+}
+
+fn writeAge(writer: anytype, value: []const u8) !void {
+    if (value.len < 20 or value[value.len - 1] != 'Z' or value[4] != '-' or value[7] != '-' or value[10] != 'T' or value[13] != ':' or value[16] != ':') return;
+    const year = std.fmt.parseInt(u16, value[0..4], 10) catch return;
+    const month = std.fmt.parseInt(u8, value[5..7], 10) catch return;
+    const day = std.fmt.parseInt(u8, value[8..10], 10) catch return;
+    const hour = std.fmt.parseInt(u8, value[11..13], 10) catch return;
+    const minute = std.fmt.parseInt(u8, value[14..16], 10) catch return;
+    const second = std.fmt.parseInt(u8, value[17..19], 10) catch return;
+    if (year < 1970 or year > 9999 or month < 1 or month > 12 or day < 1 or hour > 23 or minute > 59 or second > 59) return;
+    var days: i64 = 0;
+    var y: u16 = 1970;
+    while (y < year) : (y += 1) days += if (std.time.epoch.isLeapYear(y)) 366 else 365;
+    const lengths = [_]u8{ 31, if (std.time.epoch.isLeapYear(year)) 29 else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+    if (day > lengths[month - 1]) return;
+    for (lengths[0 .. month - 1]) |length| days += length;
+    days += day - 1;
+    const then = days * 86400 + @as(i64, hour) * 3600 + @as(i64, minute) * 60 + second;
+    const hours = @divFloor(@max(0, std.time.timestamp() - then), 3600);
+    try writer.print("{d}d {d}h", .{ @divFloor(hours, 24), @mod(hours, 24) });
+}
+
+fn writeBriefCell(writer: anytype, value: []const u8, limit: usize) !void {
+    var index: usize = 0;
+    var count: usize = 0;
+    while (index < value.len and count < limit) : (count += 1) {
+        const length = std.unicode.utf8ByteSequenceLength(value[index]) catch 1;
+        const end = @min(index + length, value.len);
+        try writeTextCell(writer, value[index..end]);
+        index = end;
+    }
+    if (index < value.len) try writer.writeAll("...");
 }
 
 fn list(context: *const Context) !void {
@@ -292,4 +407,30 @@ test "inbox human mode prints one TSV row per notification" {
             "3\tAssigned\tHTPR-2\tBoard\t2026-09-09T00:00:00.000Z\tseen\tNormal\n",
         formatted,
     );
+}
+
+test "blockers human output keeps full links and sanitizes text" {
+    const body =
+        \\{"success":true,"blockers":[{"ticketNumber":"HTPR-1","state":"waiting","boardTitle":"Board","section":"Doing","priority":"High","question":"Why?\nNow?","recommendation":"Yes","url":"https://app.hypertask.ai/detail/project-15/1"}],"total":1}
+    ;
+    const formatted = try formatBlockers(std.testing.allocator, body);
+    defer std.testing.allocator.free(formatted);
+    try std.testing.expectEqualStrings("ticket\tstate\tboardTitle\tsection\tpriority\twaitingSince\tage\tquestion\trecommendation\turl\nHTPR-1\twaiting\tBoard\tDoing\tHigh\t\t\tWhy? Now?\tYes\thttps://app.hypertask.ai/detail/project-15/1\n", formatted);
+}
+
+test "blockers human output retains all rows and bounds long text" {
+    var body: std.ArrayListUnmanaged(u8) = .{};
+    defer body.deinit(std.testing.allocator);
+    const writer = body.writer(std.testing.allocator);
+    try writer.writeAll("{\"blockers\":[");
+    for (0..26) |i| {
+        if (i != 0) try writer.writeByte(',');
+        try writer.writeAll("{\"question\":\"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnop\",\"url\":\"https://example.com/full-link\"}");
+    }
+    try writer.writeAll("]}");
+    const formatted = try formatBlockers(std.testing.allocator, body.items);
+    defer std.testing.allocator.free(formatted);
+    try std.testing.expectEqual(@as(usize, 27), std.mem.count(u8, formatted, "\n"));
+    try std.testing.expectEqual(@as(usize, 26), std.mem.count(u8, formatted, "https://example.com/full-link"));
+    try std.testing.expect(std.mem.indexOf(u8, formatted, "...") != null);
 }

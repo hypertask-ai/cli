@@ -182,6 +182,7 @@ pub fn dispatch(context: *const Context) !void {
     if (std.mem.eql(u8, root, "feedback")) return feedback.run(context);
     if (std.mem.eql(u8, root, "search")) return task.globalSearch(context);
     if (std.mem.eql(u8, root, "raw")) return meta.raw(context);
+    if (std.mem.eql(u8, root, "blockers")) return inbox.blockers(context);
 
     const subcommand = context.args.positionalAt(1) orelse return error.MissingSubcommand;
     if (std.mem.eql(u8, root, "help")) {
