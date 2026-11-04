@@ -41,6 +41,10 @@ Exit codes are stable:
 
 Scripts may use the exit code category, while people and agents should follow the `Next:` line.
 
+## Release notes: native 0.2.50
+
+- `task get` accepts `--fields <names>`, the same projection `task list` takes: `hypertask task get HTPR-8535 --fields title,section` answers only those two keys instead of the whole ticket with its description and comments. A read with no `--fields` is unchanged (HTPR-8535).
+
 ## Release notes: native 0.2.49
 
 - A write refuses a bare number with no `--project` instead of writing to another board's ticket: `activity add 1172` and `comment add 1172` answer `nothing was written: 1172 is task id 1172: HTPR-481 on Hypertask` and ask for the ticket number or `id:1172`, so a note lands on the ticket you named or nowhere. Reads still name the ticket and continue. `--project`, ticket keys and `id:<n>` write as before (HTPR-8537).
