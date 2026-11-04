@@ -69,7 +69,21 @@ fn validateArguments(command: std.json.Value, provided: []const []const u8) !voi
     if (arguments.len == 0) std.debug.print(" (none)", .{});
     for (arguments) |argument| std.debug.print(" {s}", .{try stringField(argument, "name")});
     std.debug.print("\n", .{});
+    try printValueOptions(command);
     return error.InvalidOptions;
+}
+
+fn printValueOptions(command: std.json.Value) !void {
+    const options = try arrayFieldOrEmpty(command, "options");
+    var first = true;
+    for (options) |option| {
+        const flags = try stringField(option, "flags");
+        if (std.mem.indexOfScalar(u8, flags, '<') == null) continue;
+        const label: []const u8 = if (first) "options that take a value:" else ",";
+        std.debug.print("{s} {s}", .{ label, flags });
+        first = false;
+    }
+    if (!first) std.debug.print("\n", .{});
 }
 
 fn printCommandChoices(commands: []const std.json.Value, unknown: ?[]const u8) void {

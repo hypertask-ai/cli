@@ -200,6 +200,14 @@ def main() -> None:
     assert_failure(run("task", "list", "--project", "15", "--bogus"), 2, "unknown option: --bogus")
     assert_failure(run("task"), 2, "valid commands:")
     assert_failure(run("status", "ignored"), 2, "unexpected argument: ignored", "accepted arguments: (none)")
+    # A stray value after a type flag names the options that would take it (HTPR-8401).
+    assert_failure(
+        run("pages", "append", "265", "--markdown", "text from a file"),
+        2,
+        "unexpected argument: text from a file",
+        "accepted arguments: id",
+        "options that take a value: --content <content>, --markdown-file <path>",
+    )
     assert_failure(run("pages", "create"), 2, "required option: --task")
     assert_failure(
         run("task", "list", "--project", "15", "--priority", "impossible", "--limit", "1"),
