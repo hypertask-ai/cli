@@ -300,7 +300,8 @@ fn related(context: *const Context) !void {
     try context.call(.GET, path.path(), null);
 }
 
-fn applyCommonFields(context: *const Context, body: *json.Object, project_id: ?i64, ticket: ?[]const u8, resolved_task: *?resolve.Task) !void {
+fn applyCommonFields(context: *const Context, body: *json.Object, project_id: ?i64, ticket: ?[]const u8, resolved_task: *?resolve.Task) !?i64 {
+    var changed_section: ?i64 = null;
     if (try descriptionValue(context)) |value| {
         try body.string("description", value);
         if (context.args.has("markdown")) try body.string("content_type", "markdown");
@@ -321,9 +322,12 @@ fn applyCommonFields(context: *const Context, body: *json.Object, project_id: ?i
             if (resolved_task.* == null) resolved_task.* = try resolve.task(context, ticket.?);
             break :blk if (context.args.get("project")) |project_value| try common.positiveInt(project_value, "project") else resolved_task.*.?.project_id;
         };
-        try body.integer(if (ticket == null) "section_id" else "sectionId", try resolve.sectionId(context, project, value));
+        const section_id = try resolve.sectionId(context, project, value);
+        changed_section = section_id;
+        try body.integer(if (ticket == null) "section_id" else "sectionId", section_id);
     }
     if (ticket != null and context.args.has("clear-parent")) try body.nullValue("parent_task_id") else if (context.args.get("parent-task")) |value| try body.integer("parent_task_id", (try resolve.task(context, value)).id);
+    return changed_section;
 }
 
 fn create(context: *const Context) !void {
@@ -335,7 +339,7 @@ fn create(context: *const Context) !void {
     try body.integer("project_id", project);
     try body.string("title", try context.args.require("title"));
     var resolved_task: ?resolve.Task = null;
-    try applyCommonFields(context, &body, project, null, &resolved_task);
+    _ = try applyCommonFields(context, &body, project, null, &resolved_task);
     const labels = try resolveLabelIds(context, try common.optionList(context, "labels"), project, true);
     if (labels.len != 0) try body.identifiers("labels", labels);
     const assignees = try common.optionList(context, "assignee");
@@ -359,7 +363,7 @@ fn update(context: *const Context) !void {
     var body = try identifierBody(context, ticket, &resolved_task);
     defer body.deinit();
     if (context.args.get("title")) |value| try body.string("title", value);
-    try applyCommonFields(context, &body, null, ticket, &resolved_task);
+    const section_id = try applyCommonFields(context, &body, null, ticket, &resolved_task);
     const label_inputs = try common.optionList(context, "labels");
     const add_label_inputs = try collectLabelOptions(context, &.{ "add-labels", "add-label" });
     const remove_label_inputs = try collectLabelOptions(context, &.{ "remove-labels", "remove-label" });
@@ -405,6 +409,13 @@ fn update(context: *const Context) !void {
         break :blk try context.fetch(.GET, path.path(), null);
     };
     defer response.deinit();
+    if (section_id) |expected| {
+        if (!response.isSuccess() or output.responseReportsFailure(context.allocator, response.body)) {
+            return failSectionWrite(context, &response);
+        }
+        const found = resolved_task orelse return error.InvalidResponse;
+        try confirmSectionChange(context, found.id, expected);
+    }
     const linked_body = try taskMutationBody(context, &response);
     if (attach_inputs.len == 0) return context.print(linked_body);
     const uploaded = try attachments.upload(context, ticket, null, attach_inputs);
@@ -841,10 +852,59 @@ fn move(context: *const Context) !void {
     var body = try json.Object.init(context.allocator);
     defer body.deinit();
     try body.integer("task_id", found.id);
-    try body.integer("sectionId", try resolve.sectionId(context, found.project_id, section));
-    var response = try context.fetch(.POST, "/mcp/tasks/update", try body.finish());
+    const section_id = try resolve.sectionId(context, found.project_id, section);
+    try body.integer("sectionId", section_id);
+    var response = try context.fetchRaw(.POST, "/mcp/tasks/update", try body.finish());
     defer response.deinit();
+    if (!response.isSuccess() or output.responseReportsFailure(context.allocator, response.body)) {
+        return failSectionWrite(context, &response);
+    }
+    try confirmSectionChange(context, found.id, section_id);
     try context.print(try taskMutationBody(context, &response));
+}
+
+fn failSectionWrite(context: *const Context, response: *http.Response) !void {
+    output.noteApiFailure(context.allocator, response.status, response.body);
+    if (context.request_recorder != null) return error.CommandFailed;
+    try output.finish(response);
+    return error.CommandFailed;
+}
+
+/// The write is not a completed section change until a fresh read shows it.
+/// A mismatch does not print the write body.
+fn confirmSectionChange(context: *const Context, task_id: i64, section_id: i64) !void {
+    const path = try std.fmt.allocPrint(context.allocator, "/mcp/tasks?task_id={d}", .{task_id});
+    defer context.allocator.free(path);
+    var response = try context.fetchRaw(.GET, path, null);
+    defer response.deinit();
+    if (!response.isSuccess() or !readbackShowsSection(context.allocator, response.body, task_id, section_id)) {
+        return error.SectionChangeNotConfirmed;
+    }
+}
+
+fn readbackShowsSection(allocator: std.mem.Allocator, body: []const u8, task_id: i64, section_id: i64) bool {
+    if (output.responseReportsFailure(allocator, body)) return false;
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, body, .{}) catch return false;
+    defer parsed.deinit();
+    if (parsed.value != .object) return false;
+    if (json.arrayField(parsed.value, "tasks")) |tasks| {
+        for (tasks) |task| if (taskShowsSection(task, task_id, section_id)) return true;
+        return false;
+    }
+    if (parsed.value.object.get("task")) |task| return taskShowsSection(task, task_id, section_id);
+    return taskShowsSection(parsed.value, task_id, section_id);
+}
+
+fn taskShowsSection(task: std.json.Value, task_id: i64, section_id: i64) bool {
+    if (task != .object) return false;
+    if (json.integerField(task, "id", true)) |id| if (id != task_id) return false;
+    if (json.integerField(task, "sectionId", true)) |id| return id == section_id;
+    if (json.integerField(task, "section_id", true)) |id| return id == section_id;
+    if (json.objectField(task, "section")) |section| {
+        if (json.integerField(section, "id", true)) |id| return id == section_id;
+        if (json.integerField(section, "sectionId", true)) |id| return id == section_id;
+    }
+    return false;
 }
 
 fn moveBoard(context: *const Context) !void {

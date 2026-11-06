@@ -441,34 +441,123 @@ test "task agent-log resolves a bare board number inside the named project" {
 }
 
 test "task move honors --project for a bare board number" {
-    try expectRequestCountWithResponses(
+    try expectSectionOutcome(
         &.{ "task", "move", "1529", "--project", "2060", "--section", "Doing" },
         &.{
             "{\"success\":true,\"tasks\":[{\"id\":667788,\"project_id\":2060}]}",
             "{\"success\":true,\"tasks\":[{\"id\":42,\"projectId\":15}]}",
             "{\"sections\":[{\"id\":11,\"section_title\":\"Doing\"}]}",
             "{\"success\":true,\"tasks\":[{\"id\":667788}]}",
+            "{\"success\":true,\"tasks\":[{\"id\":667788,\"sectionId\":11,\"marker\":\"readback-only\"}]}",
         },
-        4,
-        .POST,
-        "/mcp/tasks/update",
-        "{\"task_id\":667788,\"sectionId\":11}",
+        &.{},
+        .{
+            .count = 5,
+            .stderr = "",
+            .write_body = "{\"task_id\":667788,\"sectionId\":11}",
+            .read_path = "/mcp/tasks?task_id=667788",
+            .printed_lacks = "readback-only",
+        },
     );
 }
 
 test "task move takes the destination section as the second argument" {
-    try expectRequestCountWithResponses(
+    try expectSectionOutcome(
         &.{ "task", "move", "1529", "--project", "2060", "Doing" },
         &.{
             "{\"success\":true,\"tasks\":[{\"id\":667788,\"project_id\":2060}]}",
             "{\"success\":true,\"tasks\":[{\"id\":42,\"projectId\":15}]}",
             "{\"sections\":[{\"id\":11,\"section_title\":\"Doing\"}]}",
             "{\"success\":true,\"tasks\":[{\"id\":667788}]}",
+            "{\"success\":true,\"tasks\":[{\"id\":667788,\"sectionId\":11}]}",
         },
-        4,
-        .POST,
-        "/mcp/tasks/update",
-        "{\"task_id\":667788,\"sectionId\":11}",
+        &.{},
+        .{
+            .count = 5,
+            .stderr = "",
+            .write_body = "{\"task_id\":667788,\"sectionId\":11}",
+            .read_path = "/mcp/tasks?task_id=667788",
+        },
+    );
+}
+
+const section_failure_line = "hypertask: the server could not complete the command (HTTP 503: Move task failed: 503)\nNext: retry the same command once.\n";
+const section_unconfirmed_line = "hypertask: the section change was not confirmed by a readback\nNext: read the task back, then retry the section change if it is still in the old section.\n";
+
+test "a failed section move reports the server text and does not read the task back" {
+    try expectSectionOutcome(
+        &.{ "task", "move", "HTPR-6805", "--section", "Done" },
+        &.{
+            "{\"success\":true,\"tasks\":[{\"id\":35007,\"projectId\":101}]}",
+            "{\"sections\":[{\"id\":2,\"section_title\":\"Done\"}]}",
+            "{\"success\":false,\"error\":\"Move task failed: 503\"}",
+            "{\"success\":true,\"tasks\":[{\"id\":35007,\"sectionId\":2}]}",
+        },
+        &.{ .ok, .ok, .service_unavailable },
+        .{
+            .count = 3,
+            .err = error.CommandFailed,
+            .stderr = section_failure_line,
+            .write_body = "{\"task_id\":35007,\"sectionId\":2}",
+        },
+    );
+}
+
+test "a failed section update is not turned into success by a later read" {
+    try expectSectionOutcome(
+        &.{ "task", "update", "HTPR-6805", "--section", "Done" },
+        &.{
+            "{\"tasks\":[{\"id\":35007,\"projectId\":101}]}",
+            "{\"sections\":[{\"id\":2,\"section_title\":\"Done\"}]}",
+            "{\"success\":false,\"error\":\"Move task failed: 503\"}",
+            "{\"success\":true,\"tasks\":[{\"id\":35007,\"sectionId\":2}]}",
+        },
+        &.{},
+        .{
+            .count = 3,
+            .err = error.CommandFailed,
+            .stderr = "hypertask: the server could not complete the command (HTTP 200: Move task failed: 503)\nNext: retry the same command once.\n",
+            .write_body = "{\"ticket_number\":\"HTPR-6805\",\"sectionId\":2}",
+        },
+    );
+}
+
+test "a section move is printed only after the readback shows that section" {
+    try expectSectionOutcome(
+        &.{ "task", "move", "HTPR-6805", "--section", "Done" },
+        &.{
+            "{\"success\":true,\"tasks\":[{\"id\":35007,\"projectId\":101,\"ticketNumber\":\"HTPR-6805\"}]}",
+            "{\"sections\":[{\"id\":2,\"section_title\":\"Done\"}]}",
+            "{\"success\":true,\"task\":{\"id\":35007,\"ticketNumber\":\"HTPR-6805\",\"projectId\":101,\"sectionId\":2}}",
+            "{\"success\":true,\"tasks\":[{\"id\":35007,\"sectionId\":1,\"marker\":\"readback-only\"}]}",
+        },
+        &.{},
+        .{
+            .count = 4,
+            .err = error.SectionChangeNotConfirmed,
+            .stderr = section_unconfirmed_line,
+            .write_body = "{\"task_id\":35007,\"sectionId\":2}",
+            .read_path = "/mcp/tasks?task_id=35007",
+            .printed_lacks = "readback-only",
+        },
+    );
+    try expectSectionOutcome(
+        &.{ "task", "update", "HTPR-6805", "--section", "Done" },
+        &.{
+            "{\"tasks\":[{\"id\":35007,\"projectId\":101,\"ticketNumber\":\"HTPR-6805\"}]}",
+            "{\"sections\":[{\"id\":2,\"section_title\":\"Done\"}]}",
+            "{\"success\":true,\"task\":{\"id\":35007,\"ticketNumber\":\"HTPR-6805\",\"projectId\":101,\"sectionId\":2}}",
+            "{\"success\":true,\"tasks\":[{\"id\":35007,\"sectionId\":2,\"marker\":\"readback-only\"}]}",
+        },
+        &.{},
+        .{
+            .count = 4,
+            .stderr = "",
+            .write_body = "{\"ticket_number\":\"HTPR-6805\",\"sectionId\":2}",
+            .read_path = "/mcp/tasks?task_id=35007",
+            .printed_has = "https://app.hypertask.ai/detail/project-101/6805",
+            .printed_lacks = "readback-only",
+        },
     );
 }
 
@@ -1788,18 +1877,116 @@ test "task update label catalog states replace vs add" {
 }
 
 test "update reuses ticket resolution for section and labels" {
-    try expectRequestCountWithResponses(
+    try expectSectionOutcome(
         &.{ "task", "update", "HTPR-6805", "--section", "Done", "--labels", "CLI" },
         &.{
             "{\"tasks\":[{\"id\":35007,\"projectId\":101}]}",
             "{\"sections\":[{\"id\":2,\"section_title\":\"Done\"}]}",
             "{\"labels\":[{\"id\":\"cli-label-id\",\"name\":\"CLI\"}]}",
+            "{\"success\":true,\"task\":{\"id\":35007,\"ticketNumber\":\"HTPR-6805\",\"projectId\":101,\"sectionId\":2}}",
+            "{\"success\":true,\"tasks\":[{\"id\":35007,\"sectionId\":2,\"marker\":\"readback-only\"}]}",
         },
-        4,
-        .POST,
-        "/mcp/tasks/update",
-        "{\"ticket_number\":\"HTPR-6805\",\"sectionId\":2,\"labels\":[\"cli-label-id\"]}",
+        &.{},
+        .{
+            .count = 5,
+            .stderr = "",
+            .write_body = "{\"ticket_number\":\"HTPR-6805\",\"sectionId\":2,\"labels\":[\"cli-label-id\"]}",
+            .read_path = "/mcp/tasks?task_id=35007",
+            .printed_has = "https://app.hypertask.ai/detail/project-101/6805",
+            .printed_lacks = "readback-only",
+        },
     );
+}
+
+const SectionOutcome = struct {
+    count: usize,
+    err: ?anyerror = null,
+    stderr: []const u8,
+    write_body: []const u8,
+    read_path: ?[]const u8 = null,
+    printed_has: ?[]const u8 = null,
+    printed_lacks: ?[]const u8 = null,
+};
+
+fn expectSectionOutcome(
+    argv: []const []const u8,
+    responses: []const []const u8,
+    statuses: []const std.http.Status,
+    expected: SectionOutcome,
+) !void {
+    const posix = std.posix;
+    const output = @import("output.zig");
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var parsed = try args.parse(allocator, argv);
+    defer parsed.deinit();
+    var cfg = config.Config{ .allocator = allocator, .token = "test-token" };
+    defer cfg.deinit();
+    var recorder = command_context.RequestRecorder.init(allocator);
+    defer recorder.deinit();
+    recorder.responses = responses;
+    recorder.response_statuses = statuses;
+    var client = std.http.Client{ .allocator = allocator };
+    defer client.deinit();
+    const context = command_context.Context{
+        .client = &client,
+        .allocator = allocator,
+        .args = &parsed,
+        .cfg = &cfg,
+        .json = true,
+        .request_recorder = &recorder,
+    };
+
+    try @import("option_validate.zig").rejectUnknownOptions(allocator, &parsed);
+    const pipe = try posix.pipe();
+    defer posix.close(pipe[0]);
+    {
+        defer posix.close(pipe[1]);
+        const saved_stdout = try posix.dup(1);
+        defer posix.close(saved_stdout);
+        try posix.dup2(pipe[1], 1);
+        defer posix.dup2(saved_stdout, 1) catch {};
+        const saved_stderr = try posix.dup(2);
+        defer posix.close(saved_stderr);
+        try posix.dup2(pipe[1], 2);
+        defer posix.dup2(saved_stderr, 2) catch {};
+        const result = router.dispatch(&context);
+        result catch |err| output.printFailure(err);
+        if (expected.err) |err| {
+            try std.testing.expectError(err, result);
+            try std.testing.expectEqual(@as(u8, 4), output.exitCode(err));
+        } else {
+            try result;
+        }
+    }
+    var captured: [2048]u8 = undefined;
+    const printed = try posix.read(pipe[0], &captured);
+    try std.testing.expectEqualStrings(expected.stderr, captured[0..printed]);
+    try std.testing.expectEqual(expected.count, recorder.calls.items.len);
+
+    const last = recorder.calls.items[recorder.calls.items.len - 1];
+    if (expected.read_path) |read_path| {
+        const write = recorder.calls.items[recorder.calls.items.len - 2];
+        try std.testing.expectEqual(std.http.Method.POST, write.method);
+        try std.testing.expectEqualStrings("/mcp/tasks/update", write.path);
+        try std.testing.expectEqualStrings(expected.write_body, write.body.?);
+        try std.testing.expectEqual(std.http.Method.GET, last.method);
+        try std.testing.expectEqualStrings(read_path, last.path);
+        try std.testing.expect(last.body == null);
+    } else {
+        try std.testing.expectEqual(std.http.Method.POST, last.method);
+        try std.testing.expectEqualStrings("/mcp/tasks/update", last.path);
+        try std.testing.expectEqualStrings(expected.write_body, last.body.?);
+    }
+    if (expected.err != null) {
+        try std.testing.expect(recorder.printed == null);
+    } else {
+        const body = recorder.printed orelse return error.MissingPrintedSectionChange;
+        if (expected.printed_has) |needle| try std.testing.expect(std.mem.indexOf(u8, body, needle) != null);
+        if (expected.printed_lacks) |needle| try std.testing.expect(std.mem.indexOf(u8, body, needle) == null);
+    }
 }
 
 test "feedback posts default category and explicit metadata and note" {
@@ -2315,7 +2502,7 @@ test "task comments names where a ticket's comments are read" {
 
 test "a board read names the section command" {
     const posix = std.posix;
-    for ([_][]const []const u8{ &.{ "board" }, &.{ "boards", "sections" } }) |path| {
+    for ([_][]const []const u8{ &.{"board"}, &.{ "boards", "sections" } }) |path| {
         const pipe = try posix.pipe();
         defer posix.close(pipe[0]);
         {

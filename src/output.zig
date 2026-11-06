@@ -91,6 +91,7 @@ const error_info = [_]ErrorInfo{
     .{ .err = error.CapabilityExpired, .code = 4, .summary = "this token does not have the required access" },
     .{ .err = error.CapabilityTicketMismatch, .code = 4, .summary = "this token does not have the required access" },
     .{ .err = error.CommandFailed, .code = 4, .summary = "the server could not complete the command" },
+    .{ .err = error.SectionChangeNotConfirmed, .code = 4, .summary = "the section change was not confirmed by a readback" },
     .{ .err = error.FeaturesUnavailable, .code = 4, .summary = "live features are unavailable on this server (GET /api/mcp/features returned 404); update the server" },
     .{ .err = error.FeedbackNotEnabled, .code = 4, .summary = "Feedback is not enabled for this account" },
     .{ .err = error.FeedbackRateLimited, .code = 4, .summary = "Feedback rate limit reached, try again later" },
@@ -122,7 +123,69 @@ pub fn exitCode(err: anyerror) u8 {
     return errorInfo(err).code;
 }
 
+const server_failure_limit = 512;
+threadlocal var server_failure_buf: [server_failure_limit]u8 = undefined;
+threadlocal var server_failure_detail: ?[]const u8 = null;
+
+pub fn clearServerFailure() void {
+    server_failure_detail = null;
+}
+
+/// Remember the HTTP status and server text for the next ApiFailure or
+/// CommandFailed line. The summary stays the same; the detail is appended.
+pub fn noteApiFailure(allocator: std.mem.Allocator, status: std.http.Status, body: []const u8) void {
+    var text_buf: [server_failure_limit - 16]u8 = undefined;
+    const text = serverFailureText(allocator, body, &text_buf);
+    const code = @intFromEnum(status);
+    const written = if (text.len == 0)
+        std.fmt.bufPrint(&server_failure_buf, "HTTP {d}", .{code}) catch return
+    else
+        std.fmt.bufPrint(&server_failure_buf, "HTTP {d}: {s}", .{ code, text }) catch return;
+    server_failure_detail = written;
+}
+
+fn serverFailureText(allocator: std.mem.Allocator, body: []const u8, dest: []u8) []const u8 {
+    const trimmed = std.mem.trim(u8, body, " \t\r\n");
+    if (trimmed.len == 0) return dest[0..0];
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, trimmed, .{}) catch return copyFailureText(trimmed, dest);
+    defer parsed.deinit();
+    if (parsed.value == .object) {
+        if (failureField(parsed.value, "error")) |value| return copyFailureText(value, dest);
+        if (failureField(parsed.value, "message")) |value| return copyFailureText(value, dest);
+    }
+    return dest[0..0];
+}
+
+fn failureField(value: std.json.Value, name: []const u8) ?[]const u8 {
+    const field = value.object.get(name) orelse return null;
+    if (field != .string) return null;
+    const text = std.mem.trim(u8, field.string, " \t\r\n");
+    if (text.len == 0) return null;
+    return text;
+}
+
+fn copyFailureText(source: []const u8, dest: []u8) []const u8 {
+    var used: usize = 0;
+    for (source) |byte| {
+        if (used >= dest.len) break;
+        dest[used] = switch (byte) {
+            '\t', '\r', '\n' => ' ',
+            else => byte,
+        };
+        used += 1;
+    }
+    return dest[0..used];
+}
+
+fn serverFailureSuffix(err: anyerror) ?[]const u8 {
+    return switch (err) {
+        error.ApiFailure, error.CommandFailed => server_failure_detail,
+        else => null,
+    };
+}
+
 pub fn printFailure(err: anyerror) void {
+    defer server_failure_detail = null;
     // The reader closed stdout early (`| head`); exit quietly like standard Unix tools.
     if (err == error.BrokenPipe) return;
     if (err == error.SectionNotFound) {
@@ -132,7 +195,11 @@ pub fn printFailure(err: anyerror) void {
 
     const summary = errorInfo(err).summary;
     if (summary) |message| {
-        std.debug.print("hypertask: {s}\n", .{message});
+        if (serverFailureSuffix(err)) |detail| {
+            std.debug.print("hypertask: {s} ({s})\n", .{ message, detail });
+        } else {
+            std.debug.print("hypertask: {s}\n", .{message});
+        }
     } else {
         std.debug.print("hypertask: command failed ({s})\n", .{@errorName(err)});
     }
@@ -163,6 +230,7 @@ fn nextStep(err: anyerror) []const u8 {
         => "request a fresh capability for this agent and ticket.",
         error.ApiNotFound, error.FieldNotFound, error.ProjectNotFound, error.TaskNotFound => "check the requested identifier and retry.",
         error.AssigneeNotConfirmed, error.AssigneeNotRemoved => "read the task back, then retry only if its assignees are still wrong.",
+        error.SectionChangeNotConfirmed => "read the task back, then retry the section change if it is still in the old section.",
         error.FileNotFound, error.InvalidJsonObject, error.InvalidManifest => "fix the file or JSON input named above, then retry.",
         error.ApiInvalidInput,
         error.ConfirmationRequired,
@@ -403,6 +471,50 @@ test "human output preserves non-JSON responses" {
     const formatted = try formatHuman(std.testing.allocator, "plain text");
     defer std.testing.allocator.free(formatted);
     try std.testing.expectEqualStrings("plain text", formatted);
+}
+
+test "a server failure line keeps its summary and adds status and server text" {
+    const posix = std.posix;
+    const expected = "hypertask: the server could not complete the command (HTTP 503: Move task failed: 503)\nNext: retry the same command once.\n";
+    for ([_][]const u8{
+        "{\"success\":false,\"error\":\"Move task failed: 503\"}",
+        "Move task failed: 503",
+        "{\"message\":\"Move task failed: 503\"}",
+    }) |body| {
+        noteApiFailure(std.testing.allocator, .service_unavailable, body);
+        const pipe = try posix.pipe();
+        defer posix.close(pipe[0]);
+        {
+            defer posix.close(pipe[1]);
+            const saved_stderr = try posix.dup(2);
+            defer posix.close(saved_stderr);
+            try posix.dup2(pipe[1], 2);
+            defer posix.dup2(saved_stderr, 2) catch {};
+            printFailure(error.CommandFailed);
+        }
+        var captured: [512]u8 = undefined;
+        const printed = try posix.read(pipe[0], &captured);
+        try std.testing.expectEqualStrings(expected, captured[0..printed]);
+    }
+
+    noteApiFailure(std.testing.allocator, .ok, "{\"success\":false,\"error\":\"Move task failed: 503\"}");
+    const pipe = try posix.pipe();
+    defer posix.close(pipe[0]);
+    {
+        defer posix.close(pipe[1]);
+        const saved_stderr = try posix.dup(2);
+        defer posix.close(saved_stderr);
+        try posix.dup2(pipe[1], 2);
+        defer posix.dup2(saved_stderr, 2) catch {};
+        printFailure(error.ApiFailure);
+    }
+    var captured: [512]u8 = undefined;
+    const printed = try posix.read(pipe[0], &captured);
+    try std.testing.expectEqualStrings(
+        "hypertask: the server could not complete the command (HTTP 200: Move task failed: 503)\nNext: retry the same command once.\n",
+        captured[0..printed],
+    );
+    try std.testing.expect(server_failure_detail == null);
 }
 
 test "chat errors distinguish input from API failures" {

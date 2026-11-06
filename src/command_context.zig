@@ -4,11 +4,20 @@ const config = @import("config.zig");
 const http = @import("http.zig");
 const output = @import("output.zig");
 
+pub const RecordedCall = struct {
+    method: std.http.Method,
+    path: []u8,
+    body: ?[]u8,
+};
+
 pub const RequestRecorder = struct {
     allocator: std.mem.Allocator,
     method: ?std.http.Method = null,
     path: ?[]u8 = null,
     body: ?[]u8 = null,
+    calls: std.ArrayListUnmanaged(RecordedCall) = .{},
+    // Set when a command prints a successful result during a recorded run.
+    printed: ?[]u8 = null,
     // Scripted response bodies handed back one per fetch; "{}" once exhausted.
     responses: []const []const u8 = &.{},
     responses_index: usize = 0,
@@ -21,9 +30,19 @@ pub const RequestRecorder = struct {
     }
 
     pub fn deinit(self: *RequestRecorder) void {
-        if (self.path) |value| self.allocator.free(value);
-        if (self.body) |value| self.allocator.free(value);
+        for (self.calls.items) |call| {
+            self.allocator.free(call.path);
+            if (call.body) |value| self.allocator.free(value);
+        }
+        self.calls.deinit(self.allocator);
+        if (self.printed) |value| self.allocator.free(value);
         self.* = undefined;
+    }
+
+    pub fn notePrinted(self: *RequestRecorder, body: []const u8) !void {
+        const copy = try self.allocator.dupe(u8, body);
+        if (self.printed) |previous| self.allocator.free(previous);
+        self.printed = copy;
     }
 
     pub fn fetch(self: *RequestRecorder, method: std.http.Method, path: []const u8, body: ?[]const u8) !http.Response {
@@ -38,8 +57,11 @@ pub const RequestRecorder = struct {
         const response_body = try self.allocator.dupe(u8, scripted);
         errdefer self.allocator.free(response_body);
 
-        if (self.path) |value| self.allocator.free(value);
-        if (self.body) |value| self.allocator.free(value);
+        try self.calls.append(self.allocator, .{
+            .method = method,
+            .path = next_path,
+            .body = next_body,
+        });
         self.method = method;
         self.path = next_path;
         self.body = next_body;
@@ -64,7 +86,7 @@ pub const Context = struct {
     }
 
     pub fn print(self: *const Context, body: []const u8) !void {
-        if (self.request_recorder != null) return;
+        if (self.request_recorder) |recorder| return recorder.notePrinted(body);
         try output.printResponse(self.allocator, body, self.json);
     }
 
