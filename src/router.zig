@@ -171,6 +171,7 @@ pub fn reportCommandPath(allocator: std.mem.Allocator, path: []const []const u8)
 }
 
 pub fn dispatch(context: *const Context) !void {
+    output.clearServerFailure();
     const root = context.args.positionalAt(0) orelse return printHelp(context.allocator, &.{});
     if (std.mem.eql(u8, root, "login")) return auth.login(context);
     if (std.mem.eql(u8, root, "logout")) return auth.logout(context);
