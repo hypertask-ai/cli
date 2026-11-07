@@ -300,6 +300,8 @@ hypertask task waiting-on HTPR-7723 --user me
 hypertask task blocker-comment HTPR-7723 --comment-id 101
 hypertask task waiting-on HTPR-7723 --user none --reason "Answered on the ticket"
 hypertask comment add HTPR-5726 --text "<p>...</p>"
+
+Bare comment text may also follow the ticket: `hypertask comment add HTPR-5726 "<p>...</p>"` (same as `--text` / `--body`).
 hypertask agents update --id <agent-id> --name "Ops Script"
 hypertask agents update --id <agent-id> --add-project 339
 hypertask agents archive --id <agent-id>

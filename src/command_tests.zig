@@ -1567,6 +1567,15 @@ test "task unassign --assignee <user-id> with no matching rows stays an idempote
     );
 }
 
+test "comment add accepts positional text" {
+    try expectRequest(
+        &.{ "comment", "add", "HTPR-6501", "First paragraph\n\nSecond paragraph" },
+        .POST,
+        "/mcp/comments",
+        "{\"ticket_number\":\"HTPR-6501\",\"text\":\"<p>First paragraph</p><p>Second paragraph</p>\"}",
+    );
+}
+
 test "comment add bare --improve posts the default rewrite" {
     try expectRequestCountWithResponses(
         &.{ "comment", "add", "HTPR-6574", "--improve", "--text", "<p>Draft</p>" },

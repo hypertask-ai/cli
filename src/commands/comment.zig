@@ -34,7 +34,7 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
             }
         }
         if (context.args.get("improve-command") != null and !context.args.has("improve")) return error.InvalidOptions;
-        var text = if (context.args.get("file")) |path| try common.readFile(context.allocator, path, 1024 * 1024) else context.args.get("text") orelse context.args.get("body") orelse return error.MissingOption;
+        var text = if (context.args.get("file")) |path| try common.readFile(context.allocator, path, 1024 * 1024) else context.args.positionalAt(3) orelse context.args.get("text") orelse context.args.get("body") orelse return error.MissingOption;
         const ticket = try resolve.identifierArgument(context, 2);
         try resolve.refuseBareWrite(context, ticket);
         if (context.args.has("improve")) {
