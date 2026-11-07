@@ -564,7 +564,7 @@ def main() -> None:
 
             with Handler.lock:
                 before = len(Handler.requests)
-            for options in ((), ("--user", "invalid"), ("--user", "0")):
+            for options in ((), ("--user", "0")):
                 invalid_waiting = run(
                     binary, token, api_url, home,
                     "task", "waiting-on", "HTPR-5787", *options,
@@ -574,6 +574,18 @@ def main() -> None:
                 expect("Next:" in invalid_waiting.stderr, invalid_waiting.stderr)
             with Handler.lock:
                 expect(len(Handler.requests) == before, "invalid waiting-on made network requests")
+
+            with Handler.lock:
+                before = len(Handler.requests)
+            invalid_agent = run(
+                binary, token, api_url, home,
+                "task", "waiting-on", "HTPR-5787", "--user", "invalid", "--json",
+            )
+            expect(invalid_agent.returncode == 4, invalid_agent)
+            expect(invalid_agent.stdout == "", invalid_agent.stdout)
+            expect("Next:" in invalid_agent.stderr, invalid_agent.stderr)
+            with Handler.lock:
+                expect(len(Handler.requests) > before, "agent waiting-on should call the server")
 
             for root, comment, expected_comment in (("task", "101", 101), ("tasks", "none", None)):
                 for mode in ((), ("--human",)):
