@@ -4,6 +4,20 @@ const Context = common.Context;
 const json = @import("../json_util.zig");
 const output = @import("../output.zig");
 
+fn feedbackToolSlug(allocator: std.mem.Allocator, value: []const u8) ![]u8 {
+    const trimmed = std.mem.trim(u8, value, " \t\r\n");
+    var result: std.ArrayListUnmanaged(u8) = .{};
+    errdefer result.deinit(allocator);
+    for (trimmed) |byte| {
+        const out: u8 = if (std.ascii.isWhitespace(byte)) '-' else std.ascii.toLower(byte);
+        if (result.items.len != 0 and result.items[result.items.len - 1] == '-' and out == '-') continue;
+        try result.append(allocator, out);
+    }
+    while (result.items.len > 0 and result.items[result.items.len - 1] == '-') _ = result.pop();
+    while (result.items.len > 0 and result.items[0] == '-') _ = result.orderedRemove(0);
+    return result.toOwnedSlice(allocator);
+}
+
 pub fn run(context: *const Context) !void {
     const category = context.args.get("category") orelse "other";
     const categories = [_][]const u8{ "call_failed", "empty_result", "unexpected_result", "auth_failed", "slow", "user_reported_broken", "other" };
@@ -49,7 +63,11 @@ pub fn run(context: *const Context) !void {
     try body.string("client", "hypertask-cli");
     try body.string("category", category);
     if (kind) |value| try body.string("kind", value);
-    if (context.args.get("tool")) |value| try body.string("tool", value);
+    if (context.args.get("tool")) |value| {
+        const slug = try feedbackToolSlug(context.allocator, value);
+        defer context.allocator.free(slug);
+        try body.string("tool", slug);
+    }
     if (context.args.get("status")) |value| {
         const status = try common.int(value, "status");
         if (status < 100 or status > 599) {

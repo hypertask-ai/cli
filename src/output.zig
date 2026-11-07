@@ -212,7 +212,7 @@ fn nextStep(err: anyerror) []const u8 {
         error.UnknownCommand, error.MissingSubcommand => "choose one of the valid commands listed above.",
         error.UnknownOption => "retry with one of the accepted flags listed above.",
         error.InvalidMethod => "retry with one of the valid methods listed above.",
-        error.SectionNotFound => "retry with one of the sections listed above.",
+        error.SectionNotFound => "pick a column from the list above; boards without QA use their review column (for example AI Review).",
         error.LabelNotFound => "retry with one of the labels listed above.",
         error.AmbiguousTaskIdentifier => "retry with the full ticket key or internal id described above.",
         error.NoToken => config.token_hint ++ ".",

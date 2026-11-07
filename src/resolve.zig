@@ -2,6 +2,7 @@ const std = @import("std");
 const common = @import("command_context.zig");
 const Context = common.Context;
 const json = @import("json_util.zig");
+const column_role = @import("column_role.zig");
 const query_mod = @import("query.zig");
 
 pub const Task = struct {
@@ -343,15 +344,38 @@ pub fn sectionId(context: *const Context, project_id: i64, value: []const u8) !i
         return json.integerField(row, "id", true) orelse return error.InvalidResponse;
     }
 
-    std.debug.print("section not found: {s}\nsections may only contain:", .{value});
+    std.debug.print("section not found: {s}\nsections on this board:", .{value});
     var first = true;
+    var review_first = std.ArrayListUnmanaged([]const u8){};
+    defer review_first.deinit(context.allocator);
     for (sections.array.items) |row| {
         const title_value = row.object.get("section_title") orelse continue;
         if (title_value != .string) continue;
-        std.debug.print("{s} {s}", .{ if (first) "" else ",", title_value.string });
+        const is_done_value = row.object.get("isDone");
+        const is_done: ?bool = if (is_done_value) |field| switch (field) {
+            .bool => |b| b,
+            else => null,
+        } else null;
+        const role = column_role.columnRoleFor(title_value.string, is_done);
+        if (column_role.isReviewRole(role)) try review_first.append(context.allocator, title_value.string);
+        const role_tag = column_role.roleLabel(role);
+        if (role != .other) {
+            std.debug.print("{s} {s} ({s})", .{ if (first) "" else ",", title_value.string, role_tag });
+        } else {
+            std.debug.print("{s} {s}", .{ if (first) "" else ",", title_value.string });
+        }
         first = false;
     }
     std.debug.print("\n", .{});
+    if (std.ascii.eqlIgnoreCase(value, "QA") and review_first.items.len != 0) {
+        std.debug.print("this board has no QA column; for merged-work review use:", .{});
+        var review_first_label = true;
+        for (review_first.items) |title| {
+            std.debug.print("{s} {s}", .{ if (review_first_label) "" else ",", title });
+            review_first_label = false;
+        }
+        std.debug.print("\n", .{});
+    }
     return error.SectionNotFound;
 }
 
