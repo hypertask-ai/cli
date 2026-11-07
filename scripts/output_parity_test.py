@@ -426,6 +426,7 @@ def main() -> None:
                 },
             )
 
+            Handler.login_status, Handler.login_body = 200, healthy_body
             huge_expiry = run(
                 binary,
                 jwt({"exp": 9_223_372_036_854_775_807}),
