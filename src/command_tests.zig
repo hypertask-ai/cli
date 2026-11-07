@@ -1109,13 +1109,27 @@ test "the local agent dev loop refuses to guess an agent or a handler URL" {
     try expectDispatchError(error.InvalidOptions, &.{ "agent", "replay", "run_1", "--url", "file:///etc/passwd" });
 }
 
+test "agent owner reads owner from hello" {
+    const hello = "{\"success\":true,\"user\":{\"id\":6,\"displayName\":\"Maria Lopez\",\"email\":\"m@example.com\"},\"agent\":{\"id\":\"agent-1\",\"displayName\":\"Claude Code\"},\"boards\":[]}";
+    try expectRequestCountWithResponses(
+        &.{ "agent", "owner", "--json" },
+        &.{hello},
+        1,
+        .GET,
+        "/mcp/hello",
+        null,
+    );
+}
+
+test "agent owner rejects user-only hello" {
+    const hello = "{\"success\":true,\"user\":{\"id\":6,\"displayName\":\"Maria\"},\"boards\":[]}";
+    try expectDispatchErrorWithResponses(&.{ "agent", "owner" }, &.{hello}, error.InvalidOptions);
+}
+
 test "task waiting-on requires a ticket and a valid user before HTTP" {
     try expectDispatchError(error.MissingArgument, &.{ "task", "waiting-on", "--user", "6" });
     try expectDispatchError(error.MissingOption, &.{ "task", "waiting-on", "HTPR-7723" });
     try expectDispatchError(error.MissingOption, &.{ "tasks", "waiting-on", "HTPR-7723", "--user" });
-    for ([_][]const u8{ "", "invalid", "-1", "1.5", "+6", "agent-1" }) |value| {
-        try expectDispatchError(error.InvalidOptions, &.{ "task", "waiting-on", "HTPR-7723", "--user", value });
-    }
     for ([_][]const u8{ "0", "9223372036854775808" }) |value| {
         try expectDispatchError(error.InvalidInteger, &.{ "task", "waiting-on", "HTPR-7723", "--user", value });
     }

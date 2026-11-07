@@ -33,11 +33,60 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
     if (std.mem.eql(u8, subcommand, "take")) return assignSelf(context, "assign");
     if (std.mem.eql(u8, subcommand, "drop")) return assignSelf(context, "unassign");
     if (std.mem.eql(u8, subcommand, "move")) return move(context);
+    if (std.mem.eql(u8, subcommand, "owner")) return owner(context);
     if (std.mem.eql(u8, subcommand, "poll")) return poll(context);
     if (std.mem.eql(u8, subcommand, "new-tickets")) return newTickets(context);
     if (std.mem.eql(u8, subcommand, "hand")) return hand(context);
     if (std.mem.eql(u8, subcommand, "dev") or std.mem.eql(u8, subcommand, "replay")) return agent_dev.run(context, subcommand);
     return error.UnknownCommand;
+}
+
+fn owner(context: *const Context) !void {
+    var response = try context.fetch(.GET, "/mcp/hello", null);
+    defer response.deinit();
+    if (!response.isSuccess()) return context.finish(&response);
+    const document = try std.json.parseFromSlice(std.json.Value, context.allocator, response.body, .{});
+    defer document.deinit();
+    if (document.value != .object) return error.InvalidResponse;
+    const success = document.value.object.get("success");
+    if (success == null or success.? != .bool or !success.?.bool) return error.InvalidResponse;
+    const user = document.value.object.get("user") orelse return error.InvalidResponse;
+    const agent = document.value.object.get("agent");
+    if (agent == null or agent.? != .object) {
+        return output.invalidOptions("agent owner is only available on an agent bearer token. User logins can use: hypertask context");
+    }
+    const owner_name = json.stringField(user, "displayName") orelse json.stringField(user, "email") orelse return error.InvalidResponse;
+    const owner_email = json.stringField(user, "email");
+    const agent_name = json.stringField(agent.?, "displayName");
+    const agent_id = json.stringField(agent.?, "id");
+    if (context.json) {
+        var object = try json.Object.init(context.allocator);
+        defer object.deinit();
+        try object.boolean("success", true);
+        var owner_object = try json.Object.init(context.allocator);
+        defer owner_object.deinit();
+        try owner_object.string("displayName", owner_name);
+        if (owner_email) |email| try owner_object.string("email", email);
+        if (json.integerField(user, "id", true)) |id| try owner_object.integer("id", id);
+        try object.raw("owner", try owner_object.finish());
+        if (agent_id != null or agent_name != null) {
+            var agent_object = try json.Object.init(context.allocator);
+            defer agent_object.deinit();
+            if (agent_id) |id| try agent_object.string("id", id);
+            if (agent_name) |name| try agent_object.string("displayName", name);
+            try object.raw("agent", try agent_object.finish());
+        }
+        try context.print(try object.finish());
+        return;
+    }
+    var text: std.Io.Writer.Allocating = .init(context.allocator);
+    defer text.deinit();
+    const writer = &text.writer;
+    try writer.print("Owner: {s}", .{owner_name});
+    if (owner_email) |email| try writer.print(" ({s})", .{email});
+    try writer.writeByte('\n');
+    if (agent_name) |name| try writer.print("Agent: {s}\n", .{name});
+    try output.print(text.written());
 }
 
 fn say(context: *const Context) !void {

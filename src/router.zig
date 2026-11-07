@@ -560,6 +560,11 @@ test "subcommand help renders command-specific options" {
     defer std.testing.allocator.free(new_tickets_help);
     try std.testing.expect(std.mem.indexOf(u8, new_tickets_help, "--project <id>") != null);
 
+    try validateCommandPath(std.testing.allocator, &.{ "agent", "owner" }, true);
+    const owner_help = try renderHelp(std.testing.allocator, &.{ "agent", "owner" });
+    defer std.testing.allocator.free(owner_help);
+    try std.testing.expect(std.mem.indexOf(u8, owner_help, "Usage: hypertask agent owner") != null);
+
     const assign_help = try renderHelp(std.testing.allocator, &.{ "tasks", "assign" });
     defer std.testing.allocator.free(assign_help);
     try std.testing.expect(std.mem.indexOf(u8, assign_help, "Usage: hypertask task assign <ticket> [options]") != null);
