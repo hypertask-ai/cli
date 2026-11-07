@@ -343,12 +343,21 @@ pub fn sectionId(context: *const Context, project_id: i64, value: []const u8) !i
         return json.integerField(row, "id", true) orelse return error.InvalidResponse;
     }
 
-    std.debug.print("section not found: {s}\nsections may only contain:", .{value});
+    std.debug.print("section not found: {s}\nallowed workflow mapping:", .{value});
     var first = true;
     for (sections.array.items) |row| {
         const title_value = row.object.get("section_title") orelse continue;
         if (title_value != .string) continue;
-        std.debug.print("{s} {s}", .{ if (first) "" else ",", title_value.string });
+        const role_value = row.object.get("role");
+        const role = if (role_value) |role_field| blk: {
+            if (role_field != .string) break :blk "";
+            break :blk role_field.string;
+        } else "";
+        if (role.len > 0) {
+            std.debug.print("{s} {s} ({s})", .{ if (first) "" else ",", title_value.string, role });
+        } else {
+            std.debug.print("{s} {s}", .{ if (first) "" else ",", title_value.string });
+        }
         first = false;
     }
     std.debug.print("\n", .{});

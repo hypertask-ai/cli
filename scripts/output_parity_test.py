@@ -506,7 +506,7 @@ def main() -> None:
             expect(bad_section.stdout == "", f"bad section wrote stdout: {bad_section.stdout!r}")
             expect(bad_section.stderr == (
                 "section not found: Totally Not A Section\n"
-                "sections may only contain: Bugs, In Progress, Done\n"
+                "allowed workflow mapping: Bugs, In Progress, Done\n"
                 "Next: retry with one of the sections listed above.\n"
             ), f"bad section stderr was {bad_section.stderr!r}")
             with Handler.lock:
