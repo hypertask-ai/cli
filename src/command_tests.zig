@@ -1089,12 +1089,9 @@ test "task update empty assignee or --clear-assignees unassigns through the assi
     );
 }
 
-test "task update and task create name the assignee option instead of a parse error" {
-    // A name in --assignee used to reach std.json integer output and fail as
-    // InvalidCharacter with no option named. Section names resolve normally, so
-    // the assignee list is the only raw integer boundary left in these commands.
+test "task update resolves named assignees; task create still requires numeric user ids" {
     for ([_][]const u8{ "Some Agent", "agent-1", "6,Runner 7" }) |value| {
-        try expectDispatchError(error.InvalidInteger, &.{ "task", "update", "id:41043", "--assignee", value });
+        try expectDispatchError(error.TaskNotFound, &.{ "task", "update", "id:41043", "--assignee", value });
         try expectDispatchError(error.InvalidInteger, &.{ "task", "create", "--project", "15", "--title", "T", "--assignee", value });
     }
 }
