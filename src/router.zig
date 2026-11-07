@@ -496,10 +496,10 @@ test "task waiting-on help includes required user and project for both aliases" 
         const help = try renderHelp(std.testing.allocator, &.{ root, "waiting-on" });
         defer std.testing.allocator.free(help);
         try std.testing.expect(std.mem.indexOf(u8, help, "Usage: hypertask task waiting-on <ticket> [options]") != null);
-        try std.testing.expect(std.mem.indexOf(u8, help, "--user <id|me|none> (required)") != null);
+        try std.testing.expect(std.mem.indexOf(u8, help, "--user <id|agent|me|none> (required)") != null);
         try std.testing.expect(std.mem.indexOf(u8, help, "--reason <text>") != null);
         try std.testing.expect(std.mem.indexOf(u8, help, "--project <id>") != null);
-        try std.testing.expect(std.mem.indexOf(u8, help, "Example:\n  hypertask task waiting-on <ticket> --user <id|me|none>") != null);
+        try std.testing.expect(std.mem.indexOf(u8, help, "Example:\n  hypertask task waiting-on <ticket> --user <id|agent|me|none>") != null);
         const task_help = try renderHelp(std.testing.allocator, &.{root});
         defer std.testing.allocator.free(task_help);
         try std.testing.expect(std.mem.indexOf(u8, task_help, "waiting-on") != null);
