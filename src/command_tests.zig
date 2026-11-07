@@ -2019,7 +2019,7 @@ test "feedback posts default category and explicit metadata and note" {
         1,
         .POST,
         "/mcp/feedback",
-        "{\"surface\":\"agent\",\"client\":\"hypertask-cli\",\"category\":\"call_failed\",\"tool\":\"task get\",\"status\":503,\"errorCode\":\"upstream-error\",\"error\":\"Unavailable\",\"note\":\"Failed \\\"again\\\"\\n\"}",
+        "{\"surface\":\"agent\",\"client\":\"hypertask-cli\",\"category\":\"call_failed\",\"tool\":\"task-get\",\"status\":503,\"errorCode\":\"upstream-error\",\"error\":\"Unavailable\",\"note\":\"Failed \\\"again\\\"\\n\"}",
     );
 }
 
