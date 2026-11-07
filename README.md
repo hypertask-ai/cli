@@ -471,3 +471,5 @@ install command. It checks without sending your login to GitHub.
 
 - HTPR-8861 CLI: a revoked login looks fine and gives no next step — native 0.2.54
   verifies status and explains owner recovery.
+- HTPR-8756 CLI: `hypertask context <ticket>` was rejected — native 0.2.55
+  accepts the ticket and returns that ticket's context.

@@ -251,7 +251,11 @@ fn descriptionRestore(context: *const Context) !void {
 }
 
 fn taskContext(context: *const Context) !void {
-    const found = try resolve.task(context, try context.args.requirePositional(2, "ticket-or-id"));
+    return ticketContext(context, try context.args.requirePositional(2, "ticket-or-id"));
+}
+
+pub fn ticketContext(context: *const Context, identifier: []const u8) !void {
+    const found = try resolve.task(context, identifier);
     if (context.args.get("project")) |project| if (try common.positiveInt(project, "project") != found.project_id) return error.InvalidProject;
     var path = try query.Builder.init(context.allocator, "/mcp/tasks/context");
     defer path.deinit();

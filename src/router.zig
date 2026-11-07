@@ -442,6 +442,17 @@ test "task update help shows both ways to clear labels" {
     try std.testing.expect(std.mem.indexOf(u8, help, "An empty value clears every label.") != null);
 }
 
+test "context accepts one ticket and points at task context" {
+    try validateCommandPath(std.testing.allocator, &.{"context"}, true);
+    try validateCommandPath(std.testing.allocator, &.{ "context", "HTPR-8756" }, true);
+    try std.testing.expectError(error.InvalidOptions, validateCommandPath(std.testing.allocator, &.{ "context", "HTPR-8756", "extra" }, true));
+    const help = try renderHelp(std.testing.allocator, &.{"context"});
+    defer std.testing.allocator.free(help);
+    try std.testing.expect(std.mem.indexOf(u8, help, "Usage: hypertask context [ticket-or-id] [options]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, help, "same as hypertask task context") != null);
+    try std.testing.expect(std.mem.indexOf(u8, help, "--summary") != null);
+}
+
 test "project update help shows the title option" {
     const project_help = try renderHelp(std.testing.allocator, &.{"projects"});
     defer std.testing.allocator.free(project_help);

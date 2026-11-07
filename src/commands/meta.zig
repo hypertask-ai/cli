@@ -3,6 +3,7 @@ const Context = @import("../command_context.zig").Context;
 const query = @import("../query.zig");
 const output = @import("../output.zig");
 const json = @import("../json_util.zig");
+const task = @import("task.zig");
 
 const Capability = struct {
     const Self = @This();
@@ -167,6 +168,13 @@ test "update compares published releases to the real native version" {
 }
 
 pub fn context(context_value: *const Context) !void {
+    if (context_value.args.positionalAt(1)) |ticket| {
+        return task.ticketContext(context_value, ticket);
+    }
+    if (context_value.args.has("project") or context_value.args.has("summary")) {
+        std.debug.print("a ticket is required with --project or --summary: hypertask context <ticket>\n", .{});
+        return error.InvalidOptions;
+    }
     const responses = try contextResponses(context_value);
     var user_context = responses[0];
     defer user_context.deinit();
