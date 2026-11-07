@@ -42,8 +42,8 @@ fn requestHeaders() std.http.Client.Request.Headers {
 fn buildRequestHeaders(authorization: []const u8, body: ?[]const u8) RequestHeaders {
     var result: RequestHeaders = undefined;
     result.headers[0] = .{ .name = "Authorization", .value = authorization };
-    result.headers[1] = .{ .name = "X-CLI-Version", .value = "0.2.0-zig" };
-    result.headers[2] = .{ .name = "User-Agent", .value = "htz/0.2.0" };
+    result.headers[1] = .{ .name = "X-CLI-Version", .value = @import("version.zig").number };
+    result.headers[2] = .{ .name = "User-Agent", .value = "hypertask/" ++ @import("version.zig").number };
     result.count = 3;
     if (body != null) {
         result.headers[3] = .{ .name = "Content-Type", .value = "application/json" };
@@ -349,12 +349,12 @@ test "request headers identify htz with and without a JSON body" {
     const without_body = buildRequestHeaders("Bearer test", null);
     try std.testing.expectEqual(@as(usize, 3), without_body.count);
     try std.testing.expectEqualStrings("User-Agent", without_body.headers[2].name);
-    try std.testing.expectEqualStrings("htz/0.2.0", without_body.headers[2].value);
+    try std.testing.expectEqualStrings("hypertask/" ++ @import("version.zig").number, without_body.headers[2].value);
 
     const with_body = buildRequestHeaders("Bearer test", "{}");
     try std.testing.expectEqual(@as(usize, 4), with_body.count);
     try std.testing.expectEqualStrings("User-Agent", with_body.headers[2].name);
-    try std.testing.expectEqualStrings("htz/0.2.0", with_body.headers[2].value);
+    try std.testing.expectEqualStrings("hypertask/" ++ @import("version.zig").number, with_body.headers[2].value);
     try std.testing.expectEqualStrings("Content-Type", with_body.headers[3].name);
 }
 

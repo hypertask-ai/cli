@@ -468,10 +468,12 @@ def assert_status(
     args: tuple[str, ...] = (),
     env_overrides: dict[str, str] | None = None,
 ) -> None:
-    status = parse_json(
-        run(cli, [*args, "status", "--json"], env=isolated_env(home, **(env_overrides or {}))),
-        f"status for {expected_agent}",
-    )
+    process = run(cli, [*args, "status", "--json"], env=isolated_env(home, **(env_overrides or {})))
+    status = json.loads(process.stdout)
+    if process.returncode != 0:
+        # The native CLI verifies fake .test credentials; the frozen Node reference does not.
+        if process.returncode != 4 or status.get("status") != "unverified" or status.get("authenticated") is not False:
+            raise AssertionError(f"status failed unexpectedly: {process.stderr}")
     if status.get("agentId") != expected_agent or status.get("apiUrl") != expected_api:
         raise AssertionError(
             f"status selected agent/api {status.get('agentId')!r}/{status.get('apiUrl')!r}; "
@@ -535,7 +537,11 @@ def human_output(zig_cli: list[str]) -> None:
         home = Path(directory)
         write_config(home, "human", "https://saved.example.test/api")
         env = isolated_env(home)
-        assert_not_json_object(run(zig_cli, ["--human", "status"], env=env), "--human status")
+        status = run(zig_cli, ["--human", "status"], env=env)
+        if status.returncode != 4 or "authenticated: false" not in status.stdout or "status: unverified" not in status.stdout:
+            raise AssertionError(f"offline human status did not report unverified: {status}")
+        if status.stdout.lstrip().startswith("{"):
+            raise AssertionError("human status printed JSON")
         assert_not_json_object(run(zig_cli, ["capabilities"], env=env), "bare capabilities")
     print("human output checks passed")
 

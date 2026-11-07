@@ -346,8 +346,29 @@ def main() -> None:
             Handler.blockers_failure = False
             expect_command(
                 binary, token, api_url, home,
-                ("status",), "status.json", 0, None,
+                ("status",), "status.json", 0,
+                {"method": "GET", "path": "/mcp/hello", "query": {}, "body": None},
             )
+
+            healthy_body = Handler.login_body
+            for reason in ("token_revoked", "agent_revoked", "agent_token_superseded", "token_expired", "invalid_token", "missing_token", "legacy_token"):
+                Handler.login_status = 401
+                Handler.login_body = json.dumps({"success": False, "reason": reason})
+                result = run(binary, token, api_url, home, "status")
+                expect(result.returncode == 4, result)
+                status = json.loads(result.stdout)
+                expect(status["authenticated"] is False and status["verified"] is True, status)
+                expect(status["status"] == reason, status)
+                for guidance in ("https://app.hypertask.ai/agents", "hypertask agents rotate-token", "hypertask login --token", "cannot be refreshed"):
+                    expect(guidance in status["message"] and guidance in result.stderr, result)
+            for code, body in ((503, '{}'), (200, 'not JSON'), (200, '{"success":false}')):
+                Handler.login_status, Handler.login_body = code, body
+                result = run(binary, token, api_url, home, "status")
+                expect(result.returncode == 4, result)
+                status = json.loads(result.stdout)
+                expect(status["authenticated"] is False and status["verified"] is False, status)
+                expect(status["status"] == "unverified", status)
+            Handler.login_status, Handler.login_body = 200, healthy_body
 
             expect_command(
                 binary, token, api_url, home,

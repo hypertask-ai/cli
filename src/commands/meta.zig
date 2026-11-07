@@ -115,7 +115,55 @@ pub fn features(context_value: *const Context) !void {
 }
 
 pub fn update(context_value: *const Context) !void {
-    try context_value.print("{\"current\":\"0.2.0-zig\",\"latest\":null,\"available\":false,\"message\":\"Automatic npm updates are not available for hypertask\"}");
+    var response = try @import("../http.zig").send(context_value.client, context_value.allocator, .GET, "https://api.github.com/repos/hypertask-ai/cli/releases/latest", &.{
+        .{ .name = "User-Agent", .value = "hypertask/" ++ @import("../version.zig").number },
+        .{ .name = "Accept", .value = "application/vnd.github+json" },
+    }, null);
+    defer response.deinit();
+    if (!response.isSuccess()) return error.ApiFailure;
+    const result = try updateResult(context_value.allocator, response.body);
+    defer context_value.allocator.free(result);
+    try context_value.print(result);
+}
+
+fn updateResult(allocator: std.mem.Allocator, body: []const u8) ![]u8 {
+    const Release = struct { tag_name: []const u8 };
+    const parsed = try std.json.parseFromSlice(Release, allocator, body, .{ .ignore_unknown_fields = true });
+    defer parsed.deinit();
+    const tag = parsed.value.tag_name;
+    if (!std.mem.startsWith(u8, tag, "v")) return error.InvalidResponse;
+    const latest = std.SemanticVersion.parse(tag[1..]) catch return error.InvalidResponse;
+    const current = try std.SemanticVersion.parse(@import("../version.zig").number);
+    const available = current.order(latest) == .lt;
+    var object = try json.Object.init(allocator);
+    defer object.deinit();
+    try object.string("current", @import("../version.zig").number);
+    try object.string("latest", tag[1..]);
+    try object.boolean("available", available);
+    try object.string("message", if (available) "Update available" else "Up to date");
+    try object.string("url", "https://github.com/hypertask-ai/cli/releases/latest");
+    try object.string("command", "curl -fsSL https://raw.githubusercontent.com/hypertask-ai/cli/main/scripts/install.sh | bash");
+    return allocator.dupe(u8, try object.finish());
+}
+
+test "update compares published releases to the real native version" {
+    const allocator = std.testing.allocator;
+    for ([_]struct { tag: []const u8, available: bool }{
+        .{ .tag = "v99.0.0", .available = true },
+        .{ .tag = "v" ++ @import("../version.zig").number, .available = false },
+        .{ .tag = "v0.2.15", .available = false },
+    }) |case| {
+        const body = try std.fmt.allocPrint(allocator, "{{\"tag_name\":\"{s}\"}}", .{case.tag});
+        defer allocator.free(body);
+        const result = try updateResult(allocator, body);
+        defer allocator.free(result);
+        const document = try std.json.parseFromSlice(std.json.Value, allocator, result, .{});
+        defer document.deinit();
+        try std.testing.expectEqual(case.available, document.value.object.get("available").?.bool);
+        try std.testing.expectEqualStrings(@import("../version.zig").number, json.stringField(document.value, "current").?);
+        try std.testing.expectEqualStrings("https://github.com/hypertask-ai/cli/releases/latest", json.stringField(document.value, "url").?);
+    }
+    try std.testing.expectError(error.InvalidResponse, updateResult(allocator, "{\"tag_name\":\"not-a-release\"}"));
 }
 
 pub fn context(context_value: *const Context) !void {
