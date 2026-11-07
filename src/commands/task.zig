@@ -761,7 +761,9 @@ fn stuckAssigneeUser(user_id: i64) error{AssigneeNotRemoved} {
 fn waitingOn(context: *const Context) !void {
     const identifier = try context.args.requirePositional(2, "ticket");
     const user = try context.args.require("user");
-    const user_id: ?i64 = if (std.mem.eql(u8, user, "none")) null else if (std.mem.eql(u8, user, "me")) blk: {
+    const is_none = std.mem.eql(u8, user, "none");
+    const is_agent = !is_none and !std.mem.eql(u8, user, "me") and !resolve.isNumeric(user);
+    const user_id: ?i64 = if (is_none or is_agent) null else if (std.mem.eql(u8, user, "me")) blk: {
         var hello_response = try context.fetch(.GET, "/mcp/hello", null);
         defer hello_response.deinit();
         try requireSuccess(context, &hello_response);
@@ -773,7 +775,6 @@ fn waitingOn(context: *const Context) !void {
         if (id <= 0) return error.InvalidResponse;
         break :blk id;
     } else blk: {
-        if (!resolve.isNumeric(user)) return output.invalidOptions("--user must be a positive user ID, me, or none");
         break :blk try common.positiveInt(user, "user");
     };
     const reason = try clearReason(context, std.mem.eql(u8, user, "none"));
@@ -781,7 +782,9 @@ fn waitingOn(context: *const Context) !void {
     var body = try json.Object.init(context.allocator);
     defer body.deinit();
     try body.integer("taskId", found.id);
-    if (user_id) |id| {
+    if (is_agent) {
+        try body.string("agentId", user);
+    } else if (user_id) |id| {
         try body.integer("userId", id);
     } else {
         try body.nullValue("userId");
@@ -790,6 +793,15 @@ fn waitingOn(context: *const Context) !void {
     if (reason.len != 0) try body.string("reason", reason);
     var response = try context.fetch(.POST, "/mcp/tasks/waiting-on", try body.finish());
     defer response.deinit();
+    if (is_agent and response.isSuccess()) {
+        const document = std.json.parseFromSliceLeaky(std.json.Value, context.allocator, response.body, .{}) catch return error.InvalidResponse;
+        const task = if (document == .object) document.object.get("task") orelse return error.InvalidResponse else return error.InvalidResponse;
+        const stored = if (task == .object) task.object.get("waitingOnAgentId") orelse return error.InvalidResponse else return error.InvalidResponse;
+        if (stored != .string or !std.mem.eql(u8, stored.string, user)) {
+            std.debug.print("Error: response did not confirm agent {s} as the waiting person\n", .{user});
+            return error.CommandFailed;
+        }
+    }
     try context.print(try taskMutationBody(context, &response));
 }
 
