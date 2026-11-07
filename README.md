@@ -41,6 +41,10 @@ Exit codes are stable:
 
 Scripts may use the exit code category, while people and agents should follow the `Next:` line.
 
+## Release notes: native 0.2.57
+
+- `comment add` accepts comment HTML as an optional positional after the ticket, matching `--text` / `--body` (HTPR-8764).
+
 ## Release notes: native 0.2.52
 
 - `task assign` and `task unassign` take `--agent <name|id>`, so an agent assigns itself by the name it knows: `hypertask task assign HTPR-8538 --agent "Runner 3"` resolves that display name on the ticket's own board and sends its agent id. `me` is the calling agent, the same request as `--self`. An unknown, duplicated or person name is refused before anything is written (HTPR-8538).
