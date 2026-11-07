@@ -393,17 +393,52 @@ fn update(context: *const Context) !void {
         }
     }
     const assignees = try common.optionList(context, "assignee");
-    try validateAssigneeIds(assignees);
+    var user_assignees: std.ArrayListUnmanaged(i64) = .{};
+    defer user_assignees.deinit(context.allocator);
+    var agent_assignees: std.ArrayListUnmanaged([]const u8) = .{};
+    defer agent_assignees.deinit(context.allocator);
+    for (assignees) |value| {
+        const target = try resolveBoardAssigneeTarget(context, ticket, &resolved_task, value);
+        switch (target) {
+            .user_id => |id| try user_assignees.append(context.allocator, id),
+            .agent_id => |id| try agent_assignees.append(context.allocator, id),
+        }
+    }
     const clear_assignees = context.args.has("clear-assignees") or (context.args.has("assignee") and assignees.len == 0);
     if (clear_assignees) {
         // `assignee: []` on /mcp/tasks/update only drops human rows. Reuse the
         // existing unassign path so agent-linked rows (the usual id-6 chip) go too.
         try clearTaskAssignees(context, ticket);
-    } else if (assignees.len != 0) {
-        try body.integers("assignee", assignees);
+    } else if (user_assignees.items.len != 0) {
+        var as_strings: std.ArrayListUnmanaged([]const u8) = .{};
+        defer as_strings.deinit(context.allocator);
+        for (user_assignees.items) |id| {
+            try as_strings.append(context.allocator, try std.fmt.allocPrint(context.allocator, "{d}", .{id}));
+        }
+        try body.integers("assignee", as_strings.items);
     }
     const attach_inputs = try common.optionList(context, "attach");
-    const post_update = hasFieldUpdateOptions(context) or (context.args.has("assignee") and assignees.len != 0);
+    const assign_agents_only = agent_assignees.items.len != 0 and user_assignees.items.len == 0 and
+        !hasFieldUpdateOptions(context) and attach_inputs.len == 0 and !clear_assignees;
+    if (assign_agents_only) {
+        var arena = std.heap.ArenaAllocator.init(context.allocator);
+        defer arena.deinit();
+        for (agent_assignees.items) |agent_id| {
+            try postAssigneeAssign(context, arena.allocator(), ticket, .{ .agent_id = agent_id });
+        }
+        var path = try query.Builder.init(context.allocator, "/mcp/tasks");
+        defer path.deinit();
+        try addIdentifierQuery(&path, context, ticket);
+        var response = try context.fetch(.GET, path.path(), null);
+        defer response.deinit();
+        if (!response.isSuccess()) {
+            try context.finish(&response);
+            return;
+        }
+        return context.print(response.body);
+    }
+    const post_update = hasFieldUpdateOptions(context) or
+        (context.args.has("assignee") and (user_assignees.items.len != 0 or agent_assignees.items.len != 0));
     var response = if (post_update)
         try fetchTaskUpdate(context, ticket, try body.finish())
     else blk: {
@@ -419,6 +454,17 @@ fn update(context: *const Context) !void {
         }
         const found = resolved_task orelse return error.InvalidResponse;
         try confirmSectionChange(context, found.id, expected);
+    }
+    if (!response.isSuccess()) {
+        try context.finish(&response);
+        return;
+    }
+    if (agent_assignees.items.len != 0) {
+        var arena = std.heap.ArenaAllocator.init(context.allocator);
+        defer arena.deinit();
+        for (agent_assignees.items) |agent_id| {
+            try postAssigneeAssign(context, arena.allocator(), ticket, .{ .agent_id = agent_id });
+        }
     }
     const linked_body = try taskMutationBody(context, &response);
     if (attach_inputs.len == 0) return context.print(linked_body);
@@ -1172,6 +1218,84 @@ fn collectAssignedTaskIds(
 fn validateAssigneeIds(values: []const []const u8) !void {
     for (values) |value| {
         _ = try common.positiveInt(value, "assignee");
+    }
+}
+
+fn resolveBoardAssigneeTarget(context: *const Context, ticket: []const u8, resolved_task: *?resolve.Task, value: []const u8) !AssigneeTarget {
+    if (resolve.isNumeric(value)) return .{ .user_id = try common.positiveInt(value, "assignee") };
+    if (isAgentId(value)) return .{ .agent_id = value };
+    if (resolved_task.* == null) resolved_task.* = try resolve.task(context, ticket);
+    const task = resolved_task.*.?;
+    const path = try std.fmt.allocPrint(context.allocator, "/mcp/projects/{d}/members", .{task.project_id});
+    var response = try context.fetch(.GET, path, null);
+    defer response.deinit();
+    if (!response.isSuccess()) {
+        try context.finish(&response);
+        return error.CommandFailed;
+    }
+    const document = std.json.parseFromSliceLeaky(std.json.Value, context.allocator, response.body, .{}) catch return error.InvalidResponse;
+    if (document != .object) return error.InvalidResponse;
+    const members = document.object.get("members") orelse return error.InvalidResponse;
+    if (members != .array) return error.InvalidResponse;
+
+    var agent_matches: std.ArrayListUnmanaged([]const u8) = .{};
+    var person_id: ?i64 = null;
+    for (members.array.items) |row| {
+        if (row != .object) continue;
+        const display_name = row.object.get("displayName") orelse continue;
+        if (display_name != .string or !std.ascii.eqlIgnoreCase(display_name.string, value)) continue;
+        const id = row.object.get("id") orelse continue;
+        switch (id) {
+            .string => |agent_id| try agent_matches.append(context.allocator, agent_id),
+            .integer => |user_id| person_id = user_id,
+            else => {},
+        }
+    }
+    if (agent_matches.items.len == 1) return .{ .agent_id = agent_matches.items[0] };
+    if (agent_matches.items.len > 1) {
+        var ids: std.ArrayListUnmanaged(u8) = .{};
+        for (agent_matches.items, 0..) |agent_id, index| {
+            if (index != 0) try ids.appendSlice(context.allocator, ", ");
+            try ids.appendSlice(context.allocator, agent_id);
+        }
+        return output.invalidOptions(try std.fmt.allocPrint(
+            context.allocator,
+            "Error: {d} agents on this board are named \"{s}\": {s}. Pass the agent id: hypertask task assign {s} --agent <id>",
+            .{ agent_matches.items.len, value, ids.items, ticket },
+        ));
+    }
+    if (person_id) |user_id| return .{ .user_id = user_id };
+    return output.invalidOptions(try std.fmt.allocPrint(
+        context.allocator,
+        "Error: no agent or member named \"{s}\" on this board. `hypertask project members {d}` lists members and agent ids",
+        .{ value, task.project_id },
+    ));
+}
+
+fn postAssigneeAssign(
+    context: *const Context,
+    allocator: std.mem.Allocator,
+    identifier: []const u8,
+    target: AssigneeTarget,
+) !void {
+    var body = try identifierBody(context, identifier, null);
+    defer body.deinit();
+    switch (target) {
+        .agent_id => |value| try body.string("agent_id", value),
+        .user_id => |value| try body.integer("user_id", value),
+    }
+    try body.string("intent", "assign");
+    var response = try context.fetch(.POST, "/mcp/assignees/assign", try body.finish());
+    defer response.deinit();
+    if (!response.isSuccess()) {
+        try context.finish(&response);
+        return error.CommandFailed;
+    }
+    switch (target) {
+        .agent_id => |agent_id| {
+            if (agentInAssignees(allocator, response.body, agent_id) != true) return unconfirmedAgent(agent_id);
+        },
+        .user_id => {},
     }
 }
 
