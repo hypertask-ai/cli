@@ -90,7 +90,7 @@ def main() -> None:
             assert raw_with_human.returncode == 0, raw_with_human.stderr
             assert raw_with_human.stdout == json.dumps(Handler.response) + "\n", raw_with_human.stdout
             assert Handler.requests[-2][3] == {
-                "surface": "agent", "client": "hypertask-cli", "category": "call_failed", "tool": "task get", "status": 503,
+                "surface": "agent", "client": "hypertask-cli", "category": "call_failed", "tool": "task-get", "status": 503,
                 "errorCode": "upstream-error", "error": "Unavailable", "note": 'Failed "again"\n',
             }, Handler.requests[-2]
 
