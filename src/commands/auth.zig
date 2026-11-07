@@ -223,7 +223,7 @@ pub fn status(context: *const Context) !void {
                 state = "authenticated";
             } else if (response.status == .unauthorized or response.status == .forbidden) {
                 verified = true;
-                if (std.mem.eql(u8, state, "missing_token")) state = "invalid_token";
+                if (reason_copy == null) state = "invalid_token";
                 failure = error.ApiAuthentication;
             } else {
                 state = "unverified";
