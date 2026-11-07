@@ -8,7 +8,7 @@ const router = @import("router.zig");
 const error_reports = @import("error_reports.zig");
 const token_refresh = @import("token_refresh.zig");
 
-const version = "0.2.53 (zig)";
+const version = @import("version.zig").display;
 
 pub fn main() void {
     run() catch |err| {
@@ -46,7 +46,7 @@ fn run() !void {
     if (help_topic) |topic| return router.printHelp(allocator, topic);
 
     const root = parsed.positional[0];
-    const needs_no_token = std.mem.eql(u8, root, "capabilities") or std.mem.eql(u8, root, "commands") or std.mem.eql(u8, root, "login");
+    const needs_no_token = std.mem.eql(u8, root, "capabilities") or std.mem.eql(u8, root, "commands") or std.mem.eql(u8, root, "login") or std.mem.eql(u8, root, "status") or std.mem.eql(u8, root, "update") or std.mem.eql(u8, root, "agents");
     var cfg = if (needs_no_token)
         try config.loadAllowingEmptyToken(allocator, parsed.get("token"), parsed.get("api-url"), parsed.get("management-key"))
     else
@@ -58,7 +58,7 @@ fn run() !void {
     const explicit_refresh = parsed.positional.len >= 2 and
         std.mem.eql(u8, parsed.positional[0], "token") and
         std.mem.eql(u8, parsed.positional[1], "refresh");
-    if (!explicit_refresh) try token_refresh.maybeRefresh(&client, allocator, &cfg);
+    if (!explicit_refresh and !std.mem.eql(u8, root, "status") and !std.mem.eql(u8, root, "update")) try token_refresh.maybeRefresh(&client, allocator, &cfg);
     const context = Context{
         .client = &client,
         .allocator = allocator,

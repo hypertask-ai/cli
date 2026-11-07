@@ -2328,7 +2328,7 @@ test "help features propagates transport failure instead of claiming an old serv
 
 test "help features retains the existing authentication failure path" {
     for ([_]std.http.Status{ .unauthorized, .forbidden }) |status| {
-        try expectFeaturesOutput(&.{ "help", "features" }, "{\"success\":false,\"error\":\"Access denied\"}", status, null, error.ApiAuthentication, "{\"success\":false,\"error\":\"Access denied\"}\nhypertask: this token does not have the required access\nNext: ask the project owner to add this token.\n");
+        try expectFeaturesOutput(&.{ "help", "features" }, "{\"success\":false,\"error\":\"Access denied\"}", status, null, error.ApiAuthentication, "{\"success\":false,\"error\":\"Access denied\"}\nhypertask: this token does not have the required access\nNext: " ++ config.recovery_hint ++ "\n");
     }
 }
 
@@ -2629,4 +2629,13 @@ test "blockers commands are listed and accept their filters" {
         try router.validateCommandPath(arena.allocator(), parsed.positional, true);
         try @import("option_validate.zig").rejectUnknownOptions(arena.allocator(), &parsed);
     }
+}
+
+test "owner renewal keeps the existing agent ID and uses the token endpoint" {
+    try expectRequest(
+        &.{ "agents", "rotate-token", "--id", "existing-agent", "--management-key", "owner-key" },
+        .POST,
+        "/mcp/admin/agents/existing-agent/token",
+        null,
+    );
 }

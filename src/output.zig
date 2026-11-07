@@ -221,7 +221,7 @@ fn nextStep(err: anyerror) []const u8 {
         error.FeedbackNotEnabled => "ask the account owner to enable feedback.",
         error.FeedbackRateLimited => "wait before filing feedback again.",
         error.ApiRateLimited => "wait one minute, then retry the same command once.",
-        error.ApiAuthentication => "ask the project owner to add this token.",
+        error.ApiAuthentication => config.recovery_hint,
         error.ProjectAccessDenied => "ask the project owner to add it.",
         error.CapabilityAgentMismatch,
         error.CapabilityAgentOverride,
@@ -523,5 +523,12 @@ test "chat errors distinguish input from API failures" {
     }
     for ([_]anyerror{ error.ChatAgentTokenRequired, error.ChatEndpointUnavailable, error.ChatRequestRejected, error.ChatPollFailed }) |err| {
         try std.testing.expectEqual(@as(u8, 4), exitCode(err));
+    }
+}
+
+test "authentication failure gives the recovery page and executable next steps" {
+    const guidance = nextStep(error.ApiAuthentication);
+    for ([_][]const u8{ "https://app.hypertask.ai/agents", "hypertask agents rotate-token --id", "--management-key", "hypertask login --token", "cannot be refreshed" }) |expected| {
+        try std.testing.expect(std.mem.indexOf(u8, guidance, expected) != null);
     }
 }

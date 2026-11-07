@@ -195,13 +195,58 @@ pub fn logout(context: *const Context) !void {
 pub fn status(context: *const Context) !void {
     var object = try json.Object.init(context.allocator);
     defer object.deinit();
-    try object.boolean("authenticated", context.cfg.token.len != 0);
-    try object.boolean("hasToken", context.cfg.token.len != 0);
+    const has_token = context.cfg.token.len != 0;
+    var authenticated = false;
+    var verified = !has_token;
+    var state: []const u8 = "missing_token";
+    var reason_copy: ?[]u8 = null;
+    defer if (reason_copy) |reason| context.allocator.free(reason);
+    var failure: ?anyerror = if (has_token) null else error.NoToken;
+    if (has_token) {
+        if (context.fetchRaw(.GET, "/mcp/hello", null)) |value| {
+            var response = value;
+            defer response.deinit();
+            const parsed = std.json.parseFromSlice(std.json.Value, context.allocator, response.body, .{}) catch null;
+            defer if (parsed) |document| document.deinit();
+            if (parsed) |document| {
+                if (document.value == .object) {
+                    const success = document.value.object.get("success");
+                    authenticated = response.isSuccess() and success != null and success.? == .bool and success.?.bool;
+                    if (json.stringField(document.value, "reason")) |reason| {
+                        reason_copy = try context.allocator.dupe(u8, reason);
+                        state = reason_copy.?;
+                    }
+                }
+            }
+            if (authenticated) {
+                verified = true;
+                state = "authenticated";
+            } else if (response.status == .unauthorized or response.status == .forbidden) {
+                verified = true;
+                if (reason_copy == null) state = "invalid_token";
+                failure = error.ApiAuthentication;
+            } else {
+                state = "unverified";
+                failure = error.InvalidResponse;
+            }
+        } else |_| {
+            state = "unverified";
+            failure = error.InvalidResponse;
+        }
+    }
+    try object.boolean("authenticated", authenticated);
+    try object.boolean("verified", verified);
+    try object.string("status", state);
+    try object.boolean("hasToken", has_token);
+    if (!authenticated) {
+        try object.string("message", if (verified) config.recovery_hint else "Could not verify this login. Check the connection and retry: hypertask status");
+    }
     try appendTokenIdentity(context.allocator, &object, context.cfg.token);
     try object.string("apiUrl", context.cfg.api_url);
     const path = try config.configPath(context.allocator);
     try object.string("configPath", path);
     try context.print(try object.finish());
+    if (failure) |err| return err;
 }
 
 fn appendTokenIdentity(allocator: std.mem.Allocator, object: *json.Object, token_value: []const u8) !void {

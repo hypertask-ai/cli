@@ -445,3 +445,29 @@ JSON is returned unchanged by default (or with `--json`). Use `--human` for a co
 hypertask blockers --project 15 --project 16 --state waiting --human
 hypertask inbox list --waiting-on 42 --json
 ```
+
+### Recover a revoked login
+
+`hypertask status` verifies the selected token with the server. A revoked or expired
+login exits nonzero with `authenticated: false` and the server's reason. If the
+server cannot be reached, status says `unverified`, not logged in. Status never
+refreshes a token or changes your saved login.
+
+An owner or a management key with write access can renew an **existing** agent:
+
+```sh
+hypertask agents rotate-token --id <agent-id> --management-key <owner-management-key>
+```
+
+This shows the replacement token once and invalidates the old token. It preserves
+the agent's identity and board grants. Never create a second identity to recover
+access. On the affected machine, run `hypertask login --token <new-token>`, or
+replace the environment/explicit token if that is how the session authenticates.
+A revoked token cannot recover itself with `token refresh`.
+
+Owners can also open https://app.hypertask.ai/agents to manage the same agent.
+Run `hypertask update` to check the latest published native release and get the
+install command. It checks without sending your login to GitHub.
+
+- HTPR-8861 CLI: a revoked login looks fine and gives no next step — native 0.2.54
+  verifies status and explains owner recovery.

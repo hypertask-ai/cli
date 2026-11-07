@@ -59,6 +59,7 @@ const environment_token_names = [_][]const u8{
 };
 
 pub const token_hint = "create or open an agent at https://app.hypertask.ai/agents, copy its token, then run: hypertask login --token <token>";
+pub const recovery_hint = "Open https://app.hypertask.ai/agents. An owner can renew the SAME agent using: hypertask agents rotate-token --id <agent-id> --management-key <owner-management-key>. The old token stops working. Then run: hypertask login --token <new-token>. For environment or --token logins, replace that token at its source. Revoked tokens cannot be refreshed; do not create another identity.";
 
 pub fn load(allocator: std.mem.Allocator, token_override: ?[]const u8, api_url_override: ?[]const u8, management_override: ?[]const u8) !Config {
     const result = try loadAllowingEmptyToken(allocator, token_override, api_url_override, management_override);
