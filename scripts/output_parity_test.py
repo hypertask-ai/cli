@@ -647,6 +647,18 @@ def main() -> None:
 
             expect_command(
                 binary, token, api_url, home,
+                ("agent", "owner"),
+                "agent-owner.json", 0,
+                {
+                    "method": "GET",
+                    "path": "/mcp/hello",
+                    "query": {},
+                    "body": None,
+                },
+            )
+
+            expect_command(
+                binary, token, api_url, home,
                 ("task", "assign", "HTPR-5787", "--self"),
                 "task-assign-self.json", 0,
                 {
