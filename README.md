@@ -41,6 +41,10 @@ Exit codes are stable:
 
 Scripts may use the exit code category, while people and agents should follow the `Next:` line.
 
+## Release notes: native 0.2.58
+
+- `task update --assignee` accepts an agent display name such as `"Runner 4"` and resolves it on the ticket's board, instead of failing with `invalid integer` (HTPR-8776).
+
 ## Release notes: native 0.2.57
 
 - `comment add` accepts comment HTML as an optional positional after the ticket, matching `--text` / `--body` (HTPR-8764).
