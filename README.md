@@ -41,6 +41,10 @@ Exit codes are stable:
 
 Scripts may use the exit code category, while people and agents should follow the `Next:` line.
 
+## Release notes: native 0.2.59
+
+- A pool runner started by `fleet/runner` as `hax` in print mode, with or without `timeout` in between, may write to the board. A `hax` print-mode process that runner starts, and any `hax` print-mode process outside `fleet/runner`, still cannot (HYCI-210).
+
 ## Release notes: native 0.2.58
 
 - `task update --assignee` accepts an agent display name such as `"Runner 4"` and resolves it on the ticket's board, instead of failing with `invalid integer` (HTPR-8776).

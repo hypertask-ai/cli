@@ -17,6 +17,40 @@ pub fn isHelper(allocator: std.mem.Allocator) bool {
     return detect(allocator, marker, if (root != null and root.?.len != 0) root.? else "/proc", @intCast(std.os.linux.getppid()));
 }
 
+fn readParent(allocator: std.mem.Allocator, proc: std.fs.Dir, pid: u32) ?u32 {
+    var path_buffer: [64]u8 = undefined;
+    const stat_path = std.fmt.bufPrint(&path_buffer, "{d}/stat", .{pid}) catch return null;
+    const stat = proc.readFileAlloc(allocator, stat_path, 64 * 1024) catch return null;
+    defer allocator.free(stat);
+    const end = std.mem.lastIndexOf(u8, stat, ") ") orelse return null;
+    var fields = std.mem.tokenizeAny(u8, stat[end + 2 ..], " \t\r\n");
+    _ = fields.next() orelse return null;
+    const parent = std.fmt.parseInt(u32, fields.next() orelse return null, 10) catch return null;
+    if (parent == pid) return null;
+    return parent;
+}
+
+fn launchedByFleetRunner(allocator: std.mem.Allocator, proc: std.fs.Dir, hax_pid: u32) bool {
+    var path_buffer: [64]u8 = undefined;
+    var pid = hax_pid;
+    while (true) {
+        pid = readParent(allocator, proc, pid) orelse return false;
+        if (pid <= 1) return false;
+        const comm_path = std.fmt.bufPrint(&path_buffer, "{d}/comm", .{pid}) catch return false;
+        const comm = proc.readFileAlloc(allocator, comm_path, 1024) catch return false;
+        defer allocator.free(comm);
+        if (!std.mem.eql(u8, std.mem.trimEnd(u8, comm, "\n"), "timeout")) break;
+    }
+    const cmdline_path = std.fmt.bufPrint(&path_buffer, "{d}/cmdline", .{pid}) catch return false;
+    const cmdline = proc.readFileAlloc(allocator, cmdline_path, 1024 * 1024) catch return false;
+    defer allocator.free(cmdline);
+    var args = std.mem.splitScalar(u8, cmdline, 0);
+    while (args.next()) |arg| {
+        if (std.mem.endsWith(u8, arg, "/fleet/runner")) return true;
+    }
+    return false;
+}
+
 fn detect(allocator: std.mem.Allocator, marker: ?[]const u8, root: []const u8, parent_pid: u32) bool {
     if (marker != null and std.mem.eql(u8, marker.?, "1")) return true;
     var proc = std.fs.cwd().openDir(root, .{}) catch return false;
@@ -33,19 +67,13 @@ fn detect(allocator: std.mem.Allocator, marker: ?[]const u8, root: []const u8, p
                 defer allocator.free(cmdline);
                 var args = std.mem.splitScalar(u8, cmdline, 0);
                 while (args.next()) |arg| {
-                    if (std.mem.eql(u8, arg, "-p") or std.mem.eql(u8, arg, "--prompt") or std.mem.eql(u8, arg, "--print")) return true;
+                    if (std.mem.eql(u8, arg, "-p") or std.mem.eql(u8, arg, "--prompt") or std.mem.eql(u8, arg, "--print")) {
+                        return !launchedByFleetRunner(allocator, proc, pid);
+                    }
                 }
             } else |_| {}
         }
-        const stat_path = std.fmt.bufPrint(&path_buffer, "{d}/stat", .{pid}) catch return false;
-        const stat = proc.readFileAlloc(allocator, stat_path, 64 * 1024) catch return false;
-        defer allocator.free(stat);
-        const end = std.mem.lastIndexOf(u8, stat, ") ") orelse return false;
-        var fields = std.mem.tokenizeAny(u8, stat[end + 2 ..], " \t\r\n");
-        _ = fields.next() orelse return false;
-        const parent = std.fmt.parseInt(u32, fields.next() orelse return false, 10) catch return false;
-        if (parent == pid) break;
-        pid = parent;
+        pid = readParent(allocator, proc, pid) orelse return false;
     }
     return false;
 }
@@ -117,6 +145,49 @@ test "helper ancestry handles spaces and parentheses and exact prompt arguments"
     try std.testing.expect(!detect(std.testing.allocator, null, root, 42));
     try tmp.dir.writeFile(.{ .sub_path = "42/stat", .data = "malformed" });
     try std.testing.expect(!detect(std.testing.allocator, null, root, 42));
+}
+
+test "fleet runner hax may write and a nested hax may not" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.makePath("42");
+    try tmp.dir.makePath("12");
+    try tmp.dir.makePath("8");
+    try tmp.dir.makePath("4");
+    try tmp.dir.writeFile(.{ .sub_path = "42/comm", .data = "bash\n" });
+    try tmp.dir.writeFile(.{ .sub_path = "42/stat", .data = "42 (bash) S 12 0 0\n" });
+    try tmp.dir.writeFile(.{ .sub_path = "12/comm", .data = "hax\n" });
+    try tmp.dir.writeFile(.{ .sub_path = "12/cmdline", .data = "hax\x00-p\x00brief\x00" });
+    try tmp.dir.writeFile(.{ .sub_path = "12/stat", .data = "12 (hax) S 8 0 0\n" });
+    try tmp.dir.writeFile(.{ .sub_path = "8/comm", .data = "timeout\n" });
+    try tmp.dir.writeFile(.{ .sub_path = "8/stat", .data = "8 (timeout) S 4 0 0\n" });
+    try tmp.dir.writeFile(.{ .sub_path = "4/comm", .data = "bash\n" });
+    try tmp.dir.writeFile(.{ .sub_path = "4/stat", .data = "4 (bash) S 1 0 0\n" });
+    try tmp.dir.writeFile(.{ .sub_path = "4/cmdline", .data = "bash\x00/home/valentin/.local/share/house-rules/fleet/runner\x001\x00--loop\x00" });
+    const root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(root);
+    try std.testing.expect(!detect(std.testing.allocator, null, root, 42));
+    try tmp.dir.writeFile(.{ .sub_path = "12/stat", .data = "12 (hax) S 4 0 0\n" });
+    try tmp.dir.writeFile(.{ .sub_path = "12/cmdline", .data = "hax\x00--prompt\x00brief\x00" });
+    try std.testing.expect(!detect(std.testing.allocator, null, root, 42));
+    try tmp.dir.writeFile(.{ .sub_path = "12/stat", .data = "12 (hax) S 8 0 0\n" });
+    try tmp.dir.writeFile(.{ .sub_path = "12/cmdline", .data = "hax\x00--print\x00" });
+    try tmp.dir.writeFile(.{ .sub_path = "4/cmdline", .data = "bash\x00/bin/bash\x00" });
+    try std.testing.expect(detect(std.testing.allocator, null, root, 42));
+    try tmp.dir.writeFile(.{ .sub_path = "4/cmdline", .data = "bash\x00/opt/fleet/runner-extra\x00" });
+    try std.testing.expect(detect(std.testing.allocator, null, root, 42));
+    try tmp.dir.writeFile(.{ .sub_path = "4/cmdline", .data = "bash\x00fleet/runner\x00" });
+    try std.testing.expect(detect(std.testing.allocator, null, root, 42));
+    try tmp.dir.makePath("20");
+    try tmp.dir.writeFile(.{ .sub_path = "42/stat", .data = "42 (bash) S 20 0 0\n" });
+    try tmp.dir.writeFile(.{ .sub_path = "20/comm", .data = "hax\n" });
+    try tmp.dir.writeFile(.{ .sub_path = "20/stat", .data = "20 (hax) S 12 0 0\n" });
+    try tmp.dir.writeFile(.{ .sub_path = "20/cmdline", .data = "hax\x00-p\x00nested\x00" });
+    try tmp.dir.writeFile(.{ .sub_path = "12/stat", .data = "12 (hax) S 8 0 0\n" });
+    try tmp.dir.writeFile(.{ .sub_path = "12/cmdline", .data = "hax\x00-p\x00brief\x00" });
+    try tmp.dir.writeFile(.{ .sub_path = "4/cmdline", .data = "bash\x00/var/lib/house-rules/fleet/runner\x00" });
+    try std.testing.expect(detect(std.testing.allocator, null, root, 42));
+    try std.testing.expect(detect(std.testing.allocator, "1", root, 42));
 }
 
 test "helper URL classification cannot be bypassed by API base queries or path aliases" {
