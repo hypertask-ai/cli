@@ -103,6 +103,46 @@ def main():
                 result = run("raw", "POST", "/mcp/tasks/update", "{}", custom_env=tree_env)
                 assert result.returncode == 0 and len(requests) == before + 1, result
 
+                def write_pid(directory, pid, comm, ppid, cmdline=None):
+                    node = directory / str(pid)
+                    node.mkdir(parents=True, exist_ok=True)
+                    (node / "comm").write_text(f"{comm}\n")
+                    (node / "stat").write_text(f"{pid} ({comm}) S {ppid} 0 0\n")
+                    if cmdline is not None:
+                        (node / "cmdline").write_bytes(cmdline)
+
+                pool = home / "proc-pool"
+                me = os.getpid()
+                hax_pid = me + 11
+                timeout_pid = me + 12
+                runner_pid = me + 13
+                helper_pid = me + 14
+                fleet = b"bash\0/home/valentin/.local/share/house-rules/fleet/runner\x001\x00--loop\x00"
+                write_pid(pool, me, "bash", hax_pid)
+                write_pid(pool, hax_pid, "hax", timeout_pid, b"hax\0-p\0brief\0")
+                write_pid(pool, timeout_pid, "timeout", runner_pid)
+                write_pid(pool, runner_pid, "bash", 1, fleet)
+                pool_env = dict(env, VCC_HELPER="0", VCC_HELPER_PROC_ROOT=str(pool))
+                before = len(requests)
+                result = run("raw", "POST", "/mcp/tasks/update", "{}", custom_env=pool_env)
+                assert result.returncode == 0 and len(requests) == before + 1, result
+                write_pid(pool, hax_pid, "hax", runner_pid, b"hax\0--prompt\0brief\0")
+                before = len(requests)
+                result = run("raw", "POST", "/mcp/tasks/update", "{}", custom_env=pool_env)
+                assert result.returncode == 0 and len(requests) == before + 1, result
+                write_pid(pool, hax_pid, "hax", timeout_pid, b"hax\0--print\0")
+                write_pid(pool, runner_pid, "bash", 1, b"bash\0/bin/bash\0")
+                blocked("raw", "POST", "/mcp/tasks/update", "{}", custom_env=pool_env)
+                write_pid(pool, runner_pid, "bash", 1, b"bash\0/opt/fleet/runner-extra\0")
+                blocked("raw", "POST", "/mcp/tasks/update", "{}", custom_env=pool_env)
+                write_pid(pool, runner_pid, "bash", 1, b"bash\0fleet/runner\0")
+                blocked("raw", "POST", "/mcp/tasks/update", "{}", custom_env=pool_env)
+                write_pid(pool, me, "bash", helper_pid)
+                write_pid(pool, helper_pid, "hax", hax_pid, b"hax\0-p\0nested\0")
+                write_pid(pool, hax_pid, "hax", timeout_pid, b"hax\0-p\0brief\0")
+                write_pid(pool, runner_pid, "bash", 1, b"bash\0/var/lib/house-rules/fleet/runner\0")
+                blocked("raw", "POST", "/mcp/tasks/update", "{}", custom_env=pool_env)
+
             payload = base64.urlsafe_b64encode(json.dumps({"exp": int(time.time()) + 60, "jti": "offline"}).encode()).decode().rstrip("=")
             config = home / ".hypertask"
             config.mkdir()
