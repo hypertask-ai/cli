@@ -2218,7 +2218,7 @@ test "search accepts projected rows without enrichment fields" {
 test "search accepts the query option" {
     try expectRequestCountWithResponses(
         &.{ "search", "--query", "search" },
-        &.{"{\"success\":true,\"tasks\":[{\"title\":\"Search\"}],\"total\":1}"},
+        &.{"{\"success\":true,\"tasks\":[{\"id\":1,\"title\":\"Search\",\"description\":\"Body\"}],\"total\":1}"},
         1,
         .GET,
         "/mcp/tasks/search?q=search&limit=10",
