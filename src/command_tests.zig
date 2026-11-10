@@ -1912,6 +1912,12 @@ test "task update label catalog states replace vs add" {
     try std.testing.expect(std.mem.indexOf(u8, catalog, "--remove-label <list>") != null);
 }
 
+test "task link catalog lists the relation types and the default" {
+    const catalog = @embedFile("capabilities.json");
+    try std.testing.expect(std.mem.indexOf(u8, catalog, "--type <type>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, catalog, "Relation type: RelatedTo (the default), BlockedBy, or BlockedTo") != null);
+}
+
 test "update reuses ticket resolution for section and labels" {
     try expectSectionOutcome(
         &.{ "task", "update", "HTPR-6805", "--section", "Done", "--labels", "CLI" },
