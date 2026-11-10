@@ -155,7 +155,6 @@ fn github(context: *const Context) !void {
                 if (trimmed.len == 0) continue;
                 try repository_ids.append(context.allocator, trimmed);
             }
-            if (repository_ids.items.len == 0) return error.InvalidOptions;
             try json_body.strings("repositoryIds", repository_ids.items);
             try json_body.string("version", try currentVersion(context, path));
             body = try json_body.finish();
