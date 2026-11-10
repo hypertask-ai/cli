@@ -786,12 +786,6 @@ test "project github lists and sets a board's repositories" {
         "/mcp/projects/15/github",
         "{\"repositoryIds\":[\"456\",\"789\"],\"version\":\"v1\"}",
     );
-    try expectRequest(
-        &.{ "project", "github", "15", "set", "--repository-ids", "456", "--version", "v2" },
-        .PUT,
-        "/mcp/projects/15/github",
-        "{\"repositoryIds\":[\"456\"],\"version\":\"v2\"}",
-    );
 }
 
 test "project delete requires explicit confirmation" {

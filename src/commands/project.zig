@@ -157,7 +157,7 @@ fn github(context: *const Context) !void {
             }
             if (repository_ids.items.len == 0) return error.InvalidOptions;
             try json_body.strings("repositoryIds", repository_ids.items);
-            try json_body.string("version", context.args.get("version") orelse try currentVersion(context, path));
+            try json_body.string("version", try currentVersion(context, path));
             body = try json_body.finish();
         } else {
             return error.InvalidOptions;
