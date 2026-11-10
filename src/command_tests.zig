@@ -772,6 +772,22 @@ test "pages restore takes --version <id> instead of the global version switch" {
     try expectDispatchError(error.MissingOption, &.{ "pages", "restore", "642" });
 }
 
+test "project github lists and sets a board's repositories" {
+    try expectRequest(
+        &.{ "project", "github", "15" },
+        .GET,
+        "/mcp/projects/15/github",
+        null,
+    );
+    try expectRequestWithResponses(
+        &.{ "project", "github", "15", "set", "--repository-ids", "456,789" },
+        &.{ "{\"success\":true,\"version\":\"v1\"}", "{}" },
+        .PUT,
+        "/mcp/projects/15/github",
+        "{\"repositoryIds\":[\"456\",\"789\"],\"version\":\"v1\"}",
+    );
+}
+
 test "project delete requires explicit confirmation" {
     try expectDispatchError(error.ConfirmationRequired, &.{ "projects", "delete", "15" });
 }

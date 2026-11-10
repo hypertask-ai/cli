@@ -24,6 +24,7 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
     if (std.mem.eql(u8, subcommand, "archive")) return archive(context);
     if (std.mem.eql(u8, subcommand, "delete")) return deleteProject(context);
     if (std.mem.eql(u8, subcommand, "create-board") or std.mem.eql(u8, subcommand, "create")) return createBoard(context);
+    if (std.mem.eql(u8, subcommand, "github")) return github(context);
     return error.UnknownCommand;
 }
 
@@ -132,6 +133,47 @@ fn projectResource(context: *const Context, resource: []const u8, method: std.ht
     const id = try projectId(context);
     const path = try std.fmt.allocPrint(context.allocator, "/mcp/projects/{d}/{s}", .{ id, resource });
     try context.call(method, path, body);
+}
+
+fn github(context: *const Context) !void {
+    const id = try projectId(context);
+    const path = try std.fmt.allocPrint(context.allocator, "/mcp/projects/{d}/github", .{id});
+    const sub = context.args.positionalAt(3);
+    if (sub) |action| {
+        if (!std.mem.eql(u8, action, "set")) return error.UnknownCommand;
+        var body: ?[]const u8 = null;
+        if (context.args.has("stdin")) {
+            body = try std.fs.File.stdin().readToEndAlloc(context.allocator, 1024 * 1024);
+        } else if (context.args.get("repository-ids") orelse context.args.get("repositories")) |raw| {
+            var json_body = try json.Object.init(context.allocator);
+            defer json_body.deinit();
+            var repository_ids: std.ArrayListUnmanaged([]const u8) = .{};
+            defer repository_ids.deinit(context.allocator);
+            var parts = std.mem.splitScalar(u8, raw, ',');
+            while (parts.next()) |part| {
+                const trimmed = std.mem.trim(u8, part, " \t");
+                if (trimmed.len == 0) continue;
+                try repository_ids.append(context.allocator, trimmed);
+            }
+            try json_body.strings("repositoryIds", repository_ids.items);
+            try json_body.string("version", try currentVersion(context, path));
+            body = try json_body.finish();
+        } else {
+            return error.InvalidOptions;
+        }
+        try context.call(.PUT, path, body);
+        return;
+    }
+    try context.call(.GET, path, null);
+}
+
+fn currentVersion(context: *const Context, path: []const u8) ![]const u8 {
+    var response = try context.fetch(.GET, path, null);
+    defer response.deinit();
+    const parsed = try std.json.parseFromSlice(std.json.Value, context.allocator, response.body, .{});
+    defer parsed.deinit();
+    const version = json.stringField(parsed.value, "version") orelse return error.InvalidResponse;
+    return context.allocator.dupe(u8, version);
 }
 
 fn invite(context: *const Context) !void {
