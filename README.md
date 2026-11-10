@@ -41,6 +41,10 @@ Exit codes are stable:
 
 Scripts may use the exit code category, while people and agents should follow the `Next:` line.
 
+## Release notes: native 0.2.62
+
+- `task link --type` help now lists the three relation types, `RelatedTo` (the default), `BlockedBy` and `BlockedTo`, so an agent stops guessing a value that the server rejects (HTPR-8779).
+
 ## Release notes: native 0.2.61
 
 - `project github 15` accepts the board as a positional argument again; 0.2.60 refused it with "unexpected argument: 15" (HTPR-8951).
