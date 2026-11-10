@@ -41,6 +41,10 @@ Exit codes are stable:
 
 Scripts may use the exit code category, while people and agents should follow the `Next:` line.
 
+## Release notes: native 0.2.61
+
+- `project github 15` accepts the board as a positional argument again; 0.2.60 refused it with "unexpected argument: 15" (HTPR-8951).
+
 ## Release notes: native 0.2.60
 
 - `project github <board>` lists the GitHub repositories connected to a board, and `project github <board> set --repository-ids 123,456` replaces them. The current settings version is read first, so one command is enough. Board admins only (HTPR-8951).
