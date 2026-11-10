@@ -453,6 +453,12 @@ test "context accepts one ticket and points at task context" {
     try std.testing.expect(std.mem.indexOf(u8, help, "--summary") != null);
 }
 
+test "project github accepts a board id and the set action" {
+    try validateCommandPath(std.testing.allocator, &.{ "project", "github", "15" }, true);
+    try validateCommandPath(std.testing.allocator, &.{ "project", "github", "15", "set" }, true);
+    try std.testing.expectError(error.InvalidOptions, validateCommandPath(std.testing.allocator, &.{ "project", "github", "15", "set", "extra" }, true));
+}
+
 test "project update help shows the title option" {
     const project_help = try renderHelp(std.testing.allocator, &.{"projects"});
     defer std.testing.allocator.free(project_help);
