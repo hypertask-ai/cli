@@ -142,7 +142,7 @@ fn github(context: *const Context) !void {
     if (sub) |action| {
         if (!std.mem.eql(u8, action, "set")) return error.UnknownCommand;
         var body: ?[]const u8 = null;
-        if (context.args.get("stdin")) {
+        if (context.args.has("stdin")) {
             body = try std.fs.File.stdin().readToEndAlloc(context.allocator, 1024 * 1024);
         } else if (context.args.get("repository-ids") orelse context.args.get("repositories")) |raw| {
             var json_body = try json.Object.init(context.allocator);
