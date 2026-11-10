@@ -13,7 +13,7 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
         defer context.allocator.free(prefix);
         var path = try query.Builder.init(context.allocator, prefix);
         defer path.deinit();
-        try list_query.addListQuery(&path, context.args, context.allocator);
+        try list_query.addListQuery(&path, context.args, context.allocator, true);
         return context.call(.GET, path.path(), null);
     }
     if (std.mem.eql(u8, subcommand, "create")) {

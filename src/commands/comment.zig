@@ -15,7 +15,7 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
         var path = try query.Builder.init(context.allocator, "/mcp/comments");
         defer path.deinit();
         try addIdentifierQuery(&path, context, try resolve.identifierArgument(context, 2));
-        try list_query.addListQuery(&path, context.args, context.allocator);
+        try list_query.addListQuery(&path, context.args, context.allocator, true);
         if (context.args.has("include-activity")) try path.add("include_activity", "true");
         var response = try context.fetch(.GET, path.path(), null);
         defer response.deinit();

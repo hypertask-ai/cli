@@ -76,7 +76,7 @@ fn list(context: *const Context) !void {
     const all_updated = context.args.get("limit") == null and context.args.get("cursor") == null and context.args.get("offset") == null and try hasFilter(context, "updated_since");
     if (context.args.get("limit") == null) try path.add("limit", if (all_updated) "100" else "10");
     try path.add("offset", context.args.get("offset") orelse "0");
-    try list_query.addListQuery(&path, context.args, context.allocator);
+    try list_query.addListQuery(&path, context.args, context.allocator, true);
     if (all_updated) {
         const include_archive = context.args.get("status") == null and !try hasFilter(context, "status");
         return listAllPages(context, path.path(), include_archive);
@@ -991,7 +991,7 @@ fn searchValue(context: *const Context, value: []const u8) !void {
     try path.add("q", value);
     if (context.args.get("limit") == null) try path.add("limit", "10");
     if (context.args.get("project")) |project| try path.add("project_id", project);
-    try list_query.addListQuery(&path, context.args, context.allocator);
+    try list_query.addListQuery(&path, context.args, context.allocator, false);
 
     var response = try context.fetch(.GET, path.path(), null);
     defer response.deinit();

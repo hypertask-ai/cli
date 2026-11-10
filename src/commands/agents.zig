@@ -10,7 +10,7 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
     if (std.mem.eql(u8, subcommand, "list")) {
         var path = try query.Builder.init(context.allocator, "/mcp/admin/agents");
         defer path.deinit();
-        try list_query.addListQuery(&path, context.args, context.allocator);
+        try list_query.addListQuery(&path, context.args, context.allocator, true);
         try context.callWithToken(token, .GET, path.path(), null);
     } else if (std.mem.eql(u8, subcommand, "get")) {
         const path = try agentPath(context.allocator, try requireAgentId(context));
