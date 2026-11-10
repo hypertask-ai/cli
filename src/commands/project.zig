@@ -147,7 +147,7 @@ fn github(context: *const Context) !void {
         } else if (context.args.get("repository-ids") orelse context.args.get("repositories")) |raw| {
             var json_body = try json.Object.init(context.allocator);
             defer json_body.deinit();
-            var repository_ids = std.ArrayListUnmanaged(u8) = .{};
+            var repository_ids: std.ArrayListUnmanaged([]const u8) = .{};
             defer repository_ids.deinit(context.allocator);
             var parts = std.mem.splitScalar(u8, raw, ',');
             while (parts.next()) |part| {
