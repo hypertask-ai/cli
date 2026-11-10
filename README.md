@@ -41,6 +41,10 @@ Exit codes are stable:
 
 Scripts may use the exit code category, while people and agents should follow the `Next:` line.
 
+## Release notes: native 0.2.60
+
+- `project github <board>` lists the GitHub repositories connected to a board, and `project github <board> set --repository-ids 123,456` replaces them. The current settings version is read first, so one command is enough. Board admins only (HTPR-8951).
+
 ## Release notes: native 0.2.59
 
 - A pool runner started by `fleet/runner` as `hax` in print mode, with or without `timeout` in between, may write to the board. A `hax` print-mode process that runner starts, and any `hax` print-mode process outside `fleet/runner`, still cannot (HYCI-210).
