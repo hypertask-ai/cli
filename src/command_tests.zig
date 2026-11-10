@@ -2215,6 +2215,37 @@ test "search accepts projected rows without enrichment fields" {
     }
 }
 
+test "search accepts the query option" {
+    try expectRequestCountWithResponses(
+        &.{ "search", "--query", "search" },
+        &.{"{\"success\":true,\"tasks\":[{\"title\":\"Search\"}],\"total\":1}"},
+        1,
+        .GET,
+        "/mcp/tasks/search?q=search&limit=10",
+        null,
+    );
+}
+
+test "search catalog marks the positional optional and keeps the query option" {
+    const catalog = @embedFile("capabilities.json");
+    var parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, catalog, .{});
+    defer parsed.deinit();
+    var search: ?std.json.Value = null;
+    for ((parsed.value.object.get("commands") orelse return error.TestUnexpectedResult).array.items) |command| {
+        if (std.mem.eql(u8, command.object.get("name").?.string, "search")) search = command;
+    }
+    const search_command = search orelse return error.TestUnexpectedResult;
+    const arguments = search_command.object.get("arguments").?.array.items;
+    try std.testing.expectEqual(@as(usize, 1), arguments.len);
+    try std.testing.expectEqualStrings("query", arguments[0].object.get("name").?.string);
+    try std.testing.expect(!arguments[0].object.get("required").?.bool);
+    var has_query_option = false;
+    for (search_command.object.get("options").?.array.items) |option| {
+        if (std.mem.startsWith(u8, option.object.get("flags").?.string, "--query")) has_query_option = true;
+    }
+    try std.testing.expect(has_query_option);
+}
+
 test "search aliases honor projected fields" {
     const response = "{\"success\":true,\"tasks\":[{\"title\":\"Search\"}],\"total\":1,\"nextCursor\":null}";
     try expectRequestCountWithResponses(

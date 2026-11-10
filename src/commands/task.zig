@@ -979,7 +979,10 @@ fn moveBoard(context: *const Context) !void {
 }
 
 fn search(context: *const Context, positional_index: usize) !void {
-    try searchValue(context, try context.args.requirePositional(positional_index, "query"));
+    const value = context.args.positionalAt(positional_index) orelse
+        context.args.get("query") orelse
+        try context.args.requirePositional(positional_index, "query");
+    try searchValue(context, value);
 }
 
 fn searchValue(context: *const Context, value: []const u8) !void {
