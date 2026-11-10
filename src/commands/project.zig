@@ -50,7 +50,7 @@ fn list(context: *const Context) !void {
     defer path.deinit();
     if (context.args.get("limit") == null) try path.add("limit", "10");
     try path.add("offset", context.args.get("offset") orelse "0");
-    try list_query.addListQuery(&path, context.args, context.allocator);
+    try list_query.addListQuery(&path, context.args, context.allocator, true);
     try context.call(.GET, path.path(), null);
 }
 
@@ -192,7 +192,7 @@ fn labels(context: *const Context) !void {
     defer context.allocator.free(prefix);
     var path = try query.Builder.init(context.allocator, prefix);
     defer path.deinit();
-    try list_query.addListQuery(&path, context.args, context.allocator);
+    try list_query.addListQuery(&path, context.args, context.allocator, true);
     try context.call(.GET, path.path(), null);
 }
 

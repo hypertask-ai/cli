@@ -41,6 +41,10 @@ Exit codes are stable:
 
 Scripts may use the exit code category, while people and agents should follow the `Next:` line.
 
+## Release notes: native 0.2.63
+
+- `hypertask search --query "free text"` now runs the search that the help always listed. The positional form, `hypertask search "free text"`, still works, and the help shows the query as optional (HTPR-8869).
+
 ## Release notes: native 0.2.62
 
 - `task link --type` help now lists the three relation types, `RelatedTo` (the default), `BlockedBy` and `BlockedTo`, so an agent stops guessing a value that the server rejects (HTPR-8779).
