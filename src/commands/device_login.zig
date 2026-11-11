@@ -19,8 +19,10 @@ pub fn validCode(code: []const u8) bool {
 
 pub fn officialOrigin(url: []const u8) bool {
     return std.mem.eql(u8, url, config.default_api_url) or
-        std.mem.eql(u8, url, "https://app.hypertask.ai/api");
+        std.mem.eql(u8, url, device_api_url);
 }
+
+const device_api_url = "https://app.hypertask.ai/api";
 
 fn secret() [43]u8 {
     var bytes: [32]u8 = undefined;
@@ -120,7 +122,7 @@ fn boundedRequest(allocator: std.mem.Allocator, url: []const u8, method: std.htt
 
 fn post(context: *const Context, path: []const u8, body: []const u8, timeout: u64) !http.Response {
     if (context.request_recorder) |recorder| return recorder.fetch(.POST, path, body);
-    const url = try std.fmt.allocPrint(context.allocator, "{s}{s}", .{ context.cfg.api_url, path });
+    const url = try std.fmt.allocPrint(context.allocator, "{s}{s}", .{ device_api_url, path });
     defer context.allocator.free(url);
     return boundedRequest(context.allocator, url, .POST, body, null, timeout);
 }
@@ -267,6 +269,7 @@ test "device login validates display codes and official origins" {
     for ([_][]const u8{ "ABCD1234", "abcd-1234", "ABCI-1234", "ABCD-12U4", "ABCD-12345" }) |code| try std.testing.expect(!validCode(code));
     try std.testing.expect(officialOrigin("https://api.hypertask.ai/api"));
     try std.testing.expect(officialOrigin("https://app.hypertask.ai/api"));
+    try std.testing.expectEqualStrings("https://app.hypertask.ai/api", device_api_url);
     for ([_][]const u8{ "http://api.hypertask.ai/api", "https://evil.example/api", "https://app.hypertask.ai.evil.example/api", "https://app.hypertask.ai:443/api" }) |url| try std.testing.expect(!officialOrigin(url));
 }
 
