@@ -127,9 +127,9 @@ pub fn addActivity(context: *const Context) !void {
     const parsed = try std.json.parseFromSlice(std.json.Value, context.allocator, run_response.body, .{});
     defer parsed.deinit();
     if (parsed.value != .object) return error.InvalidResponse;
-    const run = parsed.value.object.get("run") orelse return error.InvalidResponse;
-    if (run != .object) return error.InvalidResponse;
-    const id = run.object.get("id") orelse return error.InvalidResponse;
+    const run_value = parsed.value.object.get("run") orelse return error.InvalidResponse;
+    if (run_value != .object) return error.InvalidResponse;
+    const id = run_value.object.get("id") orelse return error.InvalidResponse;
     if (id != .string or id.string.len == 0) return error.InvalidResponse;
     var escaped_id: std.ArrayListUnmanaged(u8) = .{};
     defer escaped_id.deinit(context.allocator);

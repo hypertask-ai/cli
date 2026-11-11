@@ -2571,7 +2571,7 @@ test "activity add opens a runtime run and saves raw text without creating a com
         var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
         defer arena.deinit();
         const allocator = arena.allocator();
-        const argv = try std.mem.concat([]const u8, allocator, &.{ &.{ "activity", "add", "HTPR-6501" }, input });
+        const argv = try std.mem.concat(allocator, []const u8, &.{ &.{ "activity", "add", "HTPR-6501" }, input });
         var parsed = try args.parse(allocator, argv);
         var cfg = config.Config{ .allocator = allocator, .token = "test-token" };
         var recorder = command_context.RequestRecorder.init(allocator);
