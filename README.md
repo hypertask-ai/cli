@@ -26,7 +26,7 @@ JSON is the default output. Pass `--human` for the minimal human-readable mode.
 
 A guess from the wrong command says where the work lives: `hypertask task comments 44` prints `unknown command: comments`, the commands that do exist, and `a ticket's comments are read with: hypertask comment list <ticket>`.
 
-Help names where a topic's help lives. `hypertask help task`, `hypertask --help task` and `hypertask task --help` all print that command's page, `hypertask help features` keeps its own command, and any other topic with no command path names `hypertask capabilities --json`, instead of replying `unknown command`. `hypertask help` with no topic prints the top-level page, which ends with the list of commands.
+Help names where a topic's help lives. `hypertask help task`, `hypertask --help task`, `hypertask task --help` and `hypertask task help` all print that command's page, and the task page says a ticket's comments are read with `hypertask comment list <ticket>`. `hypertask help features` keeps its own command, and any other topic with no command path names `hypertask capabilities --json`, instead of replying `unknown command`. `hypertask help` with no topic prints the top-level page, which ends with the list of commands.
 
 ## Failure contract
 
@@ -40,6 +40,10 @@ Exit codes are stable:
 - `4`: server rejection, permission failure, or missing server-side item
 
 Scripts may use the exit code category, while people and agents should follow the `Next:` line.
+
+## Release notes: native 0.2.66
+
+- `hypertask task help` prints the task page instead of `unknown command: help`, like `hypertask task --help`, and that page says `a ticket's comments are read with: hypertask comment list <ticket>`, so an agent reading a ticket finds its comments without guessing a second command root. A `help` word under a command with no subcommands stays an argument, so `hypertask search help` still searches (HTPR-9060).
 
 ## Release notes: native 0.2.63
 

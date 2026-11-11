@@ -235,16 +235,33 @@ pub fn dispatch(context: *const Context) !void {
     return error.UnknownCommand;
 }
 
-/// The command path a help request asks about: `--help` asks about the path given, and
-/// `hypertask help <path>` asks about the path after `help`. Null when neither form was used.
+/// The command path a help request asks about: `--help` asks about the path given,
+/// `hypertask help <path>` asks about the path after `help`, and `hypertask <path> help`
+/// asks about the path before `help`. Null when none of the forms was used.
 /// `help features` is a command of its own, so it is not a topic.
-pub fn requestedHelpTopic(parsed: *const args.Parsed) ?[]const []const u8 {
+pub fn requestedHelpTopic(allocator: std.mem.Allocator, parsed: *const args.Parsed) ?[]const []const u8 {
     if (parsed.has("help")) return parsed.positional;
     const positional = parsed.positional;
-    if (positional.len == 0 or !std.mem.eql(u8, positional[0], "help")) return null;
-    if (positional.len == 1) return &.{};
-    if (std.mem.eql(u8, positional[1], "features")) return null;
-    return positional[1..];
+    if (positional.len == 0) return null;
+    if (std.mem.eql(u8, positional[0], "help")) {
+        if (positional.len == 1) return &.{};
+        if (std.mem.eql(u8, positional[1], "features")) return null;
+        return positional[1..];
+    }
+    return helpWordTopic(allocator, positional);
+}
+
+/// A trailing `help` asks for the page of a command that has subcommands, so
+/// `hypertask task help` answers like `hypertask task --help`. Under a command with
+/// no subcommands the word stays an argument, so `hypertask search help` still searches.
+fn helpWordTopic(allocator: std.mem.Allocator, positional: []const []const u8) ?[]const []const u8 {
+    if (positional.len != 2 or !std.mem.eql(u8, positional[1], "help")) return null;
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, @embedFile("capabilities.json"), .{}) catch return null;
+    defer parsed.deinit();
+    const command = findCommand(parsed.value, positional[0]) orelse return null;
+    const commands = arrayFieldOrEmpty(command, "commands") catch return null;
+    if (commands.len == 0) return null;
+    return positional[0..1];
 }
 
 pub fn printHelp(allocator: std.mem.Allocator, path: []const []const u8) !void {
@@ -339,6 +356,12 @@ fn renderHelp(allocator: std.mem.Allocator, path: []const []const u8) ![]u8 {
     const commands = try arrayFieldOrEmpty(command, "commands");
     if (commands.len != 0) try writer.writeAll(" <command>");
     try writer.writeByte('\n');
+
+    // A ticket read and a ticket's comments are two command families; name the other
+    // one on the page an agent reads when it looks for comments under `task`.
+    if (canonical_path.items.len == 1 and std.mem.eql(u8, canonical_path.items[0], "task")) {
+        try writer.writeAll("\na ticket's comments are read with: hypertask comment list <ticket>\n");
+    }
 
     if (options.len != 0) {
         try writer.writeAll("\nOptions:\n");

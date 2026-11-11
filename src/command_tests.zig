@@ -2419,7 +2419,7 @@ fn expectHelpRequest(argv: []const []const u8, out: []u8) ![]const u8 {
     const allocator = arena.allocator();
     var parsed = try args.parse(allocator, argv);
     defer parsed.deinit();
-    const topic = router.requestedHelpTopic(&parsed) orelse return error.NotAHelpRequest;
+    const topic = router.requestedHelpTopic(allocator, &parsed) orelse return error.NotAHelpRequest;
     const pipe = try posix.pipe();
     defer posix.close(pipe[0]);
     {
@@ -2471,7 +2471,39 @@ test "help features stays its own command, not a help page" {
     for ([_][]const []const u8{ &.{ "help", "features" }, &.{ "help", "features", "--json" } }) |argv| {
         var parsed = try args.parse(allocator, argv);
         defer parsed.deinit();
-        try std.testing.expect(router.requestedHelpTopic(&parsed) == null);
+        try std.testing.expect(router.requestedHelpTopic(allocator, &parsed) == null);
+    }
+}
+
+test "a trailing help word answers the page of the command above it" {
+    for ([_][]const []const u8{ &.{ "task", "help" }, &.{ "ticket", "help" } }) |argv| {
+        var topic_output: [16384]u8 = undefined;
+        var flag_output: [16384]u8 = undefined;
+        const from_word = try expectHelpRequest(argv, &topic_output);
+        const from_flag = try expectHelpRequest(&.{ argv[0], "--help" }, &flag_output);
+        try std.testing.expectEqualStrings(from_flag, from_word);
+        try std.testing.expect(std.mem.indexOf(u8, from_word, "Usage: hypertask task <command>") != null);
+        try std.testing.expect(std.mem.indexOf(u8, from_word, "unknown command: help") == null);
+    }
+}
+
+test "the task help page says where a ticket's comments are read" {
+    var out: [16384]u8 = undefined;
+    const printed = try expectHelpRequest(&.{ "task", "help" }, &out);
+    try std.testing.expect(std.mem.indexOf(u8, printed, "a ticket's comments are read with: hypertask comment list <ticket>") != null);
+    var other: [16384]u8 = undefined;
+    const comments = try expectHelpRequest(&.{ "comment", "help" }, &other);
+    try std.testing.expect(std.mem.indexOf(u8, comments, "a ticket's comments are read with:") == null);
+}
+
+test "a help word under a command with no subcommands stays an argument" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    for ([_][]const []const u8{ &.{ "search", "help" }, &.{ "task", "search", "help" }, &.{ "task", "get", "help" } }) |argv| {
+        var parsed = try args.parse(allocator, argv);
+        defer parsed.deinit();
+        try std.testing.expect(router.requestedHelpTopic(allocator, &parsed) == null);
     }
 }
 
