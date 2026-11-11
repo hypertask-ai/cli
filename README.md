@@ -206,12 +206,13 @@ Reads `GET /api/mcp/tasks/{ticket-or-task-id}/agent-activity` without changing t
 ## Authentication
 
 ```bash
+hypertask login --code ABCD-2345
 hypertask login --token '<jwt>'
 hypertask status
 hypertask logout
 ```
 
-Browser login is not available in the native CLI. Obtain a JWT through the Hypertask web app, then pass it to `login --token`. Saved user tokens refresh automatically during their final seven days, including legacy tokens issued before refresh support.
+`hypertask login --code` signs an agent in with the five-minute code from https://app.hypertask.ai/login/agent. You approve that code in the browser before the agent receives its new board. A copied token still works: obtain a JWT in the Hypertask web app, then pass it to `login --token`. Saved user tokens refresh automatically during their final seven days, including legacy tokens issued before refresh support.
 
 After saving the token, login shows your identity, starting board, and the server's suggested commands to try next (three commands on older servers). Use `hypertask login --token '<jwt>' --human` for a readable guide (JSON is the default). The optional guide waits at most about 1.5 seconds; if the server is unavailable, the token is still saved and login succeeds.
 

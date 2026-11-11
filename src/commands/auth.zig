@@ -8,8 +8,11 @@ const http = @import("../http.zig");
 const saved_login = "{\"success\":true,\"saved\":true,\"configPath\":\"~/.hypertask/config.json\"}";
 
 pub fn login(context: *const Context) !void {
-    const login_token = context.args.get("token") orelse return output.invalidOptions("Create or open an agent at https://app.hypertask.ai/agents, copy its token, then run: hypertask login --token <token>");
+    const device_token = if (context.args.get("code")) |code| try @import("device_login.zig").login(context, code) else null;
+    defer if (device_token) |issued| context.allocator.free(issued);
+    const login_token = device_token orelse context.args.get("token") orelse return output.invalidOptions("Create or open an agent at https://app.hypertask.ai/agents, copy its token, then run: hypertask login --token <token>");
     try config.saveToken(context.cfg, login_token, context.cfg.api_url);
+    if (device_token != null) try @import("device_login.zig").acknowledge(context, login_token);
     var timer = std.time.Timer.start() catch return context.print(saved_login);
     const deadline_ns = 1500 * std.time.ns_per_ms;
     const job = LoginGuideJob.init(context, login_token) catch return context.print(saved_login);
