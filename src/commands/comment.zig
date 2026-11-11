@@ -107,6 +107,46 @@ pub fn run(context: *const Context, subcommand: []const u8) !void {
     return error.UnknownCommand;
 }
 
+pub fn addActivity(context: *const Context) !void {
+    try @import("../helper_guard.zig").check(context.allocator, .POST, "/mcp/agents/runs");
+    if (context.args.get("kind") != null or context.args.get("attach") != null or context.args.has("improve") or context.args.get("improve-command") != null) {
+        return output.invalidOptions("Agent log notes do not support --kind, --attach or --improve. Use comment add for people.");
+    }
+    const text = if (context.args.get("file")) |path| try common.readFile(context.allocator, path, 1024 * 1024) else context.args.positionalAt(3) orelse context.args.get("text") orelse context.args.get("body") orelse return error.MissingOption;
+    if (std.mem.trim(u8, text, " \t\r\n").len == 0) return error.MissingOption;
+    const ticket = try resolve.identifierArgument(context, 2);
+    try resolve.refuseBareWrite(context, ticket);
+    const task = try resolve.task(context, ticket);
+    var run_body = try json.Object.init(context.allocator);
+    defer run_body.deinit();
+    try run_body.integer("taskId", task.id);
+    try run_body.string("source", "runtime");
+    var run_response = try context.fetch(.POST, "/mcp/agents/runs", try run_body.finish());
+    defer run_response.deinit();
+    if (!run_response.isSuccess()) return context.finish(&run_response);
+    const parsed = try std.json.parseFromSlice(std.json.Value, context.allocator, run_response.body, .{});
+    defer parsed.deinit();
+    if (parsed.value != .object) return error.InvalidResponse;
+    const run = parsed.value.object.get("run") orelse return error.InvalidResponse;
+    if (run != .object) return error.InvalidResponse;
+    const id = run.object.get("id") orelse return error.InvalidResponse;
+    if (id != .string or id.string.len == 0) return error.InvalidResponse;
+    var escaped_id: std.ArrayListUnmanaged(u8) = .{};
+    defer escaped_id.deinit(context.allocator);
+    try query.encode(&escaped_id, context.allocator, id.string);
+    const path = try std.fmt.allocPrint(context.allocator, "/mcp/agents/runs/{s}/activities", .{escaped_id.items});
+    defer context.allocator.free(path);
+    var body = try json.Object.init(context.allocator);
+    defer body.deinit();
+    try body.string("type", "thought");
+    try body.string("text", text);
+    var response = try context.fetch(.POST, path, try body.finish());
+    defer response.deinit();
+    if (!response.isSuccess()) return context.finish(&response);
+    if (context.args.has("json")) return context.print(response.body);
+    return context.print("Saved to the agent log (no comment, nobody notified). Use --kind question|qa|done to post a comment for people.");
+}
+
 fn addIdentifierQuery(path: *query.Builder, context: *const Context, identifier: []const u8) !void {
     if (resolve.isNumeric(identifier) and resolve.internalId(identifier) == null) {
         const found = try resolve.task(context, identifier);

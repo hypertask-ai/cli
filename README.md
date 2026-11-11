@@ -16,7 +16,7 @@ JSON is the default output. Pass `--human` for the minimal human-readable mode.
 
 `hypertask create-board` is a shorthand for `hypertask project create-board` and accepts the same flags, manifest input, and help.
 
-`hypertask activity` is the same command as `hypertask comment`: `hypertask activity add HTPR-1 --text "note"` writes that ticket's agent log (no `--kind`, nobody is notified), and `hypertask task agent-log HTPR-1` reads it back.
+`hypertask activity add HTPR-1 --text "note"` opens or reuses your runtime agent run for that ticket and saves a thought there, without creating a comment or notifying anyone. `hypertask task agent-log HTPR-1` reads it back. Use `--body`, a positional note, or `--file` instead of `--text` if needed. `--json` returns the saved activity response; otherwise the command prints the saved-to-log line. For people, use `hypertask comment add` with `--kind question|qa|done`; an audience-less comment is still refused. Agent log notes do not accept `--kind`, attachments, or AI rewrites.
 
 `hypertask label` is the same command as `hypertask labels`, like every other root that accepts both forms, so `hypertask label list --project 15` prints JSON instead of an unknown-command list.
 
