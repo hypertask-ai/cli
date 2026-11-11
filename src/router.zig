@@ -223,6 +223,7 @@ pub fn dispatch(context: *const Context) !void {
     if (std.mem.eql(u8, root, "task") or std.mem.eql(u8, root, "tasks") or
         std.mem.eql(u8, root, "ticket") or std.mem.eql(u8, root, "tickets")) return task.run(context, subcommand);
     if (std.mem.eql(u8, root, "draft") or std.mem.eql(u8, root, "drafts")) return draft.run(context, subcommand);
+    if (std.mem.eql(u8, root, "activity") and std.mem.eql(u8, subcommand, "add")) return comment.addActivity(context);
     if (std.mem.eql(u8, root, "comment") or std.mem.eql(u8, root, "comments") or
         std.mem.eql(u8, root, "activity")) return comment.run(context, subcommand);
     if (std.mem.eql(u8, root, "pages") or std.mem.eql(u8, root, "page")) return pages.run(context, subcommand);

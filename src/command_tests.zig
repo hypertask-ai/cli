@@ -2561,13 +2561,54 @@ test "the ticket root answers a comments guess where comments are read" {
     try std.testing.expect(std.mem.indexOf(u8, captured[0..printed], "a ticket's comments are read with: hypertask comment list <ticket>\n") != null);
 }
 
-test "activity add is the same command as comment add" {
-    try expectRequest(
-        &.{ "activity", "add", "HTPR-6501", "--text", "Agent note" },
-        .POST,
-        "/mcp/comments",
-        "{\"ticket_number\":\"HTPR-6501\",\"text\":\"<p>Agent note</p>\"}",
-    );
+test "activity add opens a runtime run and saves raw text without creating a comment" {
+    for ([_][]const []const u8{
+        &.{ "--text", "Agent note" },
+        &.{ "--body", "Agent note" },
+        &.{"Agent note"},
+        &.{ "--text", "Agent note", "--json" },
+    }) |input| {
+        var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+        defer arena.deinit();
+        const allocator = arena.allocator();
+        const argv = try std.mem.concat(allocator, []const u8, &.{ &.{ "activity", "add", "HTPR-6501" }, input });
+        var parsed = try args.parse(allocator, argv);
+        var cfg = config.Config{ .allocator = allocator, .token = "test-token" };
+        var recorder = command_context.RequestRecorder.init(allocator);
+        recorder.responses = &.{
+            "{\"tasks\":[{\"id\":94391,\"projectId\":15}]}",
+            "{\"success\":true,\"run\":{\"id\":\"run/one\"}}",
+            "{\"success\":true,\"activity\":{\"id\":\"note-one\"}}",
+        };
+        var client = std.http.Client{ .allocator = allocator };
+        defer client.deinit();
+        const context = command_context.Context{ .client = &client, .allocator = allocator, .args = &parsed, .cfg = &cfg, .json = false, .request_recorder = &recorder };
+        try router.dispatch(&context);
+        try std.testing.expectEqual(@as(usize, 3), recorder.calls.items.len);
+        const calls = recorder.calls.items;
+        try std.testing.expectEqual(std.http.Method.GET, calls[0].method);
+        try std.testing.expectEqualStrings("/mcp/tasks?ticket_number=HTPR-6501", calls[0].path);
+        try std.testing.expectEqual(std.http.Method.POST, calls[1].method);
+        try std.testing.expectEqualStrings("/mcp/agents/runs", calls[1].path);
+        try std.testing.expectEqualStrings("{\"taskId\":94391,\"source\":\"runtime\"}", calls[1].body.?);
+        try std.testing.expectEqual(std.http.Method.POST, calls[2].method);
+        try std.testing.expectEqualStrings("/mcp/agents/runs/run%2Fone/activities", calls[2].path);
+        try std.testing.expectEqualStrings("{\"type\":\"thought\",\"text\":\"Agent note\"}", calls[2].body.?);
+        try std.testing.expectEqualStrings(if (parsed.has("json")) recorder.responses[2] else "Saved to the agent log (no comment, nobody notified). Use --kind question|qa|done to post a comment for people.", recorder.printed.?);
+    }
+}
+
+test "activity add reports API failures and malformed runs without falling back to comments" {
+    const task = "{\"tasks\":[{\"id\":94391,\"projectId\":15}]}";
+    const argv: []const []const u8 = &.{ "activity", "add", "HTPR-6501", "--text", "Agent note" };
+    try expectDispatchErrorAfterRequests(argv, &.{ task, "{\"success\":false,\"error\":\"refused\"}" }, error.CommandFailed, 2, .POST, "/mcp/agents/runs");
+    try expectDispatchErrorAfterRequests(argv, &.{ task, "{\"run\":{}}" }, error.InvalidResponse, 2, .POST, "/mcp/agents/runs");
+    try expectDispatchErrorAfterRequests(argv, &.{ task, "{\"run\":{\"id\":\"run-one\"}}", "{\"success\":false,\"error\":\"stopped\"}" }, error.CommandFailed, 3, .POST, "/mcp/agents/runs/run-one/activities");
+    try expectDispatchErrorAfterRequests(&.{ "activity", "add", "HTPR-6501", "--text", "  " }, &.{}, error.MissingOption, 0, null, null);
+}
+
+test "audienceless comment add still uses the comments endpoint" {
+    try expectRequest(&.{ "comment", "add", "HTPR-6501", "--text", "Agent note" }, .POST, "/mcp/comments", "{\"ticket_number\":\"HTPR-6501\",\"text\":\"<p>Agent note</p>\"}");
 }
 
 test "activity last names where a ticket's agent log is read" {
