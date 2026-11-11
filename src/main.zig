@@ -34,7 +34,7 @@ fn run() !void {
     // The command path is checked before options: an unknown subcommand leaves the
     // option validator with only global flags, and it would blame the first real flag.
     // A help request names a topic, and a topic need not be a command path.
-    const help_topic = router.requestedHelpTopic(&parsed);
+    const help_topic = router.requestedHelpTopic(allocator, &parsed);
     if (parsed.positional.len != 0 and help_topic == null) try router.validateCommandPath(allocator, parsed.positional, true);
     try option_validate.rejectUnknownOptions(allocator, &parsed);
     try parsed.requireValues();

@@ -1,2 +1,2 @@
-pub const number = "0.2.65";
+pub const number = "0.2.66";
 pub const display = number ++ " (zig)";
