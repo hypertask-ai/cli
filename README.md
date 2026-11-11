@@ -41,6 +41,10 @@ Exit codes are stable:
 
 Scripts may use the exit code category, while people and agents should follow the `Next:` line.
 
+## Release notes: native 0.2.67
+
+- `hypertask activity add HTPR-1 --text "note"` saves the note to the ticket's runtime agent run and prints the saved-to-log line. Before this release the audience rule refused the same note with `missing_field kind` and told the agent to run the command it had just run. No comment is created and nobody is notified, `task agent-log` still reads the note back, and a `comment add` with no kind is still refused (HTPR-9068).
+
 ## Release notes: native 0.2.66
 
 - `hypertask task help` prints the task page instead of `unknown command: help`, like `hypertask task --help`, and that page says `a ticket's comments are read with: hypertask comment list <ticket>`, so an agent reading a ticket finds its comments without guessing a second command root. A `help` word under a command with no subcommands stays an argument, so `hypertask search help` still searches (HTPR-9060).
