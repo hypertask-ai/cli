@@ -52,13 +52,14 @@ fn run() !void {
     else
         try config.load(allocator, parsed.get("token"), parsed.get("api-url"), parsed.get("management-key"));
     defer cfg.deinit();
-    errdefer |err| error_reports.report(allocator, &parsed, &cfg, err, version);
+    const code_login = std.mem.eql(u8, root, "login") and parsed.has("code");
+    errdefer |err| if (!code_login) error_reports.report(allocator, &parsed, &cfg, err, version);
     var client = std.http.Client{ .allocator = std.heap.page_allocator };
     defer client.deinit();
     const explicit_refresh = parsed.positional.len >= 2 and
         std.mem.eql(u8, parsed.positional[0], "token") and
         std.mem.eql(u8, parsed.positional[1], "refresh");
-    if (!explicit_refresh and !std.mem.eql(u8, root, "status") and !std.mem.eql(u8, root, "update")) try token_refresh.maybeRefresh(&client, allocator, &cfg);
+    if (!explicit_refresh and !code_login and !std.mem.eql(u8, root, "status") and !std.mem.eql(u8, root, "update")) try token_refresh.maybeRefresh(&client, allocator, &cfg);
     const context = Context{
         .client = &client,
         .allocator = allocator,
@@ -70,6 +71,7 @@ fn run() !void {
 }
 
 test {
+    _ = @import("commands/device_login.zig");
     _ = @import("error_reports.zig");
     _ = @import("args.zig");
     _ = @import("http.zig");
