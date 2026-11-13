@@ -107,7 +107,7 @@ class ParityTest(unittest.TestCase):
     def test_actionable_unknown_command_keeps_the_parity_error_shape(self) -> None:
         stderr = (
             "valid commands: list get\n"
-            "hypertask: command not found\n"
+            "hypertask: that command does not exist\n"
             "Next: choose one of the valid commands listed above.\n"
         )
         self.assertEqual(parity_test.error_shape(stderr), "unknown-command")

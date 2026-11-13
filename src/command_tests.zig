@@ -2544,6 +2544,31 @@ test "an unknown subcommand names the word that is wrong" {
     try std.testing.expect(std.mem.indexOf(u8, captured[0..printed], "valid commands:") != null);
 }
 
+test "the unknown command reply never claims the program is missing" {
+    const output = @import("output.zig");
+    const posix = std.posix;
+    const pipe = try posix.pipe();
+    defer posix.close(pipe[0]);
+    {
+        defer posix.close(pipe[1]);
+        const saved_stderr = try posix.dup(2);
+        defer posix.close(saved_stderr);
+        try posix.dup2(pipe[1], 2);
+        defer posix.dup2(saved_stderr, 2) catch {};
+        if (router.validateCommandPath(std.testing.allocator, &.{ "task", "comments" }, true)) |_| {
+            return error.TestUnexpectedResult;
+        } else |err| output.printFailure(err);
+    }
+    var captured: [2048]u8 = undefined;
+    const printed = try posix.read(pipe[0], &captured);
+    const reply = captured[0..printed];
+    try std.testing.expect(std.mem.indexOf(u8, reply, "unknown command: comments\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, reply, "valid commands:") != null);
+    try std.testing.expect(std.mem.indexOf(u8, reply, "a ticket's comments are read with: hypertask comment list <ticket>\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, reply, "hypertask: that command does not exist\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, reply, "command not found") == null);
+}
+
 test "the ticket root answers a comments guess where comments are read" {
     const posix = std.posix;
     const pipe = try posix.pipe();

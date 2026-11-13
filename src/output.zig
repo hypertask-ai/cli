@@ -84,7 +84,7 @@ const error_info = [_]ErrorInfo{
     .{ .err = error.MissingWebhookSecret, .code = 2, .summary = "required command input is missing" },
     .{ .err = error.NoToken, .code = 2, .summary = "authentication token is missing" },
     .{ .err = error.UnknownOption, .code = 2, .summary = "the command does not accept that option" },
-    .{ .err = error.UnknownCommand, .code = 1, .summary = "command not found" },
+    .{ .err = error.UnknownCommand, .code = 1, .summary = "that command does not exist" },
     .{ .err = error.ApiAuthentication, .code = 4, .summary = "this token does not have the required access" },
     .{ .err = error.ApiFailure, .code = 4, .summary = "the server could not complete the command" },
     .{ .err = error.ApiRateLimited, .code = 4, .summary = "the server is rate limiting this login (too many requests in the last minute)" },
