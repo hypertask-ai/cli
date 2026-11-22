@@ -49,6 +49,13 @@ fn viewBody(context: *const Context, creating: bool) !json.Object {
     if (context.args.get("sort-mode")) |value| try body.string("sorting_mode", value);
     if (context.args.get("sort-order")) |value| try body.string("sorting_order", value);
     if (context.args.get("subtasks")) |value| try body.string("subtask_setting", value);
+    if (context.args.get("empty-columns")) |value| {
+        if (!std.mem.eql(u8, value, "Show") and !std.mem.eql(u8, value, "Hidden")) {
+            std.debug.print("--empty-columns must be Show or Hidden\n", .{});
+            return error.InvalidOptions;
+        }
+        try body.string("board_empty_sections", value);
+    }
     if (context.args.has("default")) try body.boolean("set_as_default", true);
     return body;
 }

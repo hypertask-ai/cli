@@ -925,6 +925,40 @@ test "command handlers build request bodies and query strings without HTTP" {
         "{\"project_id\":15,\"title\":\"Focus\",\"filters\":{\"label_names\":[\"bug\"],\"assignee_ids\":[\"agent-1\"],\"match\":\"all\"},\"set_as_default\":true}",
     );
     try expectRequest(
+        &.{ "view", "create", "--project", "15", "--title", "Focus", "--empty-columns", "Hidden" },
+        .POST,
+        "/mcp/view",
+        "{\"project_id\":15,\"title\":\"Focus\",\"board_empty_sections\":\"Hidden\"}",
+    );
+    try expectRequest(
+        &.{ "view", "update", "11111111-2222-4333-8444-555555555555", "--empty-columns", "Hidden" },
+        .PATCH,
+        "/mcp/view/11111111-2222-4333-8444-555555555555",
+        "{\"board_empty_sections\":\"Hidden\"}",
+    );
+    try expectRequest(
+        &.{ "view", "update", "11111111-2222-4333-8444-555555555555", "--title", "Focus" },
+        .PATCH,
+        "/mcp/view/11111111-2222-4333-8444-555555555555",
+        "{\"title\":\"Focus\"}",
+    );
+    try expectDispatchErrorAfterRequests(
+        &.{ "view", "update", "11111111-2222-4333-8444-555555555555", "--empty-columns", "Hide" },
+        &.{},
+        error.InvalidOptions,
+        0,
+        null,
+        null,
+    );
+    try expectDispatchErrorAfterRequests(
+        &.{ "view", "create", "--project", "15", "--title", "Focus", "--empty-columns", "yes" },
+        &.{},
+        error.InvalidOptions,
+        0,
+        null,
+        null,
+    );
+    try expectRequest(
         &.{ "inbox", "archive", "3", "4" },
         .POST,
         "/mcp/inbox/archive",
@@ -1910,6 +1944,33 @@ test "task update label catalog states replace vs add" {
     try std.testing.expect(std.mem.indexOf(u8, catalog, "Replace the ticket's entire label set") != null);
     try std.testing.expect(std.mem.indexOf(u8, catalog, "--add-label <list>") != null);
     try std.testing.expect(std.mem.indexOf(u8, catalog, "--remove-label <list>") != null);
+}
+
+test "view create and update catalog offers empty column visibility" {
+    const catalog = @embedFile("capabilities.json");
+    const flag = "--empty-columns <Show|Hidden>";
+    const description = "Show keeps empty columns visible. Hidden hides columns that have no tickets.";
+    var parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, catalog, .{});
+    defer parsed.deinit();
+    var view_commands: ?[]std.json.Value = null;
+    for ((parsed.value.object.get("commands") orelse return error.TestUnexpectedResult).array.items) |command| {
+        const name = command.object.get("name") orelse continue;
+        if (std.mem.eql(u8, name.string, "view")) view_commands = (command.object.get("commands") orelse continue).array.items;
+    }
+    var found: usize = 0;
+    for (view_commands orelse return error.TestUnexpectedResult) |command| {
+        const name = (command.object.get("name") orelse continue).string;
+        if (!std.mem.eql(u8, name, "create") and !std.mem.eql(u8, name, "update")) continue;
+        var listed = false;
+        for ((command.object.get("options") orelse return error.TestUnexpectedResult).array.items) |option| {
+            const flags = (option.object.get("flags") orelse continue).string;
+            const text = (option.object.get("description") orelse continue).string;
+            if (std.mem.eql(u8, flags, flag) and std.mem.eql(u8, text, description)) listed = true;
+        }
+        try std.testing.expect(listed);
+        found += 1;
+    }
+    try std.testing.expectEqual(@as(usize, 2), found);
 }
 
 test "task link catalog lists the relation types and the default" {
