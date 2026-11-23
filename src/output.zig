@@ -17,7 +17,10 @@ pub fn printResponse(allocator: std.mem.Allocator, body: []const u8, json: bool)
 
 pub fn finish(response: *http.Response) !void {
     try print(response.body);
-    if (!response.isSuccess()) return apiError(response.status);
+    if (!response.isSuccess()) {
+        noteApiFailure(response.allocator, response.status, response.body);
+        return apiError(response.status);
+    }
     if (responseReportsFailure(response.allocator, response.body)) return error.ApiFailure;
 }
 
@@ -209,7 +212,17 @@ pub fn printFailure(err: anyerror) void {
         std.debug.print("hypertask: command failed ({s})\n", .{@errorName(err)});
     }
     if (err == error.FeaturesUnavailable) return;
-    std.debug.print("Next: {s}\n", .{nextStep(err)});
+    const invite = if (err == error.ApiAuthentication) boardInviteHint() else null;
+    std.debug.print("Next: {s}\n", .{invite orelse nextStep(err)});
+}
+
+fn boardInviteHint() ?[]const u8 {
+    const detail = server_failure_detail orelse return null;
+    const marker = "Ask a member of ";
+    const start = std.mem.indexOf(u8, detail, marker) orelse return null;
+    const sentence = detail[start..];
+    if (std.mem.indexOf(u8, sentence, "project invite") == null) return null;
+    return sentence;
 }
 
 fn nextStep(err: anyerror) []const u8 {
@@ -529,6 +542,28 @@ test "chat errors distinguish input from API failures" {
     for ([_]anyerror{ error.ChatAgentTokenRequired, error.ChatEndpointUnavailable, error.ChatRequestRejected, error.ChatPollFailed }) |err| {
         try std.testing.expectEqual(@as(u8, 4), exitCode(err));
     }
+}
+
+test "board access refusal names project invite" {
+    const sentence = "Ask a member of board 15 to run: hypertask project invite 15 --user 11111111-1111-4111-8111-111111111111";
+    const body = "{\"success\":false,\"error\":\"" ++ sentence ++ "\"}";
+    noteApiFailure(std.testing.allocator, .forbidden, body);
+    const posix = std.posix;
+    const pipe = try posix.pipe();
+    defer posix.close(pipe[0]);
+    {
+        defer posix.close(pipe[1]);
+        const saved_stderr = try posix.dup(2);
+        defer posix.close(saved_stderr);
+        try posix.dup2(pipe[1], 2);
+        defer posix.dup2(saved_stderr, 2) catch {};
+        printFailure(error.ApiAuthentication);
+    }
+    var captured: [1024]u8 = undefined;
+    const printed = try posix.read(pipe[0], &captured);
+    const expected = "hypertask: this token does not have the required access\nNext: " ++ sentence ++ "\n";
+    try std.testing.expectEqualStrings(expected, captured[0..printed]);
+    try std.testing.expect(std.mem.indexOf(u8, captured[0..printed], "project invite") != null);
 }
 
 test "authentication failure gives the recovery page and executable next steps" {
