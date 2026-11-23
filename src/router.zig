@@ -548,6 +548,17 @@ test "task blocker-comment help exposes marker-only operations for both aliases"
     }
 }
 
+test "agents update and project invite say an agent can invite another agent" {
+    const line = "An agent on a board can invite another agent by uuid.";
+    const update_help = try renderHelp(std.testing.allocator, &.{ "agents", "update" });
+    defer std.testing.allocator.free(update_help);
+    try std.testing.expect(std.mem.indexOf(u8, update_help, "--add-project <id>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, update_help, line) != null);
+    const invite_help = try renderHelp(std.testing.allocator, &.{ "project", "invite" });
+    defer std.testing.allocator.free(invite_help);
+    try std.testing.expect(std.mem.indexOf(u8, invite_help, line) != null);
+}
+
 test "ticket root alias passes the catalog gate and renders the task help" {
     for ([_][]const u8{ "ticket", "tickets" }) |root| {
         try validateCommandPath(std.testing.allocator, &.{ root, "get", "HTPR-8503" }, true);
